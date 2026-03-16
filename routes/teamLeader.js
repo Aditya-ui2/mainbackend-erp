@@ -18,7 +18,7 @@ router.delete('/deleteTeamLeaderAndPromoteEmployee', deleteTeamLeaderAndPromoteE
 
 router.post('/hierarchy', getTeamLeaderHierarchy);
 
-router.get('/teamLeaderTasks', getTeamLeaderTasks);
+router.post('/teamLeaderTasks', getTeamLeaderTasks);
 
 router.post('/getTeamLeaderDetails', getTeamLeaderDetails); 
 

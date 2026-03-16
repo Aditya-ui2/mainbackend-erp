@@ -1,8 +1,7 @@
 // controllers/teamLeaderController.js
 
-const { default: mongoose } = require('mongoose');
-const { TeamLeader, Task, Employee, Client } = require('../models/models');
-const { Admin } = require('../models/models');
+const { TeamLeader, Task, Employee, Client, Admin, sequelize } = require('../models/sequelizeModels');
+const { Op } = require('sequelize');
 const { hashPassword, comparePasswords } = require('../utils/bcryptUtils');
 const { generateToken } = require('../utils/jwtUtils');
 const { getOrCreateFolder, uploadFileToDrive, getFileLink, deleteFile } = require('../utils/googleDriveServices');
@@ -22,13 +21,13 @@ const createTeamLeader = async (req, res) => {
         }
 
         // Find the Admin by ID
-        const admin = await Admin.findById(adminId);
+        const admin = await Admin.findByPk(adminId);
         if (!admin) {
             return res.status(404).json({ message: 'Admin not found' });
         }
 
         // Check if the email is already taken
-        const existingTeamLeader = await TeamLeader.findOne({ email });
+        const existingTeamLeader = await TeamLeader.findOne({ where: { email } });
         if (existingTeamLeader) {
             return res.status(409).json({ message: 'Email already in use' });
         }
@@ -37,20 +36,13 @@ const createTeamLeader = async (req, res) => {
         const hashedPassword = await hashPassword(defaultPassword);
 
         // Create the new TeamLeader
-        const teamLeader = new TeamLeader({
+        const teamLeader = await TeamLeader.create({
             name,
             email,
             password: hashedPassword,
-            admin: adminId,
+            adminId: adminId,
             phone
         });
-
-        // Save the TeamLeader
-        await teamLeader.save();
-
-        // Update the Admin
-        admin.teamLeaders.push(teamLeader._id);
-        await admin.save();
 
         // Send welcome email to team leader
         const emailContent = `
@@ -85,7 +77,7 @@ const createTeamLeader = async (req, res) => {
         res.status(201).json({
             message: 'TeamLeader created successfully',
             teamLeader: {
-                id: teamLeader._id,
+                id: teamLeader.id,
                 name: teamLeader.name,
                 email: teamLeader.email,
                 phone: teamLeader.phone
@@ -105,7 +97,7 @@ const loginTeamLeader = async (req, res) => {
             return res.status(400).json({ message: 'Email and password are required' });
         }
 
-        const teamLeader = await TeamLeader.findOne({ email });
+        const teamLeader = await TeamLeader.findOne({ where: { email } });
         if (!teamLeader) {
             return res.status(404).json({ message: 'Team Leader not found' });
         }
@@ -115,13 +107,13 @@ const loginTeamLeader = async (req, res) => {
             return res.status(401).json({ message: 'Invalid credentials' });
         }
 
-        const token = generateToken({ id: teamLeader._id, email: teamLeader.email, role: 'TeamLeader' });
+        const token = generateToken({ id: teamLeader.id, email: teamLeader.email, role: 'TeamLeader' });
 
         res.status(200).json({
             message: 'Login successful',
             token,
             teamLeader: {
-                id: teamLeader._id,
+                id: teamLeader.id,
                 name: teamLeader.name,
                 email: teamLeader.email
             }
@@ -135,34 +127,29 @@ const loginTeamLeader = async (req, res) => {
 // Function to edit an existing TeamLeader
 const editTeamLeader = async (req, res) => {
     try {
-        const { id, name, phone, password } = req.body; // TeamLeader details
+        const { id, name, phone, password } = req.body;
 
-        // Check if the TeamLeader ID is provided
         if (!id) {
             return res.status(400).json({ message: 'TeamLeader ID is required' });
         }
 
-        // Find the TeamLeader by ID
-        const teamLeader = await TeamLeader.findById(id);
+        const teamLeader = await TeamLeader.findByPk(id);
         if (!teamLeader) {
             return res.status(404).json({ message: 'TeamLeader not found' });
         }
 
-        // Update TeamLeader fields if they are provided
         if (name) teamLeader.name = name;
         if (phone) teamLeader.phone = phone;
         if (password) {
-            // Hash the new password before saving
             teamLeader.password = await hashPassword(password);
         }
 
-        // Save the updated TeamLeader
         await teamLeader.save();
 
         res.status(200).json({
             message: 'TeamLeader updated successfully',
             teamLeader: {
-                id: teamLeader._id,
+                id: teamLeader.id,
                 name: teamLeader.name,
                 email: teamLeader.email,
                 phone: teamLeader.phone
@@ -174,27 +161,21 @@ const editTeamLeader = async (req, res) => {
     }
 };
 
-
-
 const deleteTeamLeaderWithReassignment = async (req, res) => {
-    const session = await mongoose.startSession();
-    session.startTransaction();
+    const t = await sequelize.transaction();
 
     try {
         const { teamLeaderId, newTeamLeaderId } = req.body;
 
-        // Validate ObjectIds
-        if (!mongoose.Types.ObjectId.isValid(teamLeaderId) || !mongoose.Types.ObjectId.isValid(newTeamLeaderId)) {
-            return res.status(400).json({ message: 'Invalid Team Leader ID format' });
+        if (!teamLeaderId || !newTeamLeaderId) {
+            return res.status(400).json({ message: 'Both Team Leader IDs are required' });
         }
 
-        // Find both team leaders with necessary populated fields
         const [teamLeaderToDelete, newTeamLeader] = await Promise.all([
-            TeamLeader.findById(teamLeaderId).populate('admin'),
-            TeamLeader.findById(newTeamLeaderId)
+            TeamLeader.findByPk(teamLeaderId, { include: [{ model: Admin, as: 'admin' }] }),
+            TeamLeader.findByPk(newTeamLeaderId)
         ]);
 
-        // Validations
         if (!teamLeaderToDelete || !newTeamLeader) {
             return res.status(404).json({ message: 'One or both team leaders not found' });
         }
@@ -203,85 +184,35 @@ const deleteTeamLeaderWithReassignment = async (req, res) => {
             return res.status(400).json({ message: 'Cannot reassign to the same team leader' });
         }
 
-        // Update Admin's references
-        await Admin.findByIdAndUpdate(
-            teamLeaderToDelete.admin,
-            { $pull: { teamLeaders: teamLeaderId } },
-            { session }
-        );
+        const employeesToUpdate = await teamLeaderToDelete.getEmployees();
 
-        // First, get all employees that need to be updated
-        const employeesToUpdate = await Employee.find({ teamLeaders: teamLeaderId });
-
-        // Update each employee's teamLeaders array separately
         for (const employee of employeesToUpdate) {
-            // Remove old team leader
-            await Employee.findByIdAndUpdate(
-                employee._id,
-                { $pull: { teamLeaders: teamLeaderId } },
-                { session }
-            );
-
-            // Add new team leader (if not already present)
-            await Employee.findByIdAndUpdate(
-                employee._id,
-                { $addToSet: { teamLeaders: newTeamLeaderId } },
-                { session }
-            );
+            await employee.removeTeamLeader(teamLeaderToDelete, { transaction: t });
+            await employee.addTeamLeader(newTeamLeader, { transaction: t });
         }
 
-        // Transfer Tasks
-        await Task.updateMany(
-            { teamLeader: teamLeaderId },
+        await Task.update(
+            { assignedToId: newTeamLeaderId },
             {
-                $set: { teamLeader: newTeamLeaderId },
-                $push: {
-                    history: {
-                        action: 'Team Leader Reassignment',
-                        from: teamLeaderId,
-                        to: newTeamLeaderId,
-                        date: new Date()
-                    }
-                }
-            },
-            { session }
+                where: {
+                    assignedToType: 'TeamLeader',
+                    assignedToId: teamLeaderId
+                },
+                transaction: t
+            }
         );
 
-        // Update task assignments
-        await Task.updateMany(
-            { "assignedEmployees.userType": "TeamLeader", "assignedEmployees.userId": teamLeaderId },
+        await Client.update(
+            { teamLeaderId: newTeamLeaderId },
             {
-                $set: { "assignedEmployees.$.userId": newTeamLeaderId }
-            },
-            { session }
+                where: { teamLeaderId: teamLeaderId },
+                transaction: t
+            }
         );
 
-        // Transfer Clients
-        await Client.updateMany(
-            { teamLeader: teamLeaderId },
-            { $set: { teamLeader: newTeamLeaderId } },
-            { session }
-        );
+        await teamLeaderToDelete.destroy({ transaction: t });
 
-        // Update new team leader's references
-        const updatedTeamLeader = await TeamLeader.findByIdAndUpdate(
-            newTeamLeaderId,
-            {
-                $addToSet: {
-                    employees: { $each: teamLeaderToDelete.employees || [] },
-                    tasks: { $each: teamLeaderToDelete.tasks || [] },
-                    clients: { $each: teamLeaderToDelete.clients || [] }
-                }
-            },
-            { session, new: true }
-        );
-
-        // Delete the old team leader
-        await TeamLeader.findByIdAndDelete(teamLeaderId, { session });
-
-        // Send notifications
         try {
-            // Notify new team leader
             await sendEmail({
                 email: newTeamLeader.email,
                 name: newTeamLeader.name,
@@ -293,7 +224,6 @@ const deleteTeamLeaderWithReassignment = async (req, res) => {
                 `
             });
 
-            // Notify affected employees
             for (const employee of employeesToUpdate) {
                 await sendEmail({
                     email: employee.email,
@@ -308,212 +238,166 @@ const deleteTeamLeaderWithReassignment = async (req, res) => {
             }
         } catch (emailError) {
             console.error('Error sending notification emails:', emailError);
-            // Continue with the process even if emails fail
         }
 
-        await session.commitTransaction();
+        await t.commit();
 
         res.status(200).json({
             message: 'Team Leader deleted and reassigned successfully',
             newTeamLeader: {
-                id: updatedTeamLeader._id,
-                name: updatedTeamLeader.name,
-                email: updatedTeamLeader.email
+                id: newTeamLeader.id,
+                name: newTeamLeader.name,
+                email: newTeamLeader.email
             }
         });
     } catch (error) {
-        await session.abortTransaction();
+        await t.rollback();
         console.error('Error in team leader reassignment:', error);
         res.status(500).json({
             message: 'Server error during reassignment',
             error: error.message
         });
-    } finally {
-        session.endSession();
     }
 };
 
-
-// Function to delete team leader and promote an employee to a new team leader
 const deleteTeamLeaderAndPromoteEmployee = async (req, res) => {
-    const session = await mongoose.startSession();
-    session.startTransaction();
+    const t = await sequelize.transaction();
 
     try {
         const { oldTeamLeaderId, employeeToPromoteId } = req.body;
 
-        // Validate team leader ID
-        if (!mongoose.Types.ObjectId.isValid(oldTeamLeaderId)) {
-            return res.status(400).json({ message: 'Invalid Team Leader ID format' });
+        if (!oldTeamLeaderId) {
+            return res.status(400).json({ message: 'Team Leader ID is required' });
         }
 
-        // Fetch the team leader
-        const oldTeamLeader = await TeamLeader.findById(oldTeamLeaderId).populate('admin');
+        const oldTeamLeader = await TeamLeader.findByPk(oldTeamLeaderId, {
+            include: [
+                { model: Admin, as: 'admin' },
+                { model: Employee, as: 'employees' },
+                { model: Client, as: 'clients' }
+            ]
+        });
+        
         if (!oldTeamLeader) {
             return res.status(404).json({ message: 'Team leader not found' });
         }
 
-        // If employeeToPromoteId is provided, handle promotion case
         if (employeeToPromoteId) {
-            if (!mongoose.Types.ObjectId.isValid(employeeToPromoteId)) {
-                return res.status(400).json({ message: 'Invalid Employee ID format' });
-            }
-
-            const employeeToPromote = await Employee.findById(employeeToPromoteId);
+            const employeeToPromote = await Employee.findByPk(employeeToPromoteId);
             if (!employeeToPromote) {
                 return res.status(404).json({ message: 'Employee not found' });
             }
 
-            // Create new team leader from employee
-            const newTeamLeader = new TeamLeader({
+            const newTeamLeader = await TeamLeader.create({
                 name: employeeToPromote.name,
                 email: employeeToPromote.email,
                 phone: employeeToPromote.phone,
                 password: employeeToPromote.password,
-                admin: oldTeamLeader.admin,
-                employees: oldTeamLeader.employees,
-                tasks: oldTeamLeader.tasks,
-                clients: oldTeamLeader.clients
-            });
+                adminId: oldTeamLeader.adminId
+            }, { transaction: t });
 
-            await newTeamLeader.save({ session });
+            const employees = await oldTeamLeader.getEmployees();
+            for (const emp of employees) {
+                if (emp.id !== employeeToPromoteId) {
+                    await emp.removeTeamLeader(oldTeamLeader, { transaction: t });
+                    await emp.addTeamLeader(newTeamLeader, { transaction: t });
+                }
+            }
 
-            // Update references to new team leader
-            await Promise.all([
-                // Update Admin's references
-                Admin.findByIdAndUpdate(
-                    oldTeamLeader.admin,
-                    {
-                        $pull: { teamLeaders: oldTeamLeaderId },
-                        $push: { teamLeaders: newTeamLeader._id }
+            await Task.update(
+                { assignedToId: newTeamLeader.id },
+                {
+                    where: {
+                        assignedToType: 'TeamLeader',
+                        assignedToId: oldTeamLeaderId
                     },
-                    { session }
-                ),
+                    transaction: t
+                }
+            );
 
-                // Update Employee references
-                Employee.updateMany(
-                    { teamLeaders: oldTeamLeaderId },
-                    {
-                        $pull: { teamLeaders: oldTeamLeaderId },
-                        $push: { teamLeaders: newTeamLeader._id }
-                    },
-                    { session }
-                ),
+            await Client.update(
+                { teamLeaderId: newTeamLeader.id },
+                {
+                    where: { teamLeaderId: oldTeamLeaderId },
+                    transaction: t
+                }
+            );
 
-                // Update Tasks where team leader is assigned
-                Task.updateMany(
-                    {
-                        'assignedTo.userType': 'TeamLeader',
-                        'assignedTo.userId': oldTeamLeaderId
-                    },
-                    {
-                        $set: { 'assignedTo.userId': newTeamLeader._id }
-                    },
-                    { session }
-                ),
+            await oldTeamLeader.destroy({ transaction: t });
+            await employeeToPromote.destroy({ transaction: t });
 
-                // Update Clients
-                Client.updateMany(
-                    { teamLeader: oldTeamLeaderId },
-                    { $set: { teamLeader: newTeamLeader._id } },
-                    { session }
-                ),
-
-                // Delete old team leader and employee records
-                TeamLeader.findByIdAndDelete(oldTeamLeaderId, { session }),
-                Employee.findByIdAndDelete(employeeToPromoteId, { session })
-            ]);
-
-            await session.commitTransaction();
+            await t.commit();
 
             return res.status(200).json({
                 message: 'Team leader successfully deleted and employee promoted',
                 newTeamLeader: {
-                    id: newTeamLeader._id,
+                    id: newTeamLeader.id,
                     name: newTeamLeader.name,
                     email: newTeamLeader.email
                 }
             });
         } else {
-            // Handle case where no employee is to be promoted
-            await Promise.all([
-                // Remove team leader from Admin
-                Admin.findByIdAndUpdate(
-                    oldTeamLeader.admin,
-                    { $pull: { teamLeaders: oldTeamLeaderId } },
-                    { session }
-                ),
+            const employees = await oldTeamLeader.getEmployees();
+            for (const emp of employees) {
+                await emp.removeTeamLeader(oldTeamLeader, { transaction: t });
+            }
 
-                // Remove team leader from Employees
-                Employee.updateMany(
-                    { teamLeaders: oldTeamLeaderId },
-                    { $pull: { teamLeaders: oldTeamLeaderId } },
-                    { session }
-                ),
-
-                // Update Tasks to remove team leader assignments
-                Task.updateMany(
-                    {
-                        'assignedTo.userType': 'TeamLeader',
-                        'assignedTo.userId': oldTeamLeaderId
+            await Task.update(
+                { assignedToType: null, assignedToId: null },
+                {
+                    where: {
+                        assignedToType: 'TeamLeader',
+                        assignedToId: oldTeamLeaderId
                     },
-                    {
-                        $set: {
-                            'assignedTo.userType': null,
-                            'assignedTo.userId': null
-                        }
-                    },
-                    { session }
-                ),
+                    transaction: t
+                }
+            );
 
-                // Update Clients to remove team leader
-                Client.updateMany(
-                    { teamLeader: oldTeamLeaderId },
-                    { $unset: { teamLeader: "" } },
-                    { session }
-                ),
+            await Client.update(
+                { teamLeaderId: null },
+                {
+                    where: { teamLeaderId: oldTeamLeaderId },
+                    transaction: t
+                }
+            );
 
-                // Delete the team leader
-                TeamLeader.findByIdAndDelete(oldTeamLeaderId, { session })
-            ]);
+            await oldTeamLeader.destroy({ transaction: t });
 
-            await session.commitTransaction();
+            await t.commit();
 
             return res.status(200).json({
                 message: 'Team leader successfully deleted and references removed',
                 deletedTeamLeader: {
-                    id: oldTeamLeader._id,
+                    id: oldTeamLeader.id,
                     name: oldTeamLeader.name,
                     email: oldTeamLeader.email
                 }
             });
         }
     } catch (error) {
-        await session.abortTransaction();
+        await t.rollback();
         console.error('Error in team leader deletion process:', error);
         res.status(500).json({ message: 'Server error during team leader deletion process' });
-    } finally {
-        session.endSession();
     }
 };
-
-
 
 const getTeamLeaderHierarchy = async (req, res) => {
     try {
         const { teamLeaderId } = req.body;
 
-        // Validate input
         if (!teamLeaderId) {
             return res.status(400).json({ message: 'Team Leader ID is required' });
         }
 
-        // Find the team leader and populate the employees array
-        const teamLeader = await TeamLeader.findById(teamLeaderId)
-            .populate('employees', 'name email phone') // Populate employee details
-            .select('name email employees'); // Only select necessary fields for the response
+        const teamLeader = await TeamLeader.findByPk(teamLeaderId, {
+            attributes: ['id', 'name', 'email'],
+            include: [{
+                model: Employee,
+                as: 'employees',
+                attributes: ['id', 'name', 'email', 'phone']
+            }]
+        });
 
-        // Check if the team leader was found
         if (!teamLeader) {
             return res.status(404).json({ message: 'Team Leader not found' });
         }
@@ -521,7 +405,7 @@ const getTeamLeaderHierarchy = async (req, res) => {
         res.status(200).json({
             message: 'Team Leader hierarchy retrieved successfully',
             teamLeader: {
-                id: teamLeader._id,
+                id: teamLeader.id,
                 name: teamLeader.name,
                 email: teamLeader.email,
                 employees: teamLeader.employees
@@ -533,24 +417,26 @@ const getTeamLeaderHierarchy = async (req, res) => {
     }
 };
 
-
 const getTeamLeaderTasks = async (req, res) => {
     try {
         const { teamLeaderId } = req.body;
 
-        // Check if the team leader exists
-        const teamLeader = await TeamLeader.findById(teamLeaderId);
+        const teamLeader = await TeamLeader.findByPk(teamLeaderId);
         if (!teamLeader) {
             return res.status(404).json({ message: 'Team Leader not found' });
         }
 
-        // Fetch tasks where the team leader is directly responsible or assigned
-        const tasks = await Task.find({
-            $or: [
-                { teamLeader: teamLeaderId },
-                { "assignedEmployees.userType": "TeamLeader", "assignedEmployees.userId": teamLeaderId }
-            ]
-        }).populate('client', 'name').populate('assignedEmployees.userId', 'name');
+        const tasks = await Task.findAll({
+            where: {
+                assignedToType: 'TeamLeader',
+                assignedToId: teamLeaderId
+            },
+            include: [{
+                model: Client,
+                as: 'client',
+                attributes: ['id', 'name']
+            }]
+        });
 
         res.status(200).json({
             message: 'Tasks fetched successfully',
@@ -562,39 +448,58 @@ const getTeamLeaderTasks = async (req, res) => {
     }
 };
 
-
 const getTeamLeaderDetails = async (req, res) => {
     try {
         const { teamLeaderId } = req.body;
 
-        // Validate the teamLeaderId
         if (!teamLeaderId) {
             return res.status(400).json({ message: 'Team Leader ID is required.' });
         }
 
-        // Find the Team Leader and populate the relevant details
-        const teamLeader = await TeamLeader.findById(teamLeaderId)
-            .populate({
-                path: 'tasks',
-                select: 'title description status category dueDate frequency priority client assignedTo', // Select all important fields
-                populate: [
-                    { path: 'client', select: 'name email companyName' }, // Populate client details in tasks
-                    { path: 'assignedTo.userId', select: 'name email' }, // Populate assigned user details
-                ],
-            })
-            .populate('employees', 'name email phone') // Populate employees under the team leader
-            .populate('clients', 'name email companyName') // Populate clients associated with the team leader
-            .populate('admin', 'name email'); // Populate admin details if required
+        const teamLeader = await TeamLeader.findByPk(teamLeaderId, {
+            include: [
+                {
+                    model: Employee,
+                    as: 'employees',
+                    attributes: ['id', 'name', 'email', 'phone']
+                },
+                {
+                    model: Client,
+                    as: 'clients',
+                    attributes: ['id', 'name', 'email', 'companyName']
+                },
+                {
+                    model: Admin,
+                    as: 'admin',
+                    attributes: ['id', 'name', 'email']
+                }
+            ]
+        });
 
-        // If no Team Leader found, return 404
         if (!teamLeader) {
             return res.status(404).json({ message: 'Team Leader not found.' });
         }
 
-        // Send the team leader details
+        const tasks = await Task.findAll({
+            where: {
+                [Op.or]: [
+                    { assignedToType: 'TeamLeader', assignedToId: teamLeaderId },
+                    { clientId: { [Op.in]: teamLeader.clients.map(c => c.id) } }
+                ]
+            },
+            include: [{
+                model: Client,
+                as: 'client',
+                attributes: ['id', 'name', 'email', 'companyName']
+            }]
+        });
+
         res.status(200).json({
             message: 'Team Leader details fetched successfully.',
-            teamLeader,
+            teamLeader: {
+                ...teamLeader.toJSON(),
+                tasks
+            }
         });
     } catch (error) {
         console.error('Error fetching Team Leader details:', error);

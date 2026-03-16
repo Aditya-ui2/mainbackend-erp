@@ -1,9 +1,9 @@
-const {Notification} = require('../models/models');
+const { Notification } = require('../models/sequelizeModels');
 
 // Add notification
 exports.addNotification = async (userId, userType, message, type = 'message', priority = 'low') => {
     try {
-        const notificationData = {
+        const notification = await Notification.create({
             userId,
             userType,
             message,
@@ -11,10 +11,7 @@ exports.addNotification = async (userId, userType, message, type = 'message', pr
             priority,
             status: 'unread',
             readAt: null
-        };
-
-        const notification = new Notification(notificationData);
-        await notification.save();
+        });
 
         return notification;
     } catch (error) {
@@ -28,9 +25,10 @@ exports.getAllNotifications = async (req, res) => {
     try {
         const { userId } = req.body;
 
-        const notifications = await Notification.find({ 
-            userId 
-        }).sort({ createdAt: -1 });
+        const notifications = await Notification.findAll({
+            where: { userId },
+            order: [['createdAt', 'DESC']]
+        });
         
         res.status(200).json({
             success: true,
@@ -50,14 +48,7 @@ exports.markRead = async (req, res) => {
     try {
         const { notificationId } = req.body;
 
-        const notification = await Notification.findByIdAndUpdate(
-            notificationId,
-            {
-                status: 'read',
-                readAt: new Date()
-            },
-            { new: true }
-        );
+        const notification = await Notification.findByPk(notificationId);
 
         if (!notification) {
             return res.status(404).json({
@@ -65,6 +56,10 @@ exports.markRead = async (req, res) => {
                 error: 'Notification not found'
             });
         }
+
+        notification.status = 'read';
+        notification.readAt = new Date();
+        await notification.save();
 
         res.status(200).json({
             success: true,
@@ -83,14 +78,7 @@ exports.markUnread = async (req, res) => {
     try {
         const { notificationId } = req.body;
 
-        const notification = await Notification.findByIdAndUpdate(
-            notificationId,
-            {
-                status: 'unread',
-                readAt: null
-            },
-            { new: true }
-        );
+        const notification = await Notification.findByPk(notificationId);
 
         if (!notification) {
             return res.status(404).json({
@@ -98,6 +86,10 @@ exports.markUnread = async (req, res) => {
                 error: 'Notification not found'
             });
         }
+
+        notification.status = 'unread';
+        notification.readAt = null;
+        await notification.save();
 
         res.status(200).json({
             success: true,
@@ -116,20 +108,22 @@ exports.markAllRead = async (req, res) => {
     try {
         const { userId } = req.body;
 
-        const result = await Notification.updateMany(
-            { 
-                userId,
-                status: 'unread'
-            },
+        const [updatedCount] = await Notification.update(
             {
                 status: 'read',
                 readAt: new Date()
+            },
+            {
+                where: {
+                    userId,
+                    status: 'unread'
+                }
             }
         );
 
         res.status(200).json({
             success: true,
-            message: `${result.modifiedCount} notifications marked as read`
+            message: `${updatedCount} notifications marked as read`
         });
     } catch (error) {
         res.status(400).json({
@@ -144,7 +138,7 @@ exports.deleteNotification = async (req, res) => {
     try {
         const { notificationId } = req.body;
 
-        const notification = await Notification.findByIdAndDelete(notificationId);
+        const notification = await Notification.findByPk(notificationId);
 
         if (!notification) {
             return res.status(404).json({
@@ -152,6 +146,8 @@ exports.deleteNotification = async (req, res) => {
                 error: 'Notification not found'
             });
         }
+
+        await notification.destroy();
 
         res.status(200).json({
             success: true,
@@ -170,13 +166,13 @@ exports.deleteAllNotifications = async (req, res) => {
     try {
         const { userId } = req.body;
 
-        const result = await Notification.deleteMany({
-            userId
+        const deletedCount = await Notification.destroy({
+            where: { userId }
         });
 
         res.status(200).json({
             success: true,
-            message: `${result.deletedCount} notifications deleted successfully`
+            message: `${deletedCount} notifications deleted successfully`
         });
     } catch (error) {
         res.status(400).json({

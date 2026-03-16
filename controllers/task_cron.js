@@ -1,5 +1,5 @@
 
-const { RequestTask, Task, TeamLeader, Employee, Client, RecurringTask } = require('../models/models');
+const { RequestTask, Task, TeamLeader, Employee, Client, RecurringTask } = require('../models/sequelizeModels');
 const { addNotification } = require('./notification');
 const cron = require('node-cron');
 const cronJobs = {};
@@ -121,48 +121,31 @@ const scheduleCronJob = async (recurringTask) => {
 const createTaskInstance = async (recurringTask) => {
     try {
         // Get client details to fetch teamLeaderId
-        const client = await Client.findById(recurringTask.client);
-        if (!client || !client.teamLeader) {
+        const client = await Client.findByPk(recurringTask.clientId);
+        if (!client || !client.teamLeaderId) {
             throw new Error('Client not found or no team leader assigned');
         }
 
-        const teamLeaderId = client.teamLeader;
+        const teamLeaderId = client.teamLeaderId;
 
         // Calculate due date based on frequency
         const dueDate = calculateDueDate(recurringTask.frequency);
 
-        const newTask = new Task({
+        const newTask = await Task.create({
             title: recurringTask.title,
             description: recurringTask.description,
-            client: recurringTask.client,
+            clientId: recurringTask.clientId,
             category: 'Frequency',
             assignedTo: recurringTask.assignedTo,
             priority: recurringTask.priority,
-            parentTaskId: recurringTask._id,
+            parentTaskId: recurringTask.id,
             dueDate: dueDate
         });
 
-        const savedTask = await newTask.save();
-
-        // Update references
-        await Promise.all([
-            Client.findByIdAndUpdate(recurringTask.client, {
-                $push: { tasks: savedTask._id }
-            }),
-            TeamLeader.findByIdAndUpdate(teamLeaderId, {
-                $push: { tasks: savedTask._id }
-            }),
-            ...(recurringTask.assignedTo.userType === 'Employee'
-                ? [Employee.findByIdAndUpdate(recurringTask.assignedTo.userId, {
-                    $push: { tasks: savedTask._id }
-                })]
-                : [])
-        ]);
-
         // Send notification
-        await sendTaskNotification(recurringTask, savedTask);
+        await sendTaskNotification(recurringTask, newTask);
 
-        return savedTask;
+        return newTask;
     } catch (error) {
         console.error('Error creating task instance:', error);
         throw error;
@@ -223,16 +206,16 @@ const restartCronJobs = async () => {
         });
 
         // Fetch all active recurring tasks
-        const recurringTasks = await RecurringTask.find({ active: true });
+        const recurringTasks = await RecurringTask.findAll({ where: { active: true } });
         console.log(`Found ${recurringTasks.length} active recurring tasks`);
 
         // Restart each task
         for (const task of recurringTasks) {
             try {
                 await scheduleCronJob(task);
-                console.log(`Restored cron job for task: ${task._id}`);
+                console.log(`Restored cron job for task: ${task.id}`);
             } catch (err) {
-                console.error(`Failed to restore cron job for task ${task._id}:`, err.message);
+                console.error(`Failed to restore cron job for task ${task.id}:`, err.message);
             }
         }
 
@@ -259,14 +242,13 @@ const updateCronJob = async (taskId, newFrequency) => {
     stopCronJob(taskId);
 
     // Get task details
-    const task = await RecurringTask.findById(taskId);
+    const task = await RecurringTask.findByPk(taskId);
     if (!task) {
         throw new Error('Task not found');
     }
 
     // Update frequency
-    task.frequency = newFrequency;
-    await task.save();
+    await task.update({ frequency: newFrequency });
 
     // Schedule new job
     return await scheduleCronJob(task);
@@ -292,7 +274,7 @@ const isValidCronExpression = (cronExpression) => {
 // Initialize all recurring tasks on server start
 const initializeRecurringTasks = async () => {
     try {
-        const recurringTasks = await RecurringTask.find({ active: true });
+        const recurringTasks = await RecurringTask.findAll({ where: { active: true } });
         for (const task of recurringTasks) {
             await scheduleCronJob(task);
         }

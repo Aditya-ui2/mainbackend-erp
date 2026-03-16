@@ -1,9 +1,10 @@
 // controllers/authController.js
 const crypto = require('crypto');
+const { Op } = require('sequelize');
 const { hashPassword } = require('../utils/bcryptUtils');
 const { generateToken } = require('../utils/jwtUtils');
 const sendEmail = require('../utils/emailService');
-const { SuperAdmin, Admin, TeamLeader, Employee, Client } = require('../models/models');
+const { SuperAdmin, Admin, TeamLeader, Employee, Client } = require('../models/sequelizeModels');
 
 // Map of user types to their corresponding models
 const USER_MODELS = {
@@ -33,7 +34,7 @@ const forgotPassword = async (req, res) => {
         }
 
         // Find user
-        const user = await Model.findOne({ email });
+        const user = await Model.findOne({ where: { email } });
         if (!user) {
             return res.status(404).json({
                 message: 'No user found with this email'
@@ -42,10 +43,10 @@ const forgotPassword = async (req, res) => {
 
         // Generate reset token
         const resetToken = user.createPasswordResetToken();
-        await user.save({ validateBeforeSave: false });
+        await user.save();
 
         // Create reset URL
-        const resetURL = `$https://mab-erp.vercel.app/reset-password/${userType}/${resetToken}`;
+        const resetURL = `https://mab-erp.vercel.app/reset-password/${userType}/${resetToken}`;
 
         const htmlContent = `
             <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
@@ -86,9 +87,9 @@ const forgotPassword = async (req, res) => {
                 message: 'Password reset instructions sent to email!'
             });
         } catch (err) {
-            user.resetPasswordToken = undefined;
-            user.resetPasswordExpires = undefined;
-            await user.save({ validateBeforeSave: false });
+            user.resetPasswordToken = null;
+            user.resetPasswordExpires = null;
+            await user.save();
 
             console.error('Email sending error:', err);
             return res.status(500).json({
@@ -127,8 +128,10 @@ const resetPassword = async (req, res) => {
 
         // Find user with valid token
         const user = await Model.findOne({
-            resetPasswordToken: hashedToken,
-            resetPasswordExpires: { $gt: Date.now() }
+            where: {
+                resetPasswordToken: hashedToken,
+                resetPasswordExpires: { [Op.gt]: new Date() }
+            }
         });
 
         if (!user) {
@@ -140,14 +143,14 @@ const resetPassword = async (req, res) => {
         // Hash and update password
         const newHashedPassword = await hashPassword(password);
         user.password = newHashedPassword;
-        user.resetPasswordToken = undefined;
-        user.resetPasswordExpires = undefined;
+        user.resetPasswordToken = null;
+        user.resetPasswordExpires = null;
 
         await user.save();
 
         // Generate new login token
         const loginToken = generateToken({
-            id: user._id,
+            id: user.id,
             email: user.email,
             role: userType
         });

@@ -12,12 +12,17 @@ const config = {
   REFRESH_TOKEN: process.env.GOOGLE_REFRESH_TOKEN
 };
 
-if (!config.CLIENT_ID || !config.CLIENT_SECRET || !config.REFRESH_TOKEN) {
-  throw new Error('Google Drive credentials are missing. Set GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, and GOOGLE_REFRESH_TOKEN in environment variables.');
+const isConfigured = !!(config.CLIENT_ID && config.CLIENT_SECRET && config.REFRESH_TOKEN);
+
+if (!isConfigured) {
+  console.warn('⚠️  Google Drive credentials are missing. Google Drive features will be disabled.');
+  console.warn('   Set GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, and GOOGLE_REFRESH_TOKEN in .env file.');
 }
 
 // Initialize Google Drive API
 const initializeDrive = () => {
+  if (!isConfigured) return null;
+  
   const oauth2Client = new google.auth.OAuth2(
     config.CLIENT_ID,
     config.CLIENT_SECRET,
@@ -34,7 +39,14 @@ const initializeDrive = () => {
 
 const drive = initializeDrive();
 
+const checkDriveConfigured = () => {
+  if (!isConfigured || !drive) {
+    throw new Error('Google Drive is not configured. Set GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, and GOOGLE_REFRESH_TOKEN in .env file.');
+  }
+};
+
 const getOrCreateFolder = async (name, parentFolderId = null) => {
+  checkDriveConfigured();
   try {
     let query = `name='${name}' and mimeType='application/vnd.google-apps.folder' and trashed=false`;
     if (parentFolderId) {
@@ -68,6 +80,7 @@ const getOrCreateFolder = async (name, parentFolderId = null) => {
 };
 
 const updateFilePermissions = async (fileId, role = 'reader', type = 'anyone') => {
+  checkDriveConfigured();
   try {
     await drive.permissions.create({
       fileId: fileId,
@@ -84,6 +97,7 @@ const updateFilePermissions = async (fileId, role = 'reader', type = 'anyone') =
 };
 
 const uploadFile = async (fileObject) => {
+  checkDriveConfigured();
   try {
     // Validate file object
     if (!fileObject || !fileObject.buffer) {
@@ -224,6 +238,7 @@ const isImage = (mimeType) => {
 
 module.exports = {
   drive,
+  isConfigured,
   getOrCreateFolder,
   updateFilePermissions,
   uploadFile

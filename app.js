@@ -2,10 +2,12 @@ const express = require('express');
 const app = express();
 const cors = require("cors");
 const dotenv = require('dotenv');
-const http = require('http'); // Add this
-const socketIO = require('socket.io'); // Add this
-const { Message } = require('./models/models'); // Create this model
+const http = require('http');
+const socketIO = require('socket.io');
 dotenv.config();
+const { Message } = require('./models/sequelizeModels');
+const swaggerUi = require('swagger-ui-express');
+const swaggerSpec = require('./swagger');
 
 // Create HTTP server
 const server = http.createServer(app); // Add this
@@ -79,9 +81,9 @@ io.on('connection', (socket) => {
     socket.on('private_message', async (data) => {
         try {
             let messageData = {
-                sender: data.senderId,
+                senderId: data.senderId,
                 senderType: data.senderType,
-                receiver: data.receiverId,
+                receiverId: data.receiverId,
                 receiverType: data.receiverType,
                 messageType: data.messageType || 'text'
             };
@@ -102,9 +104,8 @@ io.on('connection', (socket) => {
                 messageData.content = data.content;
             }
 
-            // Create and save message
-            const message = new Message(messageData);
-            await message.save();
+            // Create and save message using Sequelize
+            const message = await Message.create(messageData);
 
             // Send message to receiver if online
             const receiverSocketId = connectedUsers.get(data.receiverId);
@@ -115,7 +116,7 @@ io.on('connection', (socket) => {
             // Send acknowledgment to sender
             socket.emit('message_sent', {
                 success: true,
-                messageId: message._id
+                messageId: message.id
             });
 
         } catch (error) {
@@ -153,6 +154,12 @@ io.on('connection', (socket) => {
 app.get('/', (req, res) => {
     res.send("You have landed on the test page");
 });
+
+// Swagger API Documentation
+app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec, {
+    customCss: '.swagger-ui .topbar { display: none }',
+    customSiteTitle: 'MabiconsERP API Documentation'
+}));
 
 app.use('/superAdmin', superAdminRoute);
 app.use('/admin', adminRoute);

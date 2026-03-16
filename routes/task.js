@@ -1,6 +1,7 @@
 const express = require('express');
 const cron = require('node-cron');
-const { Task } = require('../models/models');
+const { Task } = require('../models/sequelizeModels');
+const { Op } = require('sequelize');
 
 const {
     requestTask,
@@ -65,20 +66,19 @@ const updateOverdueTasks = async () => {
         // Find and update all tasks that are:
         // 1. Past their due date
         // 2. Have status either 'Active' or 'Work in Progress'
-        const result = await Task.updateMany(
+        const [updatedCount] = await Task.update(
             {
-                dueDate: { $lt: currentDate },
-                status: { $in: ['Active', 'Work in Progress'] },
+                status: 'Pending'
             },
             {
-                $set: {
-                    status: 'Pending',
-                    updatedAt: currentDate
+                where: {
+                    dueDate: { [Op.lt]: currentDate },
+                    status: { [Op.in]: ['Active', 'Work in Progress'] }
                 }
             }
         );
 
-        console.log(`Updated ${result.modifiedCount} overdue tasks to Pending status`);
+        console.log(`Updated ${updatedCount} overdue tasks to Pending status`);
 
     } catch (error) {
         console.error('Error in updateOverdueTasks cron job:', error);

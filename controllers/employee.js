@@ -1,5 +1,6 @@
 // controllers/employeeController.js
-const {Employee, TeamLeader, Task} = require('../models/models');
+const { Employee, TeamLeader, Task, Client, sequelize } = require('../models/sequelizeModels');
+const { Op } = require('sequelize');
 const { hashPassword, comparePasswords } = require('../utils/bcryptUtils');
 const sendEmail = require('../utils/emailService');
 const { generateToken } = require('../utils/jwtUtils');
@@ -7,6 +8,8 @@ const { generateToken } = require('../utils/jwtUtils');
 
 // Employee Creation with Email
 const createEmployee = async (req, res) => {
+    const t = await sequelize.transaction();
+    
     try {
         const { name, email, teamLeaderIds, phone } = req.body;
         const defaultPassword = 'mabicons123';
@@ -17,7 +20,7 @@ const createEmployee = async (req, res) => {
         }
 
         // Check if the email is already in use
-        const existingEmployee = await Employee.findOne({ email });
+        const existingEmployee = await Employee.findOne({ where: { email } });
         if (existingEmployee) {
             return res.status(400).json({ message: 'Email is already taken' });
         }
@@ -26,22 +29,21 @@ const createEmployee = async (req, res) => {
         const hashedPassword = await hashPassword(defaultPassword);
 
         // Create a new Employee
-        const newEmployee = new Employee({
+        const newEmployee = await Employee.create({
             name,
             email,
             password: hashedPassword,
-            teamLeaders: teamLeaderIds,
             phone
+        }, { transaction: t });
+
+        // Find the team leaders and associate them with the employee
+        const teamLeaders = await TeamLeader.findAll({
+            where: { id: { [Op.in]: teamLeaderIds } }
         });
 
-        // Save the Employee
-        await newEmployee.save();
+        await newEmployee.addTeamLeaders(teamLeaders, { transaction: t });
 
-        // Update each team leader to add this employee to their `employees` array
-        await TeamLeader.updateMany(
-            { _id: { $in: teamLeaderIds } },
-            { $push: { employees: newEmployee._id } }
-        );
+        await t.commit();
 
         // Send welcome email to employee
         const emailContent = `
@@ -70,14 +72,15 @@ const createEmployee = async (req, res) => {
         res.status(201).json({
             message: 'Employee created successfully',
             employee: {
-                id: newEmployee._id,
+                id: newEmployee.id,
                 name: newEmployee.name,
                 email: newEmployee.email
             }
         });
     } catch (error) {
+        await t.rollback();
         console.error('Error creating Employee:', error);
-        res.status(500).json({ message: 'Server error'});
+        res.status(500).json({ message: 'Server error' });
     }
 };
 
@@ -90,7 +93,7 @@ const loginEmployee = async (req, res) => {
             return res.status(400).json({ message: 'Email and password are required' });
         }
 
-        const employee = await Employee.findOne({ email });
+        const employee = await Employee.findOne({ where: { email } });
         if (!employee) {
             return res.status(404).json({ message: 'Employee not found' });
         }
@@ -100,13 +103,13 @@ const loginEmployee = async (req, res) => {
             return res.status(401).json({ message: 'Invalid credentials' });
         }
 
-        const token = generateToken({ id: employee._id, email: employee.email, role: 'Employee' });
+        const token = generateToken({ id: employee.id, email: employee.email, role: 'Employee' });
 
         res.status(200).json({
             message: 'Login successful',
             token,
             employee: {
-                id: employee._id,
+                id: employee.id,
                 name: employee.name,
                 email: employee.email
             }
@@ -126,7 +129,7 @@ const editEmployee = async (req, res) => {
             return res.status(400).json({ message: 'Employee ID is required' });
         }
 
-        const employee = await Employee.findById(id);
+        const employee = await Employee.findByPk(id);
         if (!employee) {
             return res.status(404).json({ message: 'Employee not found' });
         }
@@ -140,7 +143,7 @@ const editEmployee = async (req, res) => {
         res.status(200).json({
             message: 'Employee updated successfully',
             employee: {
-                id: employee._id,
+                id: employee.id,
                 name: employee.name,
                 email: employee.email
             }
@@ -161,19 +164,13 @@ const deleteEmployee = async (req, res) => {
         }
 
         // Find the employee to delete
-        const employee = await Employee.findById(employeeId);
+        const employee = await Employee.findByPk(employeeId);
         if (!employee) {
             return res.status(404).json({ message: 'Employee not found' });
         }
 
-        // Remove the employee from their team leaders' employee lists
-        await TeamLeader.updateMany(
-            { employees: employeeId },
-            { $pull: { employees: employeeId } }
-        );
-
-        // Delete the employee from the database
-        await Employee.findByIdAndDelete(employeeId);
+        // Delete the employee (associations will be handled automatically)
+        await employee.destroy();
 
         res.status(200).json({ message: 'Employee deleted successfully' });
     } catch (error) {
@@ -182,26 +179,30 @@ const deleteEmployee = async (req, res) => {
     }
 };
 
-// controllers/taskController.js
+// Get employee tasks
 const getEmployeeTasks = async (req, res) => {
     try {
         const { employeeId } = req.body;
 
         // Check if the employee exists
-        const employee = await Employee.findById(employeeId);
+        const employee = await Employee.findByPk(employeeId);
         if (!employee) {
             return res.status(404).json({ message: 'Employee not found' });
         }
 
         // Fetch tasks where the employee is assigned
-        const tasks = await Task.find({
-            'assignedTo.userType': 'Employee',
-            'assignedTo.userId': employeeId
-        })
-        .populate('client', 'name')  // Populate client information
-        .populate('assignedTo.userId', 'name')  // Populate assigned user's information
-        .populate('parentTaskId')  // Optionally populate parent task if it exists
-        .sort({ createdAt: -1 });  // Sort by creation date, newest first
+        const tasks = await Task.findAll({
+            where: {
+                assignedToType: 'Employee',
+                assignedToId: employeeId
+            },
+            include: [{
+                model: Client,
+                as: 'client',
+                attributes: ['id', 'name']
+            }],
+            order: [['createdAt', 'DESC']]
+        });
 
         res.status(200).json({
             success: true,

@@ -1,15 +1,13 @@
-const { Client, TeamLeader } = require('../models/models');
+const { Client, TeamLeader, Task, sequelize } = require('../models/sequelizeModels');
 const { hashPassword, comparePasswords } = require('../utils/bcryptUtils');
 const { drive, getOrCreateFolder, updateFilePermissions } = require('../utils/googleDriveServices');
 const { generateToken } = require('../utils/jwtUtils');
-// const fs = require("fs");
-const fs = require("fs/promises"); // Use the promise-based API 
+const fs = require("fs/promises");
 
 const busboy = require('busboy');
 const { Readable } = require('stream');
-const mime = require('mime-types'); // Add this package for MIME type validation
+const mime = require('mime-types');
 const sendEmail = require('../utils/emailService');
-const mongoose = require('mongoose');
 
 
 const signupClient = async (req, res) => {
@@ -24,8 +22,8 @@ const signupClient = async (req, res) => {
             panNumber, 
             cinNumber,
             numberOfCompanies, 
-            spocName,           // Added SPOC Name
-            spocContact,        // Added SPOC Contact
+            spocName,
+            spocContact,
             authorizedSignatory, 
             ownerDirectorDetails, 
             website 
@@ -42,7 +40,7 @@ const signupClient = async (req, res) => {
         const password = `${companyName}@123`;
 
         // Check for existing client
-        const existingClient = await Client.findOne({ email });
+        const existingClient = await Client.findOne({ where: { email } });
         if (existingClient) {
             return res.status(409).json({ message: 'Email already in use' });
         }
@@ -51,7 +49,7 @@ const signupClient = async (req, res) => {
         const hashedPassword = await hashPassword(password);
 
         // Create new client
-        const client = new Client({ 
+        const client = await Client.create({ 
             name, 
             email, 
             password: hashedPassword, 
@@ -69,12 +67,10 @@ const signupClient = async (req, res) => {
             website 
         });
 
-        await client.save();
-
         res.status(201).json({
             message: 'Client registered successfully',
             client: {
-                id: client._id,
+                id: client.id,
                 name: client.name,
                 email: client.email,
                 companyName: client.companyName,
@@ -103,7 +99,7 @@ const loginClient = async (req, res) => {
         }
 
         // Find the client by email
-        const client = await Client.findOne({ email });
+        const client = await Client.findOne({ where: { email } });
         if (!client) {
             return res.status(404).json({ message: 'Client not found' });
         }
@@ -115,13 +111,13 @@ const loginClient = async (req, res) => {
         }
 
         // Generate a JWT token
-        const token = generateToken({ id: client._id, email: client.email, role: 'Client' });
+        const token = generateToken({ id: client.id, email: client.email, role: 'Client' });
 
         res.status(200).json({
             message: 'Login successful',
             token,
             client: {
-                id: client._id,
+                id: client.id,
                 name: client.name,
                 email: client.email,
                 companyName: client.companyName,
@@ -138,32 +134,26 @@ const loginClient = async (req, res) => {
 };
 
 const onboardClient = async (req, res) => {
-    let session;
+    const transaction = await sequelize.transaction();
     try {
         const { clientId, action, teamLeaderId } = req.body;
-        console.log('Received request:', { clientId, action, teamLeaderId }); // Log incoming request
+        console.log('Received request:', { clientId, action, teamLeaderId });
 
         // Validate required fields
         if (!clientId || !action || !['Accepted', 'Rejected'].includes(action)) {
+            await transaction.rollback();
             return res.status(400).json({
                 success: false,
                 message: 'Client ID and a valid action (Accepted or Rejected) are required.'
             });
         }
 
-        // Validate MongoDB ObjectId format
-        if (!mongoose.Types.ObjectId.isValid(clientId)) {
-            return res.status(400).json({
-                success: false,
-                message: 'Invalid client ID format'
-            });
-        }
-
         // Find the client
-        const client = await Client.findOne({ _id: clientId });
-        console.log('Found client:', client); // Log client data
+        const client = await Client.findByPk(clientId, { transaction });
+        console.log('Found client:', client);
 
         if (!client) {
+            await transaction.rollback();
             return res.status(404).json({
                 success: false,
                 message: 'Client not found'
@@ -172,6 +162,7 @@ const onboardClient = async (req, res) => {
 
         // Check client status
         if (client.status !== 'Requested') {
+            await transaction.rollback();
             return res.status(400).json({
                 success: false,
                 message: `Client has already been ${client.status.toLowerCase()}`
@@ -180,7 +171,8 @@ const onboardClient = async (req, res) => {
 
         if (action === 'Accepted') {
             // Validate teamLeaderId
-            if (!teamLeaderId || !mongoose.Types.ObjectId.isValid(teamLeaderId)) {
+            if (!teamLeaderId) {
+                await transaction.rollback();
                 return res.status(400).json({
                     success: false,
                     message: 'Valid Team Leader ID is required to accept the client.'
@@ -188,10 +180,11 @@ const onboardClient = async (req, res) => {
             }
 
             // Check if TeamLeader exists
-            const teamLeader = await TeamLeader.findById(teamLeaderId);
-            console.log('Found team leader:', teamLeader); // Log team leader data
+            const teamLeader = await TeamLeader.findByPk(teamLeaderId, { transaction });
+            console.log('Found team leader:', teamLeader);
 
             if (!teamLeader) {
+                await transaction.rollback();
                 return res.status(404).json({
                     success: false,
                     message: 'Team Leader not found'
@@ -203,17 +196,12 @@ const onboardClient = async (req, res) => {
                 const defaultPassword = `${client.companyName.replace(/\s+/g, '')}@123`;
                 const hashedPassword = await hashPassword(defaultPassword);
 
-                // Update client without transaction first
-                client.status = 'Accepted';
-                client.teamLeader = teamLeaderId;
-                client.password = hashedPassword;
-                await client.save();
-
-                // Update TeamLeader
-                await TeamLeader.findByIdAndUpdate(
-                    teamLeaderId,
-                    { $addToSet: { clients: clientId } }
-                );
+                // Update client
+                await client.update({
+                    status: 'Accepted',
+                    teamLeaderId: teamLeaderId,
+                    password: hashedPassword
+                }, { transaction });
 
                 // Send onboarding email
                 try {
@@ -234,21 +222,22 @@ const onboardClient = async (req, res) => {
                     });
                 } catch (emailError) {
                     console.error('Error sending onboarding email:', emailError);
-                    // Continue process but log error
                 }
+
+                await transaction.commit();
 
                 // Send success response
                 return res.status(200).json({
                     success: true,
                     message: 'Client accepted successfully',
                     data: {
-                        id: client._id,
+                        id: client.id,
                         name: client.name,
                         email: client.email,
                         companyName: client.companyName,
-                        status: client.status,
+                        status: 'Accepted',
                         teamLeader: {
-                            id: teamLeader._id,
+                            id: teamLeader.id,
                             name: teamLeader.name,
                             email: teamLeader.email,
                             phone: teamLeader.phone
@@ -257,6 +246,7 @@ const onboardClient = async (req, res) => {
                 });
 
             } catch (error) {
+                await transaction.rollback();
                 console.error('Error in update process:', error);
                 return res.status(500).json({
                     success: false,
@@ -264,10 +254,18 @@ const onboardClient = async (req, res) => {
                     error: process.env.NODE_ENV === 'development' ? error.message : undefined
                 });
             }
+        } else if (action === 'Rejected') {
+            await client.update({ status: 'Rejected' }, { transaction });
+            await transaction.commit();
+            return res.status(200).json({
+                success: true,
+                message: 'Client rejected successfully',
+                data: { id: client.id, status: 'Rejected' }
+            });
         }
-        // ... rest of the code for rejection case
 
     } catch (error) {
+        await transaction.rollback();
         console.error('Error in onboarding process:', error);
         return res.status(500).json({
             success: false,
@@ -288,22 +286,22 @@ const getClientDetails = async (req, res) => {
             });
         }
 
-        // Find client and populate both teamLeader and tasks
-        const client = await Client.findById(clientId)
-            .populate({
-                path: 'teamLeader',
-                select: 'name email phone'
-            })
-            .populate({
-                path: 'tasks',
-                select: 'title description status dueDate priority createdAt updatedAt assignedTo',
-                populate: {
-                    path: 'assignedTo',
-                    select: 'name email phone'
+        // Find client with associations
+        const client = await Client.findByPk(clientId, {
+            include: [
+                {
+                    model: TeamLeader,
+                    as: 'teamLeader',
+                    attributes: ['id', 'name', 'email', 'phone']
+                },
+                {
+                    model: Task,
+                    as: 'tasks',
+                    attributes: ['id', 'title', 'description', 'status', 'dueDate', 'priority', 'createdAt', 'updatedAt']
                 }
-            })
-            .select('-password')
-            .lean();
+            ],
+            attributes: { exclude: ['password'] }
+        });
 
         if (!client) {
             return res.status(404).json({
@@ -314,76 +312,39 @@ const getClientDetails = async (req, res) => {
 
         // Organize the response data
         const clientData = {
-            // Basic Information
-            _id: client._id,
+            id: client.id,
             name: client.name,
             email: client.email,
             contactNumber: client.contactNumber,
             status: client.status,
-
-            // Company Information
             companyName: client.companyName,
             corporateAddress: client.corporateAddress,
             website: client.website,
             numberOfCompanies: client.numberOfCompanies,
-
-            // Registration Numbers
             gstNumber: client.gstNumber,
             panNumber: client.panNumber,
             cinNumber: client.cinNumber,
-
-            // SPOC Information
             spocName: client.spocName,
             spocContact: client.spocContact,
-
-            // Key Personnel
-            authorizedSignatory: {
-                name: client.authorizedSignatory?.name || null,
-                email: client.authorizedSignatory?.email || null,
-                contact: client.authorizedSignatory?.contact || null
-            },
-
-            // Owner/Director Details
+            authorizedSignatory: client.authorizedSignatory || { name: null, email: null, contact: null },
             ownerDirectorDetails: client.ownerDirectorDetails || [],
-
-            // Documents
-            documents: {
-                employeeMasterDatabase: client.documents?.employeeMasterDatabase || null,
-                currentSalaryStructure: client.documents?.currentSalaryStructure || null,
-                previousSalarySheets: client.documents?.previousSalarySheets || null,
-                currentHRPolicies: client.documents?.currentHRPolicies || null,
-                leaveBalance: client.documents?.leaveBalance || null,
-                companyLogo: client.documents?.companyLogo || null,
-                letterhead: client.documents?.letterhead || null
-            },
-
-            // Team Leader Information
+            documents: client.documents || {},
             teamLeader: client.teamLeader ? {
-                _id: client.teamLeader._id,
+                id: client.teamLeader.id,
                 name: client.teamLeader.name,
                 email: client.teamLeader.email,
                 phone: client.teamLeader.phone
             } : null,
-
-            // Tasks Information
             tasks: client.tasks ? client.tasks.map(task => ({
-                _id: task._id,
+                id: task.id,
                 title: task.title,
                 description: task.description,
                 status: task.status,
                 priority: task.priority,
                 dueDate: task.dueDate,
-                assignedTo: task.assignedTo ? {
-                    _id: task.assignedTo._id,
-                    name: task.assignedTo.name,
-                    email: task.assignedTo.email,
-                    phone: task.assignedTo.phone
-                } : null,
                 createdAt: task.createdAt,
                 updatedAt: task.updatedAt
             })) : [],
-
-            // Timestamps
             createdAt: client.createdAt,
             updatedAt: client.updatedAt
         };
@@ -406,10 +367,15 @@ const getClientDetails = async (req, res) => {
 
 const getAllClients = async (req, res) => {
     try {
-        const clients = await Client.find()
-            .populate('teamLeader', 'name email phone')
-            .select('name email companyName corporateAddress contactNumber gstNumber panNumber cinNumber spocName spocContact status teamLeader createdAt')
-            .sort({ createdAt: -1 });
+        const clients = await Client.findAll({
+            include: [{
+                model: TeamLeader,
+                as: 'teamLeader',
+                attributes: ['id', 'name', 'email', 'phone']
+            }],
+            attributes: ['id', 'name', 'email', 'companyName', 'corporateAddress', 'contactNumber', 'gstNumber', 'panNumber', 'cinNumber', 'spocName', 'spocContact', 'status', 'createdAt'],
+            order: [['createdAt', 'DESC']]
+        });
 
         res.status(200).json({
             success: true,
@@ -453,42 +419,47 @@ const editClient = async (req, res) => {
             return res.status(400).json({ message: 'Client ID is required' });
         }
 
-        const client = await Client.findById(clientId);
+        const client = await Client.findByPk(clientId);
         if (!client) {
             return res.status(404).json({ message: 'Client not found' });
         }
 
-        // Update fields if provided
-        if (name) client.name = name;
-        if (password) client.password = await hashPassword(password);
-        if (companyName) client.companyName = companyName;
-        if (corporateAddress) client.corporateAddress = corporateAddress;
-        if (contactNumber) client.contactNumber = contactNumber;
-        if (gstNumber) client.gstNumber = gstNumber;
-        if (panNumber) client.panNumber = panNumber;
-        if (cinNumber) client.cinNumber = cinNumber;
-        if (numberOfCompanies !== undefined) client.numberOfCompanies = numberOfCompanies;
-        if (spocName) client.spocName = spocName;
-        if (spocContact) client.spocContact = spocContact;
-        if (website) client.website = website;
+        // Build update object
+        const updateData = {};
+        if (name) updateData.name = name;
+        if (password) updateData.password = await hashPassword(password);
+        if (companyName) updateData.companyName = companyName;
+        if (corporateAddress) updateData.corporateAddress = corporateAddress;
+        if (contactNumber) updateData.contactNumber = contactNumber;
+        if (gstNumber) updateData.gstNumber = gstNumber;
+        if (panNumber) updateData.panNumber = panNumber;
+        if (cinNumber) updateData.cinNumber = cinNumber;
+        if (numberOfCompanies !== undefined) updateData.numberOfCompanies = numberOfCompanies;
+        if (spocName) updateData.spocName = spocName;
+        if (spocContact) updateData.spocContact = spocContact;
+        if (website) updateData.website = website;
 
         if (authorizedSignatory) {
-            if (authorizedSignatory.name) client.authorizedSignatory.name = authorizedSignatory.name;
-            if (authorizedSignatory.email) client.authorizedSignatory.email = authorizedSignatory.email;
-            if (authorizedSignatory.contact) client.authorizedSignatory.contact = authorizedSignatory.contact;
+            const currentSignatory = client.authorizedSignatory || {};
+            updateData.authorizedSignatory = {
+                ...currentSignatory,
+                ...(authorizedSignatory.name && { name: authorizedSignatory.name }),
+                ...(authorizedSignatory.email && { email: authorizedSignatory.email }),
+                ...(authorizedSignatory.contact && { contact: authorizedSignatory.contact })
+            };
         }
 
         if (Array.isArray(ownerDirectorDetails) && ownerDirectorDetails.length > 0) {
-            client.ownerDirectorDetails = ownerDirectorDetails;
+            updateData.ownerDirectorDetails = ownerDirectorDetails;
         }
 
-        await client.save();
+        await client.update(updateData);
 
         res.status(200).json({
             success: true,
             message: 'Client updated successfully',
             data: {
-                id: client._id,
+                id: client.id,
                 name: client.name,
                 email: client.email,
                 companyName: client.companyName,
@@ -518,17 +489,16 @@ const deleteClient = async (req, res) => {
     try {
         const { clientId } = req.body;
 
-        // Validate client ID
         if (!clientId) {
             return res.status(400).json({ message: 'Client ID is required' });
         }
 
-        // Find and delete the client by ID
-        const client = await Client.findByIdAndDelete(clientId);
+        const client = await Client.findByPk(clientId);
         if (!client) {
             return res.status(404).json({ message: 'Client not found' });
         }
 
+        await client.destroy();
         res.status(200).json({ message: 'Client deleted successfully' });
     } catch (error) {
         console.error('Error deleting client:', error);
@@ -542,23 +512,21 @@ const getClientsForTeamLeader = async (req, res) => {
     try {
         const { teamLeaderId } = req.body;
 
-        // Validate the input
         if (!teamLeaderId) {
             return res.status(400).json({ message: 'Team Leader ID is required.' });
         }
 
-        // Fetch clients associated with the team leader and with status 'Accepted'
-        const clients = await Client.find({
-            teamLeader: teamLeaderId,
-            status: 'Accepted'
+        const clients = await Client.findAll({
+            where: {
+                teamLeaderId: teamLeaderId,
+                status: 'Accepted'
+            }
         });
 
-        // Check if no clients are found
         if (!clients || clients.length === 0) {
             return res.status(404).json({ message: 'No clients found for this team leader.' });
         }
 
-        // Return the list of clients
         res.status(200).json({
             message: 'Clients fetched successfully',
             clients
@@ -617,7 +585,7 @@ const uploadDocuments = async (req, res) => {
                 if (name === 'clientId') {
                     try {
                         clientId = value;
-                        client = await Client.findById(clientId);
+                        client = await Client.findByPk(clientId);
                         if (!client) {
                             throw new Error('Client not found');
                         }
@@ -706,11 +674,14 @@ const uploadDocuments = async (req, res) => {
 
                     const results = await Promise.all(filePromises);
 
-                    client.documents = {
-                        ...client.documents,
-                        ...uploadedFiles
-                    };
-                    await client.save();
+                    // Update client documents
+                    const currentDocs = client.documents || {};
+                    await client.update({
+                        documents: {
+                            ...currentDocs,
+                            ...uploadedFiles
+                        }
+                    });
 
                     console.log('\n📊 Final Document Structure:');
                     console.log(JSON.stringify(client.documents, null, 2));
@@ -770,7 +741,7 @@ const getClientDocuments = async (req, res) => {
             return res.status(400).json({ message: 'Client ID is required' });
         }
 
-        const client = await Client.findById(clientId);
+        const client = await Client.findByPk(clientId);
         if (!client) {
             return res.status(404).json({ message: 'Client not found' });
         }
@@ -786,10 +757,11 @@ const getClientDocuments = async (req, res) => {
         ];
 
         const documentDetails = {};
+        const clientDocs = client.documents || {};
 
         // Get details for each document
         for (const docType of documentTypes) {
-            const fileId = client.documents[docType];
+            const fileId = clientDocs[docType];
             if (fileId) {
                 try {
                     const fileMetadata = await drive.files.get({

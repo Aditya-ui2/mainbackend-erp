@@ -1,6 +1,6 @@
 // controllers/superAdminController.js
 
-const { SuperAdmin } = require('../models/models');
+const { SuperAdmin } = require('../models/sequelizeModels');
 const { comparePasswords, hashPassword } = require('../utils/bcryptUtils');
 const { getOrCreateFolder, uploadFileToDrive, getFileLink, deleteFile } = require('../utils/googleDriveServices');
 const { generateToken } = require('../utils/jwtUtils');
@@ -18,7 +18,7 @@ const loginSuperAdmin = async (req, res) => {
         }
 
         // Find SuperAdmin by email
-        const superAdmin = await SuperAdmin.findOne({ email });
+        const superAdmin = await SuperAdmin.findOne({ where: { email } });
         if (!superAdmin) {
             return res.status(404).json({ message: 'SuperAdmin not found' });
         }
@@ -30,13 +30,13 @@ const loginSuperAdmin = async (req, res) => {
         }
 
         // Generate JWT token
-        const token = generateToken({ id: superAdmin._id, email: superAdmin.email, role: 'SuperAdmin' });
+        const token = generateToken({ id: superAdmin.id, email: superAdmin.email, role: 'SuperAdmin' });
 
         res.status(200).json({
             message: 'Login successful',
             token,
             superAdmin: {
-                id: superAdmin._id,
+                id: superAdmin.id,
                 name: superAdmin.name,
                 email: superAdmin.email
             }
@@ -58,7 +58,7 @@ const editSuperAdmin = async (req, res) => {
         }
 
         // Find SuperAdmin by ID
-        const superAdmin = await SuperAdmin.findById(superAdminId);
+        const superAdmin = await SuperAdmin.findByPk(superAdminId);
         if (!superAdmin) {
             return res.status(404).json({ message: 'SuperAdmin not found' });
         }
@@ -76,7 +76,7 @@ const editSuperAdmin = async (req, res) => {
         res.status(200).json({
             message: 'SuperAdmin updated successfully',
             superAdmin: {
-                id: superAdmin._id,
+                id: superAdmin.id,
                 name: superAdmin.name,
                 email: superAdmin.email
             }

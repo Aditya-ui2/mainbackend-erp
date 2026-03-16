@@ -1,6 +1,7 @@
 // controllers/adminController.js
 
-const { Admin } = require('../models/models');
+const { Admin, TeamLeader, Employee } = require('../models/sequelizeModels');
+const { Op } = require('sequelize');
 const { hashPassword, comparePasswords } = require('../utils/bcryptUtils');
 const { generateToken } = require('../utils/jwtUtils');
 const crypto = require('crypto');
@@ -18,7 +19,7 @@ const createAdmin = async (req, res) => {
         }
 
         // Check if the email is already taken by another Admin
-        const existingAdmin = await Admin.findOne({ email });
+        const existingAdmin = await Admin.findOne({ where: { email } });
         if (existingAdmin) {
             return res.status(409).json({ message: 'Email already in use' });
         }
@@ -27,14 +28,11 @@ const createAdmin = async (req, res) => {
         const hashedPassword = await hashPassword(defaultPassword);
 
         // Create the new Admin
-        const admin = new Admin({
+        const admin = await Admin.create({
             name,
             email,
             password: hashedPassword
         });
-
-        // Save the Admin to the database
-        await admin.save();
 
         // Send welcome email to admin
         const emailContent = `
@@ -79,7 +77,7 @@ const createAdmin = async (req, res) => {
         res.status(201).json({
             message: 'Admin created successfully',
             admin: {
-                id: admin._id,
+                id: admin.id,
                 name: admin.name,
                 email: admin.email
             }
@@ -100,7 +98,7 @@ const loginAdmin = async (req, res) => {
         }
 
         // Find the Admin by email
-        const admin = await Admin.findOne({ email });
+        const admin = await Admin.findOne({ where: { email } });
         if (!admin) {
             return res.status(404).json({ message: 'Admin not found' });
         }
@@ -112,13 +110,13 @@ const loginAdmin = async (req, res) => {
         }
 
         // Generate a JWT token
-        const token = generateToken({ id: admin._id, email: admin.email, role: 'Admin' });
+        const token = generateToken({ id: admin.id, email: admin.email, role: 'Admin' });
 
         res.status(200).json({
             message: 'Login successful',
             token,
             admin: {
-                id: admin._id,
+                id: admin.id,
                 name: admin.name,
                 email: admin.email
             }
@@ -140,7 +138,7 @@ const editAdmin = async (req, res) => {
         }
 
         // Find the Admin by ID
-        const admin = await Admin.findById(adminId);
+        const admin = await Admin.findByPk(adminId);
         if (!admin) {
             return res.status(404).json({ message: 'Admin not found' });
         }
@@ -158,7 +156,7 @@ const editAdmin = async (req, res) => {
         res.status(200).json({
             message: 'Admin updated successfully',
             admin: {
-                id: admin._id,
+                id: admin.id,
                 name: admin.name,
                 email: admin.email
             }
@@ -177,12 +175,12 @@ const deleteAdmin = async (req, res) => {
             return res.status(400).json({ message: 'Admin ID is required' });
         }
 
-        const admin = await Admin.findById(adminId);
+        const admin = await Admin.findByPk(adminId);
         if (!admin) {
             return res.status(404).json({ message: 'Admin not found' });
         }
 
-        await Admin.findByIdAndDelete(adminId);
+        await admin.destroy();
 
         res.status(200).json({ message: 'Admin deleted successfully' });
     } catch (error) {
@@ -201,17 +199,20 @@ const getAdminHierarchy = async (req, res) => {
             return res.status(400).json({ message: 'Admin ID is required' });
         }
 
-        // Find the admin by ID and populate their team leaders and their employees
-        const adminHierarchy = await Admin.findById(adminId)
-            .populate({
-                path: 'teamLeaders', // Populate teamLeaders under admin
-                populate: {
-                    path: 'employees', // Populate employees under each team leader
-                    select: 'name email' // Optional: Select specific fields of employees to return
-                },
-                select: 'name email' // Optional: Select specific fields of team leaders to return
-            })
-            .select('name email'); // Optional: Select specific fields of admin to return
+        // Find the admin by ID and include their team leaders and their employees
+        const adminHierarchy = await Admin.findByPk(adminId, {
+            attributes: ['id', 'name', 'email'],
+            include: [{
+                model: TeamLeader,
+                as: 'teamLeaders',
+                attributes: ['id', 'name', 'email'],
+                include: [{
+                    model: Employee,
+                    as: 'employees',
+                    attributes: ['id', 'name', 'email']
+                }]
+            }]
+        });
 
         // Check if admin exists
         if (!adminHierarchy) {
@@ -238,7 +239,7 @@ const updateAdminPassword = async (req, res) => {
         }
 
         // Validate admin existence
-        const admin = await Admin.findById(adminId);
+        const admin = await Admin.findByPk(adminId);
         if (!admin) {
             return res.status(404).json({ message: 'Admin not found' });
         }
@@ -268,13 +269,13 @@ const forgotPassword = async (req, res) => {
             return res.status(400).json({ message: 'Email is required' });
         }
 
-        const admin = await Admin.findOne({ email });
+        const admin = await Admin.findOne({ where: { email } });
         if (!admin) {
             return res.status(404).json({ message: 'No admin found with this email' });
         }
 
         const resetToken = admin.createPasswordResetToken();
-        await admin.save({ validateBeforeSave: false });
+        await admin.save();
 
         const resetURL = `https://mab-erp.vercel.app/reset-password/${resetToken}`;
 
@@ -317,9 +318,9 @@ const forgotPassword = async (req, res) => {
                 message: 'Password reset instructions sent to email!'
             });
         } catch (err) {
-            admin.resetPasswordToken = undefined;
-            admin.resetPasswordExpires = undefined;
-            await admin.save({ validateBeforeSave: false });
+            admin.resetPasswordToken = null;
+            admin.resetPasswordExpires = null;
+            await admin.save();
 
             console.error('Email sending error:', err);
             return res.status(500).json({
@@ -353,8 +354,10 @@ const resetPassword = async (req, res) => {
 
         // Find admin with valid token
         const admin = await Admin.findOne({
-            resetPasswordToken: hashedToken,
-            resetPasswordExpires: { $gt: Date.now() }
+            where: {
+                resetPasswordToken: hashedToken,
+                resetPasswordExpires: { [Op.gt]: new Date() }
+            }
         });
 
         if (!admin) {
@@ -368,14 +371,14 @@ const resetPassword = async (req, res) => {
 
         // Update admin's password and clear reset token fields
         admin.password = newHashedPassword;
-        admin.resetPasswordToken = undefined;
-        admin.resetPasswordExpires = undefined;
+        admin.resetPasswordToken = null;
+        admin.resetPasswordExpires = null;
 
         await admin.save();
 
         // Generate new login token
         const loginToken = generateToken({
-            id: admin._id,
+            id: admin.id,
             email: admin.email,
             role: 'Admin'
         });

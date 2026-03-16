@@ -1,7 +1,8 @@
 
-const { RequestTask, Task, TeamLeader, Employee, Client, RecurringTask } = require('../models/models');
+const { RequestTask, Task, TeamLeader, Employee, Client, RecurringTask, sequelize } = require('../models/sequelizeModels');
 const { addNotification } = require('./notification');
 const { scheduleCronJob, cronJobs } = require('./task_cron');
+const { Op } = require('sequelize');
 
 
 
@@ -45,18 +46,15 @@ const requestTask = async (req, res) => {
         }
 
         // Create the requested task
-        const newRequestTask = new RequestTask({
+        const newRequestTask = await RequestTask.create({
             title,
             description,
-            client: clientId,
+            clientId: clientId,
             category,
-            frequency: category === 'Frequency' ? frequency : null, // Set frequency only for Frequency tasks
-            dueDate: category === 'Deadline' ? new Date(dueDate) : null, // Set dueDate only for Deadline tasks
+            frequency: category === 'Frequency' ? frequency : null,
+            dueDate: category === 'Deadline' ? new Date(dueDate) : null,
             priority,
         });
-
-        // Save the task to the database
-        await newRequestTask.save();
 
         res.status(201).json({
             message: 'Task requested successfully.',
@@ -81,7 +79,7 @@ const getRequestedTasksForTeamLeader = async (req, res) => {
         }
 
         // Find all clients connected to the Team Leader
-        const clients = await Client.find({ teamLeader: teamLeaderId });
+        const clients = await Client.findAll({ where: { teamLeaderId: teamLeaderId } });
 
         // If no clients are found, return an appropriate message
         if (!clients.length) {
@@ -89,12 +87,18 @@ const getRequestedTasksForTeamLeader = async (req, res) => {
         }
 
         // Extract client IDs
-        const clientIds = clients.map(client => client._id);
+        const clientIds = clients.map(client => client.id);
 
         // Find all requested tasks for the clients managed by this Team Leader
-        const requestedTasks = await RequestTask.find({ client: { $in: clientIds } })
-            .populate('client', 'name email companyName contactNumber') // Populate client details
-            .sort({ createdAt: -1 }); // Optional: Sort by creation date, most recent first
+        const requestedTasks = await RequestTask.findAll({
+            where: { clientId: { [Op.in]: clientIds } },
+            include: [{
+                model: Client,
+                as: 'client',
+                attributes: ['id', 'name', 'email', 'companyName', 'contactNumber']
+            }],
+            order: [['createdAt', 'DESC']]
+        });
 
         // Check if there are any requested tasks
         if (!requestedTasks.length) {
@@ -126,42 +130,32 @@ const acceptTask = async (requestedTask, assignedUserId, assignedUserType) => {
     }
 
     // Get client details to fetch teamLeaderId
-    const client = await Client.findById(requestedTask.client);
+    const client = await Client.findByPk(requestedTask.clientId);
     if (!client) {
         throw new Error('Client not found');
     }
 
-    if (!client.teamLeader) {
+    if (!client.teamLeaderId) {
         throw new Error('No team leader assigned to this client');
     }
 
-    const teamLeaderId = client.teamLeader;
+    const teamLeaderId = client.teamLeaderId;
 
     if (requestedTask.category === 'Deadline') {
-        const newTask = new Task({
+        const newTask = await Task.create({
             title: requestedTask.title,
             description: requestedTask.description,
             status: 'Active',
             category: 'Deadline',
-            client: requestedTask.client,
+            clientId: requestedTask.clientId,
             assignedTo: {
                 userType: assignedUserType,
                 userId: assignedUserId
             },
             dueDate: requestedTask.dueDate,
             priority: requestedTask.priority,
-            parentTaskId: requestedTask._id
+            parentTaskId: requestedTask.id
         });
-
-        await newTask.save();
-
-        await Promise.all([
-            Client.findByIdAndUpdate(requestedTask.client, { $push: { tasks: newTask._id } }),
-            TeamLeader.findByIdAndUpdate(teamLeaderId, { $push: { tasks: newTask._id } }),
-            ...(assignedUserType === 'Employee'
-                ? [Employee.findByIdAndUpdate(assignedUserId, { $push: { tasks: newTask._id } })]
-                : [])
-        ]);
 
         try {
             const formattedDueDate = new Date(requestedTask.dueDate).toLocaleDateString();
@@ -174,17 +168,16 @@ const acceptTask = async (requestedTask, assignedUserId, assignedUserType) => {
             );
         } catch (notificationError) {
             console.error('Error sending notification:', notificationError);
-            // Continue with the function even if notification fails
         }
 
         return newTask;
     }
 
     if (requestedTask.category === 'Frequency') {
-        const newRecurringTask = new RecurringTask({
+        const newRecurringTask = await RecurringTask.create({
             title: requestedTask.title,
             description: requestedTask.description,
-            client: requestedTask.client,
+            clientId: requestedTask.clientId,
             frequency: requestedTask.frequency,
             assignedTo: {
                 userType: assignedUserType,
@@ -194,9 +187,8 @@ const acceptTask = async (requestedTask, assignedUserId, assignedUserType) => {
             active: true
         });
 
-        const savedRecurringTask = await newRecurringTask.save();
-        await scheduleCronJob(savedRecurringTask, teamLeaderId); // Passing teamLeaderId to scheduleCronJob
-        return savedRecurringTask;
+        await scheduleCronJob(newRecurringTask, teamLeaderId);
+        return newRecurringTask;
     }
 
     throw new Error('Invalid category. Only "Deadline" and "Frequency" tasks are supported.');
@@ -208,9 +200,10 @@ const rejectTask = async (requestedTask, rejectionReason) => {
         throw new Error('Rejection reason is required.');
     }
 
-    requestedTask.status = 'Rejected';
-    requestedTask.rejectionReason = rejectionReason;
-    await requestedTask.save();
+    await requestedTask.update({
+        status: 'Rejected',
+        rejectionReason: rejectionReason
+    });
 
     return requestedTask;
 };
@@ -226,7 +219,7 @@ const acceptOrRejectTask = async (req, res) => {
         }
 
         // Find the requested task
-        const requestedTask = await RequestTask.findById(requestedTaskId);
+        const requestedTask = await RequestTask.findByPk(requestedTaskId);
         if (!requestedTask) {
             return res.status(404).json({ message: 'Requested task not found.' });
         }
@@ -237,8 +230,7 @@ const acceptOrRejectTask = async (req, res) => {
 
         if (action === 'accept') {
             const result = await acceptTask(requestedTask, assignedUserId, assignedUserType);
-            requestedTask.status = 'Accepted';
-            await requestedTask.save();
+            await requestedTask.update({ status: 'Accepted' });
 
             return res.status(201).json({
                 message: 'Task accepted successfully.',
@@ -282,20 +274,20 @@ const createTaskByTL = async (req, res) => {
         }
 
         // Get client details to fetch teamLeaderId
-        const client = await Client.findById(clientId);
+        const client = await Client.findByPk(clientId);
         if (!client) {
             return res.status(404).json({
                 message: 'Client not found'
             });
         }
 
-        if (!client.teamLeader) {
+        if (!client.teamLeaderId) {
             return res.status(400).json({
                 message: 'No team leader assigned to this client'
             });
         }
 
-        const teamLeaderId = client.teamLeader;
+        const teamLeaderId = client.teamLeaderId;
 
         if (category === 'Frequency' && !frequency) {
             return res.status(400).json({
@@ -316,11 +308,11 @@ const createTaskByTL = async (req, res) => {
         }
 
         if (category === 'Deadline') {
-            const newTask = new Task({
+            const newTask = await Task.create({
                 title,
                 description,
                 category,
-                client: clientId,
+                clientId: clientId,
                 assignedTo: {
                     userType: assignedUserType,
                     userId: assignedUserId
@@ -329,16 +321,6 @@ const createTaskByTL = async (req, res) => {
                 priority,
                 status: 'Active'
             });
-
-            await newTask.save();
-
-            await Promise.all([
-                Client.findByIdAndUpdate(clientId, { $push: { tasks: newTask._id } }),
-                TeamLeader.findByIdAndUpdate(teamLeaderId, { $push: { tasks: newTask._id } }),
-                ...(assignedUserType === 'Employee'
-                    ? [Employee.findByIdAndUpdate(assignedUserId, { $push: { tasks: newTask._id } })]
-                    : [])
-            ]);
 
             try {
                 const formattedDueDate = new Date(dueDate).toLocaleDateString();
@@ -351,7 +333,6 @@ const createTaskByTL = async (req, res) => {
                 );
             } catch (notificationError) {
                 console.error('Error sending notification:', notificationError);
-                // Continue with the function even if notification fails
             }
 
             return res.status(201).json({
@@ -361,10 +342,10 @@ const createTaskByTL = async (req, res) => {
         }
 
         if (category === 'Frequency') {
-            const newRecurringTask = new RecurringTask({
+            const newRecurringTask = await RecurringTask.create({
                 title,
                 description,
-                client: clientId,
+                clientId: clientId,
                 frequency,
                 assignedTo: {
                     userType: assignedUserType,
@@ -374,12 +355,11 @@ const createTaskByTL = async (req, res) => {
                 active: true
             });
 
-            const savedRecurringTask = await newRecurringTask.save();
-            await scheduleCronJob(savedRecurringTask);
+            await scheduleCronJob(newRecurringTask);
 
             return res.status(201).json({
                 message: 'Frequency task created successfully and scheduled.',
-                recurringTask: savedRecurringTask
+                recurringTask: newRecurringTask
             });
         }
 
@@ -405,45 +385,13 @@ const deleteTask = async (req, res) => {
         }
 
         // Find the task by ID
-        const task = await Task.findById(taskId);
+        const task = await Task.findByPk(taskId);
         if (!task) {
             return res.status(404).json({ message: 'Task not found.' });
         }
 
-        const updatePromises = [];
-
-        // Remove the task ID from the associated team leader's tasks array
-        if (task.teamLeader) {
-            updatePromises.push(
-                TeamLeader.findByIdAndUpdate(task.teamLeader, { $pull: { tasks: taskId } })
-            );
-        }
-
-        // Remove the task ID from the assigned employees' tasks arrays
-        if (task.assignedEmployees && Array.isArray(task.assignedEmployees)) {
-            const employeeIds = task.assignedEmployees
-                .filter(emp => emp.userType === 'Employee')
-                .map(emp => emp.userId);
-
-            if (employeeIds.length > 0) {
-                updatePromises.push(
-                    Employee.updateMany({ _id: { $in: employeeIds } }, { $pull: { tasks: taskId } })
-                );
-            }
-        }
-
-        // Remove the task ID from the associated client's tasks array (if a client is linked)
-        if (task.client) {
-            updatePromises.push(
-                Client.findByIdAndUpdate(task.client, { $pull: { tasks: taskId } })
-            );
-        }
-
-        // Wait for all updates to complete
-        await Promise.all(updatePromises);
-
         // Delete the task from the database
-        await Task.findByIdAndDelete(taskId);
+        await task.destroy();
 
         res.status(200).json({ message: 'Task deleted successfully.' });
     } catch (error) {
@@ -469,20 +417,17 @@ const updateTaskStatus = async (req, res) => {
             return res.status(400).json({ message: 'Invalid task status provided.' });
         }
 
-        // Update the task status and return the updated document
-        const updatedTask = await Task.findByIdAndUpdate(
-            taskId,
-            { status, updatedAt: new Date() }, // Update status and timestamp
-            { new: true } // Returns the updated document
-        )
-
-        if (!updatedTask) {
+        // Find and update the task
+        const task = await Task.findByPk(taskId);
+        if (!task) {
             return res.status(404).json({ message: 'Task not found.' });
         }
 
+        await task.update({ status });
+
         res.status(200).json({
             message: 'Task status updated successfully.',
-            task: updatedTask
+            task
         });
     } catch (error) {
         console.error('Error updating task status:', error);
@@ -495,10 +440,14 @@ const updateTaskStatus = async (req, res) => {
 const getAllTasks = async (req, res) => {
     try {
         // Fetch all tasks from the database
-        const tasks = await Task.find()
-            .populate('client', 'name email companyName') // Populate client details
-            .populate('assignedTo.userId', 'name email') // Populate assigned user details
-            .sort({ createdAt: -1 }); // Sort by creation date (newest first)
+        const tasks = await Task.findAll({
+            include: [{
+                model: Client,
+                as: 'client',
+                attributes: ['id', 'name', 'email', 'companyName']
+            }],
+            order: [['createdAt', 'DESC']]
+        });
 
         if (!tasks.length) {
             return res.status(404).json({ message: 'No tasks found.' });
@@ -526,17 +475,21 @@ const getClientTasks = async (req, res) => {
         }
 
         // Validate if the client exists
-        const client = await Client.findById(clientId);
+        const client = await Client.findByPk(clientId);
         if (!client) {
             return res.status(404).json({ message: 'Client not found.' });
         }
 
         // Fetch tasks associated with the client
-        const tasks = await Task.find({ client: clientId })
-            .populate('client', 'name email companyName') // Populate client details
-            .populate('teamLeader', 'name email') // Populate team leader details
-            .populate('assignedEmployees.userId', 'name email') // Populate assigned employees/teams
-            .sort({ createdAt: -1 }); // Sort tasks by creation date (newest first)
+        const tasks = await Task.findAll({
+            where: { clientId: clientId },
+            include: [{
+                model: Client,
+                as: 'client',
+                attributes: ['id', 'name', 'email', 'companyName']
+            }],
+            order: [['createdAt', 'DESC']]
+        });
 
         // Respond with the tasks
         res.status(200).json({
@@ -558,11 +511,19 @@ const getTasksByAssignedUser = async (req, res) => {
             return res.status(400).json({ message: 'User ID is required.' });
         }
 
-        // Find tasks assigned to the specific userId
-        const tasks = await Task.find({ 'assignedTo.userId': userId })
-            .populate('client', 'name email companyName') // Populate client details
-            .populate('assignedTo.userId', 'name email') // Populate assigned user details
-            .sort({ createdAt: -1 }); // Sort tasks by creation date (newest first)
+        // Find tasks assigned to the specific userId (using JSONB query)
+        const tasks = await Task.findAll({
+            where: sequelize.where(
+                sequelize.fn('jsonb_extract_path_text', sequelize.col('assignedTo'), 'userId'),
+                userId
+            ),
+            include: [{
+                model: Client,
+                as: 'client',
+                attributes: ['id', 'name', 'email', 'companyName']
+            }],
+            order: [['createdAt', 'DESC']]
+        });
 
         if (!tasks.length) {
             return res.status(404).json({ message: 'No tasks found for the specified user.' });
@@ -582,11 +543,14 @@ const getTasksByAssignedUser = async (req, res) => {
 
 const getAllRecurringTasks = async (req, res) => {
     try {
-       
-        const recurringTasks = await RecurringTask.find()
-            .populate('client', 'name email companyName')
-            .populate('assignedTo.userId', 'name email')
-            .sort({ createdAt: -1 });
+        const recurringTasks = await RecurringTask.findAll({
+            include: [{
+                model: Client,
+                as: 'client',
+                attributes: ['id', 'name', 'email', 'companyName']
+            }],
+            order: [['createdAt', 'DESC']]
+        });
 
         res.status(200).json({
             message: recurringTasks.length ? 'Recurring tasks fetched successfully.' : 'No recurring tasks found.',
@@ -615,7 +579,7 @@ const getRecurringTasksByClient = async (req, res) => {
         }
 
         // Verify client exists
-        const clientExists = await Client.exists({ _id: clientId });
+        const clientExists = await Client.findByPk(clientId);
         if (!clientExists) {
             return res.status(404).json({ 
                 message: 'Client not found.',
@@ -623,16 +587,21 @@ const getRecurringTasksByClient = async (req, res) => {
             });
         }
 
-        // Add filters
-        const filter = { client: clientId };
+        // Build filter
+        const whereClause = { clientId: clientId };
         if (req.query.active !== undefined) {
-            filter.active = req.query.active === 'true';
+            whereClause.active = req.query.active === 'true';
         }
 
-        const recurringTasks = await RecurringTask.find(filter)
-            .populate('client', 'name email companyName')
-            .populate('assignedTo.userId', 'name email')
-            .sort({ createdAt: -1 });
+        const recurringTasks = await RecurringTask.findAll({
+            where: whereClause,
+            include: [{
+                model: Client,
+                as: 'client',
+                attributes: ['id', 'name', 'email', 'companyName']
+            }],
+            order: [['createdAt', 'DESC']]
+        });
 
         res.status(200).json({
             message: recurringTasks.length 
@@ -671,7 +640,7 @@ const deleteOrDeactivateRecurringTask = async (req, res) => {
         }
 
         // Fetch the recurring task
-        const recurringTask = await RecurringTask.findById(recurringTaskId);
+        const recurringTask = await RecurringTask.findByPk(recurringTaskId);
         if (!recurringTask) {
             return res.status(404).json({ 
                 message: 'Recurring task not found.',
@@ -687,14 +656,13 @@ const deleteOrDeactivateRecurringTask = async (req, res) => {
 
         // Perform action
         if (action === 'delete') {
-            await RecurringTask.findByIdAndDelete(recurringTaskId);
+            await recurringTask.destroy();
             return res.status(200).json({ 
                 message: 'Recurring task deleted and cron job stopped successfully.',
                 taskId: recurringTaskId
             });
         } else {
-            recurringTask.active = false;
-            await recurringTask.save();
+            await recurringTask.update({ active: false });
             return res.status(200).json({ 
                 message: 'Recurring task deactivated and cron job stopped successfully.',
                 taskId: recurringTaskId,
@@ -720,24 +688,32 @@ const getRecurringTasksByTeamLeader = async (req, res) => {
             return res.status(400).json({ message: 'Team Leader ID is required.' });
         }
 
-        // First, find the team leader and their associated clients
-        const teamLeader = await TeamLeader.findById(teamLeaderId)
-            .populate('clients');
+        // First, find the team leader
+        const teamLeader = await TeamLeader.findByPk(teamLeaderId);
 
         if (!teamLeader) {
             return res.status(404).json({ message: 'Team Leader not found.' });
         }
 
+        // Get clients associated with this team leader
+        const clients = await Client.findAll({
+            where: { teamLeaderId: teamLeaderId },
+            attributes: ['id']
+        });
+
         // Get array of client IDs associated with the team leader
-        const clientIds = teamLeader.clients.map(client => client._id);
+        const clientIds = clients.map(client => client.id);
 
         // Fetch recurring tasks for all clients associated with the team leader
-        const recurringTasks = await RecurringTask.find({
-            client: { $in: clientIds }
-        })
-            .populate('client', 'name email companyName') // Populate client details
-            .populate('assignedTo.userId', 'name email') // Populate assigned user details
-            .sort({ createdAt: -1 }); // Sort by creation date (newest first)
+        const recurringTasks = await RecurringTask.findAll({
+            where: { clientId: { [Op.in]: clientIds } },
+            include: [{
+                model: Client,
+                as: 'client',
+                attributes: ['id', 'name', 'email', 'companyName']
+            }],
+            order: [['createdAt', 'DESC']]
+        });
 
         if (!recurringTasks.length) {
             return res.status(404).json({
@@ -745,9 +721,9 @@ const getRecurringTasksByTeamLeader = async (req, res) => {
             });
         }
 
-        // Group tasks by client for better organization (optional)
+        // Group tasks by client for better organization
         const tasksGroupedByClient = recurringTasks.reduce((acc, task) => {
-            const clientId = task.client._id.toString();
+            const clientId = task.clientId;
             if (!acc[clientId]) {
                 acc[clientId] = {
                     clientName: task.client.name,
@@ -764,7 +740,7 @@ const getRecurringTasksByTeamLeader = async (req, res) => {
             teamLeaderName: teamLeader.name,
             totalTasks: recurringTasks.length,
             recurringTasks,
-            tasksGroupedByClient // Including grouped tasks for additional organization
+            tasksGroupedByClient
         });
 
     } catch (error) {
