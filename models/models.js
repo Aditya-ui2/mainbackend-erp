@@ -51,6 +51,11 @@ const teamLeaderSchema = new Schema({
     phone: { type: String, required: false }, // Added phone number field
     password: { type: String, required: true },
     admin: { type: Schema.Types.ObjectId, ref: 'Admin', required: true },
+    department: { 
+        type: String, 
+        enum: ['HR Operations', 'HR Recruitment', 'Both'], 
+        default: 'Both' 
+    }, // Department access for role-based dashboard
     employees: [{ type: Schema.Types.ObjectId, ref: 'Employee' }], // Array of Employees under the TeamLeader
     tasks: [{ type: Schema.Types.ObjectId, ref: 'Task' }],
     clients: [{ type: Schema.Types.ObjectId, ref: 'Client' }]
@@ -245,6 +250,146 @@ const messageSchema = new Schema({
 
 const Message = mongoose.model('Message', messageSchema);
 
+// Recruitment Position Schema
+const recruitmentPositionSchema = new Schema({
+    title: { type: String, required: true },
+    description: { type: String },
+    location: { type: String, required: true },
+    type: { type: String, enum: ['Full-time', 'Part-time', 'Contract', 'Internship'], default: 'Full-time' },
+    salary: { type: String },
+    status: { type: String, enum: ['Open', 'Closed', 'Hold'], default: 'Open' },
+    priority: { type: String, enum: ['Low', 'Medium', 'High', 'Urgent'], default: 'Medium' },
+    openings: { type: Number, default: 1 },
+    filled: { type: Number, default: 0 },
+    skills: [{ type: String }],
+    experience: { type: String },
+    client: { type: Schema.Types.ObjectId, ref: 'Client', required: true },
+    teamLeader: { type: Schema.Types.ObjectId, ref: 'TeamLeader' }, // KAM assigned
+    postedDate: { type: Date, default: Date.now },
+    deadline: { type: Date },
+}, { timestamps: true });
+
+const RecruitmentPosition = mongoose.model('RecruitmentPosition', recruitmentPositionSchema);
+
+// Candidate Schema
+const candidateSchema = new Schema({
+    name: { type: String, required: true },
+    email: { type: String, required: true },
+    phone: { type: String },
+    position: { type: Schema.Types.ObjectId, ref: 'RecruitmentPosition', required: true },
+    client: { type: Schema.Types.ObjectId, ref: 'Client', required: true },
+    cvUrl: { type: String },
+    cvFileName: { type: String },
+    status: { 
+        type: String, 
+        enum: ['Submitted', 'Shared', 'Shortlisted', 'Interview', 'Selected', 'Rejected', 'OnHold'], 
+        default: 'Submitted' 
+    },
+    sharedAt: { type: Date },
+    shortlistedAt: { type: Date },
+    interviewDate: { type: Date },
+    notes: { type: String },
+    skills: [{ type: String }],
+    experience: { type: String },
+    currentSalary: { type: String },
+    expectedSalary: { type: String },
+}, { timestamps: true });
+
+const Candidate = mongoose.model('Candidate', candidateSchema);
+
+// Department Team Member Schema - for KAM team members (Manju, Jyoti, etc.)
+const departmentTeamSchema = new Schema({
+    name: { type: String, required: true },
+    email: { type: String, required: true },
+    phone: { type: String },
+    role: { type: String, default: 'Team Member' }, // HR Executive, Recruiter, etc.
+    department: { 
+        type: String, 
+        enum: ['HR Operations', 'HR Recruitment'], 
+        required: true 
+    },
+    manager: { type: Schema.Types.ObjectId, ref: 'TeamLeader' }, // KAM Manager (Ramesh/Sachin)
+    status: { type: String, enum: ['Active', 'Inactive', 'On Leave'], default: 'Active' },
+    avatar: { type: String },
+    skills: [{ type: String }],
+    joinDate: { type: Date, default: Date.now },
+    // Performance metrics
+    tasksCompleted: { type: Number, default: 0 },
+    tasksAssigned: { type: Number, default: 0 },
+    avgResponseTime: { type: Number, default: 0 }, // in hours
+}, { timestamps: true });
+
+const DepartmentTeam = mongoose.model('DepartmentTeam', departmentTeamSchema);
+
+// Activity Log Schema - track all department activities
+const activityLogSchema = new Schema({
+    department: { 
+        type: String, 
+        enum: ['HR Operations', 'HR Recruitment'], 
+        required: true 
+    },
+    performedBy: {
+        type: Schema.Types.ObjectId,
+        refPath: 'performedByType',
+        required: true
+    },
+    performedByType: {
+        type: String,
+        enum: ['TeamLeader', 'DepartmentTeam'],
+        required: true
+    },
+    performedByName: { type: String, required: true },
+    action: { type: String, required: true }, // e.g., "approved leave", "screened candidate"
+    actionType: { 
+        type: String, 
+        enum: ['task', 'leave', 'payroll', 'attendance', 'candidate', 'interview', 'offer', 'general'],
+        default: 'general'
+    },
+    description: { type: String, required: true },
+    relatedEntity: {
+        type: Schema.Types.ObjectId,
+        refPath: 'relatedEntityType'
+    },
+    relatedEntityType: {
+        type: String,
+        enum: ['Task', 'Employee', 'Client', 'Candidate', 'RecruitmentPosition', 'DepartmentTeam']
+    },
+    metadata: { type: Schema.Types.Mixed }, // Additional data
+}, { timestamps: true });
+
+const ActivityLog = mongoose.model('ActivityLog', activityLogSchema);
+
+// Department Task Assignment Schema
+const departmentTaskSchema = new Schema({
+    title: { type: String, required: true },
+    description: { type: String },
+    department: { 
+        type: String, 
+        enum: ['HR Operations', 'HR Recruitment'], 
+        required: true 
+    },
+    assignedBy: { type: Schema.Types.ObjectId, ref: 'TeamLeader', required: true },
+    assignedTo: { type: Schema.Types.ObjectId, ref: 'DepartmentTeam', required: true },
+    assignedToName: { type: String },
+    status: { 
+        type: String, 
+        enum: ['Pending', 'In Progress', 'Completed', 'Overdue'], 
+        default: 'Pending' 
+    },
+    priority: { type: String, enum: ['Low', 'Medium', 'High', 'Urgent'], default: 'Medium' },
+    dueDate: { type: Date },
+    completedAt: { type: Date },
+    comments: [{
+        text: String,
+        by: { type: Schema.Types.ObjectId, refPath: 'comments.byType' },
+        byType: { type: String, enum: ['TeamLeader', 'DepartmentTeam'] },
+        byName: String,
+        createdAt: { type: Date, default: Date.now }
+    }],
+}, { timestamps: true });
+
+const DepartmentTask = mongoose.model('DepartmentTask', departmentTaskSchema);
+
 
 module.exports = {
     SuperAdmin,
@@ -256,7 +401,12 @@ module.exports = {
     Task,
     RecurringTask,
     Notification,
-    Message
+    Message,
+    RecruitmentPosition,
+    Candidate,
+    DepartmentTeam,
+    ActivityLog,
+    DepartmentTask
 };
 
 

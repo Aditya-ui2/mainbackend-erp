@@ -144,6 +144,11 @@ TeamLeader.init({
         type: DataTypes.STRING,
         allowNull: false
     },
+    department: {
+        type: DataTypes.ENUM('HR Operations', 'HR Recruitment', 'Both'),
+        defaultValue: 'Both',
+        allowNull: false
+    },
     adminId: {
         type: DataTypes.UUID,
         allowNull: false,
@@ -572,6 +577,116 @@ const Message = sequelize.define('Message', {
     timestamps: true
 });
 
+// ============ WORK AGREEMENT MODEL ============
+const WorkAgreement = sequelize.define('WorkAgreement', {
+    id: {
+        type: DataTypes.UUID,
+        defaultValue: DataTypes.UUIDV4,
+        primaryKey: true
+    },
+    clientId: {
+        type: DataTypes.UUID,
+        allowNull: false,
+        references: {
+            model: 'clients',
+            key: 'id'
+        }
+    },
+    title: {
+        type: DataTypes.STRING,
+        allowNull: false
+    },
+    description: {
+        type: DataTypes.TEXT,
+        allowNull: true
+    },
+    // JSONB array of allowed service scopes e.g. ["Payroll", "Compliance", "Recruitment"]
+    allowedScopes: {
+        type: DataTypes.JSONB,
+        allowNull: false,
+        defaultValue: []
+    },
+    maxTasks: {
+        type: DataTypes.INTEGER,
+        allowNull: true,
+        comment: 'Maximum concurrent active tasks allowed. null = unlimited'
+    },
+    startDate: {
+        type: DataTypes.DATEONLY,
+        allowNull: false
+    },
+    endDate: {
+        type: DataTypes.DATEONLY,
+        allowNull: true,
+        comment: 'null = no expiry'
+    },
+    status: {
+        type: DataTypes.ENUM('Active', 'Expired', 'Terminated'),
+        defaultValue: 'Active'
+    },
+    notes: {
+        type: DataTypes.TEXT,
+        allowNull: true
+    }
+}, {
+    tableName: 'work_agreements',
+    timestamps: true
+});
+
+// ============ WORK HANDOVER MODEL ============
+const WorkHandover = sequelize.define('WorkHandover', {
+    id: {
+        type: DataTypes.UUID,
+        defaultValue: DataTypes.UUIDV4,
+        primaryKey: true
+    },
+    fromUserId: {
+        type: DataTypes.UUID,
+        allowNull: false,
+        comment: 'The KAM/TeamLeader who is absent'
+    },
+    toUserId: {
+        type: DataTypes.UUID,
+        allowNull: false,
+        comment: 'The KAM/TeamLeader taking over'
+    },
+    reason: {
+        type: DataTypes.TEXT,
+        allowNull: false,
+        comment: 'Reason for handover (e.g. sick leave, vacation)'
+    },
+    startDate: {
+        type: DataTypes.DATEONLY,
+        allowNull: false
+    },
+    endDate: {
+        type: DataTypes.DATEONLY,
+        allowNull: false
+    },
+    clientIds: {
+        type: DataTypes.JSONB,
+        allowNull: false,
+        defaultValue: [],
+        comment: 'Array of client UUIDs being handed over'
+    },
+    notes: {
+        type: DataTypes.TEXT,
+        allowNull: true
+    },
+    status: {
+        type: DataTypes.ENUM('Active', 'Completed', 'Cancelled'),
+        defaultValue: 'Active'
+    },
+    createdBy: {
+        type: DataTypes.UUID,
+        allowNull: false,
+        comment: 'Who created the handover (could be the absent KAM or an admin)'
+    }
+}, {
+    tableName: 'work_handovers',
+    timestamps: true
+});
+
 // ============ DEFINE ASSOCIATIONS ============
 
 // Admin -> TeamLeader (One to Many)
@@ -601,6 +716,18 @@ Task.belongsTo(Task, { foreignKey: 'parentTaskId', as: 'parentTask' });
 // Client -> RecurringTask (One to Many)
 Client.hasMany(RecurringTask, { foreignKey: 'clientId', as: 'recurringTasks' });
 RecurringTask.belongsTo(Client, { foreignKey: 'clientId', as: 'client' });
+
+// Client -> WorkAgreement (One to Many)
+Client.hasMany(WorkAgreement, { foreignKey: 'clientId', as: 'workAgreements' });
+WorkAgreement.belongsTo(Client, { foreignKey: 'clientId', as: 'client' });
+
+// TeamLeader -> WorkHandover (One to Many, from)
+TeamLeader.hasMany(WorkHandover, { foreignKey: 'fromUserId', as: 'handoversOut' });
+WorkHandover.belongsTo(TeamLeader, { foreignKey: 'fromUserId', as: 'fromUser' });
+
+// TeamLeader -> WorkHandover (One to Many, to)
+TeamLeader.hasMany(WorkHandover, { foreignKey: 'toUserId', as: 'handoversIn' });
+WorkHandover.belongsTo(TeamLeader, { foreignKey: 'toUserId', as: 'toUser' });
 
 // Helper function to get assigned user for Task/RecurringTask
 Task.prototype.getAssignedUser = async function() {
@@ -633,5 +760,7 @@ module.exports = {
     Task,
     RecurringTask,
     Notification,
-    Message
+    Message,
+    WorkAgreement,
+    WorkHandover
 };

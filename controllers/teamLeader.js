@@ -107,7 +107,7 @@ const loginTeamLeader = async (req, res) => {
             return res.status(401).json({ message: 'Invalid credentials' });
         }
 
-        const token = generateToken({ id: teamLeader.id, email: teamLeader.email, role: 'TeamLeader' });
+        const token = generateToken({ id: teamLeader.id, email: teamLeader.email, role: 'TeamLeader', department: teamLeader.department || 'Both' });
 
         res.status(200).json({
             message: 'Login successful',
@@ -115,7 +115,8 @@ const loginTeamLeader = async (req, res) => {
             teamLeader: {
                 id: teamLeader.id,
                 name: teamLeader.name,
-                email: teamLeader.email
+                email: teamLeader.email,
+                department: teamLeader.department || 'Both'
             }
         });
     } catch (error) {

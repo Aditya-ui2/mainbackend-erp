@@ -2,6 +2,7 @@
 const { RequestTask, Task, TeamLeader, Employee, Client, RecurringTask, sequelize } = require('../models/sequelizeModels');
 const { addNotification } = require('./notification');
 const { scheduleCronJob, cronJobs } = require('./task_cron');
+const { validateTaskAgainstAgreement } = require('./workAgreement');
 const { Op } = require('sequelize');
 
 
@@ -46,6 +47,15 @@ const requestTask = async (req, res) => {
         }
 
         // Create the requested task
+        // ── Validate against work agreement scope ──
+        const scopeCheck = await validateTaskAgainstAgreement(clientId, title);
+        if (!scopeCheck.allowed) {
+            return res.status(403).json({
+                message: scopeCheck.reason,
+                scopeViolation: true
+            });
+        }
+
         const newRequestTask = await RequestTask.create({
             title,
             description,
@@ -304,6 +314,15 @@ const createTaskByTL = async (req, res) => {
         if (!['Employee', 'TeamLeader'].includes(assignedUserType)) {
             return res.status(400).json({
                 message: 'Assigned user type must be "Employee" or "TeamLeader".'
+            });
+        }
+
+        // ── Validate against work agreement scope ──
+        const scopeCheck = await validateTaskAgainstAgreement(clientId, title);
+        if (!scopeCheck.allowed) {
+            return res.status(403).json({
+                message: scopeCheck.reason,
+                scopeViolation: true
             });
         }
 
@@ -756,6 +775,145 @@ const getRecurringTasksByTeamLeader = async (req, res) => {
 // Function to restart cron jobs on server restart
 
 
+// KAM Productivity Dashboard - aggregated stats for managers
+const getKamProductivity = async (req, res) => {
+    try {
+        const now = new Date();
+
+        // ── All tasks ──
+        const allTasks = await Task.findAll({
+            include: [{
+                model: Client,
+                as: 'client',
+                attributes: ['id', 'name', 'companyName']
+            }],
+            order: [['createdAt', 'DESC']]
+        });
+
+        // ── Status counts ──
+        const statusCounts = { Active: 0, 'Work in Progress': 0, Review: 0, Pending: 0, Resolved: 0 };
+        const priorityCounts = { High: 0, Medium: 0, Low: 0 };
+        let overdueCount = 0;
+        const assigneeMap = {};   // userId -> { name, type, tasks[] }
+        const clientMap = {};     // clientId -> { name, company, total, resolved }
+
+        // ── 30-day window for trend ──
+        const thirtyDaysAgo = new Date(now);
+        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+        const weeklyBuckets = {};
+
+        for (const task of allTasks) {
+            // Status
+            if (statusCounts[task.status] !== undefined) statusCounts[task.status]++;
+
+            // Priority
+            if (task.priority && priorityCounts[task.priority] !== undefined) priorityCounts[task.priority]++;
+
+            // Overdue
+            if (task.dueDate && new Date(task.dueDate) < now && task.status !== 'Resolved') {
+                overdueCount++;
+            }
+
+            // Per-assignee
+            const aType = task.assignedToType || (task.assignedTo && task.assignedTo.userType);
+            const aId = task.assignedToId || (task.assignedTo && task.assignedTo.userId);
+            if (aId) {
+                if (!assigneeMap[aId]) {
+                    assigneeMap[aId] = { id: aId, type: aType, total: 0, resolved: 0, overdue: 0, inProgress: 0 };
+                }
+                assigneeMap[aId].total++;
+                if (task.status === 'Resolved') assigneeMap[aId].resolved++;
+                if (task.status === 'Work in Progress') assigneeMap[aId].inProgress++;
+                if (task.dueDate && new Date(task.dueDate) < now && task.status !== 'Resolved') assigneeMap[aId].overdue++;
+            }
+
+            // Per-client
+            if (task.clientId && task.client) {
+                if (!clientMap[task.clientId]) {
+                    clientMap[task.clientId] = {
+                        id: task.clientId,
+                        name: task.client.name,
+                        company: task.client.companyName,
+                        total: 0,
+                        resolved: 0
+                    };
+                }
+                clientMap[task.clientId].total++;
+                if (task.status === 'Resolved') clientMap[task.clientId].resolved++;
+            }
+
+            // Weekly trend (resolved in last 30 days)
+            if (task.status === 'Resolved' && task.updatedAt && new Date(task.updatedAt) >= thirtyDaysAgo) {
+                const weekStart = new Date(task.updatedAt);
+                weekStart.setDate(weekStart.getDate() - weekStart.getDay());
+                const key = weekStart.toISOString().slice(0, 10);
+                weeklyBuckets[key] = (weeklyBuckets[key] || 0) + 1;
+            }
+        }
+
+        // Resolve assignee names
+        const assigneeIds = Object.keys(assigneeMap);
+        const [teamLeaders, employees] = await Promise.all([
+            TeamLeader.findAll({ where: { id: { [Op.in]: assigneeIds } }, attributes: ['id', 'name'] }),
+            Employee.findAll({ where: { id: { [Op.in]: assigneeIds } }, attributes: ['id', 'name'] })
+        ]);
+        const nameMap = {};
+        for (const tl of teamLeaders) nameMap[tl.id] = tl.name;
+        for (const emp of employees) nameMap[emp.id] = emp.name;
+
+        const assigneeStats = Object.values(assigneeMap).map(a => ({
+            ...a,
+            name: nameMap[a.id] || 'Unknown',
+            completionRate: a.total > 0 ? Math.round((a.resolved / a.total) * 100) : 0
+        })).sort((a, b) => b.completionRate - a.completionRate);
+
+        const clientStats = Object.values(clientMap).sort((a, b) => b.total - a.total);
+
+        // Weekly trend sorted by date
+        const weeklyTrend = Object.entries(weeklyBuckets)
+            .sort(([a], [b]) => a.localeCompare(b))
+            .map(([week, count]) => ({ week, resolved: count }));
+
+        // Recurring tasks summary
+        const activeRecurring = await RecurringTask.count({ where: { active: true } });
+        const totalRecurring = await RecurringTask.count();
+
+        const totalTasks = allTasks.length;
+        const resolvedTasks = statusCounts.Resolved;
+        const completionRate = totalTasks > 0 ? Math.round((resolvedTasks / totalTasks) * 100) : 0;
+
+        res.status(200).json({
+            message: 'KAM productivity data fetched successfully.',
+            summary: {
+                totalTasks,
+                resolvedTasks,
+                overdueCount,
+                completionRate,
+                activeRecurring,
+                totalRecurring
+            },
+            statusCounts,
+            priorityCounts,
+            assigneeStats,
+            clientStats,
+            weeklyTrend,
+            recentTasks: allTasks.slice(0, 10).map(t => ({
+                id: t.id,
+                title: t.title,
+                status: t.status,
+                priority: t.priority,
+                dueDate: t.dueDate,
+                client: t.client ? t.client.name : null,
+                createdAt: t.createdAt
+            }))
+        });
+    } catch (error) {
+        console.error('Error fetching KAM productivity:', error);
+        res.status(500).json({ message: 'Server error fetching KAM productivity.', error: error.message });
+    }
+};
+
+
 module.exports = {
     requestTask,
     getRequestedTasksForTeamLeader,
@@ -773,4 +931,7 @@ module.exports = {
     getAllRecurringTasks,
     deleteOrDeactivateRecurringTask,
     getRecurringTasksByClient,
+
+    // KAM Productivity
+    getKamProductivity,
 };

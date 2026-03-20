@@ -1,7 +1,10 @@
 const express = require('express');
-const { createAdmin, editAdmin, loginAdmin, deleteAdmin, getAdminHierarchy, updateAdminPassword, forgotPassword, resetPassword } = require('../controllers/admin');
+const { createAdmin, editAdmin, loginAdmin, deleteAdmin, getAdminHierarchy, updateAdminPassword, forgotPassword, resetPassword, getAllAdmins } = require('../controllers/admin');
 const verifyAuthToken = require('../middleware/authMiddleware');
 const router = express.Router();
+
+// Route to get all admins (requires SuperAdmin authentication)
+router.get('/all', verifyAuthToken, getAllAdmins);
 
 // Route to create a new Admin (requires SuperAdmin authentication)
 router.post('/create', verifyAuthToken, createAdmin);

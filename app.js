@@ -36,6 +36,11 @@ const taskRoutes = require('./routes/task');
 const notificationRoutes = require('./routes/notification');
 const chatRoutes = require('./routes/chat');
 const authRoutes = require('./routes/authRoutes'); 
+const workAgreementRoutes = require('./routes/workAgreement');
+const workHandoverRoutes = require('./routes/workHandover');
+const recruitmentRoutes = require('./routes/recruitment');
+const departmentTeamRoutes = require('./routes/departmentTeam');
+const sharePointRoutes = require('./routes/sharepoint');
 const { uploadFile } = require('./utils/googleDriveServices');
 const { restartCronJobs } = require('./controllers/task_cron');
 
@@ -171,6 +176,11 @@ app.use('/task', taskRoutes);
 app.use('/notification', notificationRoutes);
 app.use('/chat', chatRoutes); // Add chat routes
 app.use('/auth', authRoutes);
+app.use('/workAgreement', workAgreementRoutes);
+app.use('/workHandover', workHandoverRoutes);
+app.use('/recruitment', recruitmentRoutes);
+app.use('/department', departmentTeamRoutes);
+app.use('/sharepoint', sharePointRoutes);
 
 restartCronJobs();
 seedSuperAdmin();

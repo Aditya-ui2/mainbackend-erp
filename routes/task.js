@@ -16,7 +16,8 @@ const {
     getAllRecurringTasks,
     getTasksByAssignedUser,
     getRecurringTasksByClient,
-    getRecurringTasksByTeamLeader
+    getRecurringTasksByTeamLeader,
+    getKamProductivity
 } = require('../controllers/task');
 
 const router = express.Router();
@@ -54,6 +55,9 @@ router.post('/getRecurringTasksForTL', getRecurringTasksByTeamLeader);
 router.post('getRecurringTasksByClient', getRecurringTasksByClient);
 
 router.post('/deleteOrDeactivateRecurringTask', deleteOrDeactivateRecurringTask);
+
+// KAM Productivity Dashboard
+router.get('/kam-productivity', getKamProductivity);
 
 
 

@@ -11,7 +11,18 @@ const sendEmail = require('../utils/emailService');
 const createAdmin = async (req, res) => {
     try {
         const { name, email } = req.body;
-        const defaultPassword = 'mabicons123';
+        
+        // Generate a random password (8 characters with letters and numbers)
+        const generateRandomPassword = () => {
+            const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
+            let password = '';
+            for (let i = 0; i < 10; i++) {
+                password += chars.charAt(Math.floor(Math.random() * chars.length));
+            }
+            return password;
+        };
+        
+        const generatedPassword = generateRandomPassword();
 
         // Check if all required fields are present
         if (!name || !email) {
@@ -24,8 +35,8 @@ const createAdmin = async (req, res) => {
             return res.status(409).json({ message: 'Email already in use' });
         }
 
-        // Hash the default password before saving
-        const hashedPassword = await hashPassword(defaultPassword);
+        // Hash the generated password before saving
+        const hashedPassword = await hashPassword(generatedPassword);
 
         // Create the new Admin
         const admin = await Admin.create({
@@ -35,38 +46,53 @@ const createAdmin = async (req, res) => {
         });
 
         // Send welcome email to admin
+        const dashboardURL = 'https://mab-erp.vercel.app/login';
         const emailContent = `
-            <h2>Welcome to MabiconsERP - Administrator Account</h2>
-            <p>Dear ${name},</p>
-            <p>Your Administrator account has been created successfully. Here are your login credentials:</p>
-            <p><strong>Email:</strong> ${email}</p>
-            <p><strong>Default Password:</strong> ${defaultPassword}</p>
-            <p>For security reasons, it is highly recommended to change your password immediately after your first login.</p>
-            <p>You can access the admin dashboard at: <a href="[YOUR_ADMIN_DASHBOARD_URL]">[YOUR_ADMIN_DASHBOARD_URL]</a></p>
-            <p>As an Administrator, you have access to:</p>
-            <ul>
-                <li>Create and manage Team Leaders</li>
-                <li>Monitor all client activities</li>
-                <li>Access system-wide reports and analytics</li>
-                <li>Manage system configurations</li>
-                <li>Handle user permissions and access controls</li>
-            </ul>
-            <p><strong>Important Security Notes:</strong></p>
-            <ul>
-                <li>Change your password immediately after logging in</li>
-                <li>Keep your login credentials secure</li>
-                <li>Never share your account information</li>
-                <li>Always log out after completing your session</li>
-            </ul>
-            <p>If you notice any suspicious activity or need technical assistance, please contact our IT support team immediately.</p>
-            <p>Best regards,<br>MabiconsERP System</p>
+            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f9fafb; border-radius: 10px;">
+                <div style="text-align: center; margin-bottom: 20px;">
+                    <h1 style="color: #4f46e5; margin: 0;">MabiconsERP</h1>
+                    <p style="color: #6b7280; margin: 5px 0;">Enterprise Resource Planning</p>
+                </div>
+                
+                <div style="background-color: white; padding: 30px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+                    <h2 style="color: #1f2937; margin-top: 0;">Welcome to MabiconsERP!</h2>
+                    <p style="color: #4b5563;">Dear <strong>${name}</strong>,</p>
+                    <p style="color: #4b5563;">Your Administrator account has been created successfully. Here are your login credentials:</p>
+                    
+                    <div style="background-color: #f3f4f6; padding: 20px; border-radius: 8px; margin: 20px 0;">
+                        <p style="margin: 5px 0; color: #374151;"><strong>Email:</strong> ${email}</p>
+                        <p style="margin: 5px 0; color: #374151;"><strong>Password:</strong> <code style="background: #e5e7eb; padding: 2px 8px; border-radius: 4px;">${generatedPassword}</code></p>
+                    </div>
+                    
+                    <div style="text-align: center; margin: 25px 0;">
+                        <a href="${dashboardURL}" style="background-color: #4f46e5; color: white; padding: 12px 30px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;">Login to Dashboard</a>
+                    </div>
+                    
+                    <p style="color: #4b5563;"><strong>As an Administrator, you have access to:</strong></p>
+                    <ul style="color: #4b5563;">
+                        <li>Create and manage Team Leaders</li>
+                        <li>Monitor all client activities</li>
+                        <li>Access system-wide reports and analytics</li>
+                        <li>Manage system configurations</li>
+                    </ul>
+                    
+                    <div style="background-color: #fef3c7; padding: 15px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #f59e0b;">
+                        <p style="margin: 0; color: #92400e;"><strong>⚠️ Security Notice:</strong></p>
+                        <p style="margin: 5px 0 0 0; color: #92400e;">Please change your password immediately after your first login for security purposes.</p>
+                    </div>
+                </div>
+                
+                <p style="text-align: center; color: #9ca3af; font-size: 12px; margin-top: 20px;">
+                    This is an automated message from MabiconsERP. Please do not reply to this email.
+                </p>
+            </div>
         `;
 
         try {
             await sendEmail({
                 email: email,
                 name: name,
-                subject: 'Welcome to MabiconsERP - Administrator Account Created',
+                subject: '🎉 Welcome to MabiconsERP - Your Admin Account is Ready!',
                 htmlContent: emailContent
             });
         } catch (emailError) {
@@ -75,12 +101,13 @@ const createAdmin = async (req, res) => {
         }
 
         res.status(201).json({
-            message: 'Admin created successfully',
+            message: 'Admin created successfully. Login credentials have been sent to their email.',
             admin: {
                 id: admin.id,
                 name: admin.name,
                 email: admin.email
-            }
+            },
+            emailSent: true
         });
     } catch (error) {
         console.error('Error creating Admin:', error);
@@ -397,6 +424,30 @@ const resetPassword = async (req, res) => {
     }
 };
 
+const getAllAdmins = async (req, res) => {
+    try {
+        const admins = await Admin.findAll({
+            attributes: ['id', 'name', 'email', 'createdAt', 'updatedAt'],
+            order: [['createdAt', 'DESC']]
+        });
+
+        res.status(200).json({
+            message: 'Admins retrieved successfully',
+            admins: admins.map(admin => ({
+                id: admin.id,
+                name: admin.name,
+                email: admin.email,
+                role: 'Admin',
+                status: 'Active',
+                createdAt: admin.createdAt
+            }))
+        });
+    } catch (error) {
+        console.error('Error fetching admins:', error);
+        res.status(500).json({ message: 'Server error' });
+    }
+};
+
 
 
 module.exports = {
@@ -407,5 +458,6 @@ module.exports = {
     getAdminHierarchy,
     updateAdminPassword,
     forgotPassword,
-    resetPassword
+    resetPassword,
+    getAllAdmins
 };
