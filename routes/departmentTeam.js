@@ -16,24 +16,303 @@ const {
 } = require('../controllers/departmentTeam');
 const verifyAuthToken = require('../middleware/authMiddleware');
 
-// Team Members Routes
+/**
+ * @swagger
+ * tags:
+ *   name: Department
+ *   description: Department & Team management - Members, Tasks, Activities
+ */
+
+/**
+ * @swagger
+ * /department/members:
+ *   get:
+ *     summary: Get all team members
+ *     tags: [Department]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: departmentId
+ *         schema:
+ *           type: string
+ *       - in: query
+ *         name: role
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: List of team members
+ */
 router.get('/members', verifyAuthToken, getTeamMembers);
+
+/**
+ * @swagger
+ * /department/members/{id}:
+ *   get:
+ *     summary: Get single team member
+ *     tags: [Department]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Team member details
+ */
 router.get('/members/:id', verifyAuthToken, getTeamMember);
+
+/**
+ * @swagger
+ * /department/members:
+ *   post:
+ *     summary: Add new team member
+ *     tags: [Department]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - name
+ *               - email
+ *               - role
+ *             properties:
+ *               name:
+ *                 type: string
+ *               email:
+ *                 type: string
+ *               role:
+ *                 type: string
+ *               departmentId:
+ *                 type: string
+ *     responses:
+ *       201:
+ *         description: Member added
+ */
 router.post('/members', verifyAuthToken, addTeamMember);
+
+/**
+ * @swagger
+ * /department/members/{id}:
+ *   put:
+ *     summary: Update team member
+ *     tags: [Department]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Member updated
+ */
 router.put('/members/:id', verifyAuthToken, updateTeamMember);
+
+/**
+ * @swagger
+ * /department/members/{id}:
+ *   delete:
+ *     summary: Delete team member
+ *     tags: [Department]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Member deleted
+ */
 router.delete('/members/:id', verifyAuthToken, deleteTeamMember);
 
-// Activity Logs Routes
+/**
+ * @swagger
+ * /department/activities:
+ *   get:
+ *     summary: Get activity logs
+ *     tags: [Department]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: memberId
+ *         schema:
+ *           type: string
+ *       - in: query
+ *         name: type
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: List of activities
+ */
 router.get('/activities', verifyAuthToken, getActivityLogs);
+
+/**
+ * @swagger
+ * /department/activities:
+ *   post:
+ *     summary: Create activity log
+ *     tags: [Department]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               memberId:
+ *                 type: string
+ *               type:
+ *                 type: string
+ *               description:
+ *                 type: string
+ *     responses:
+ *       201:
+ *         description: Activity logged
+ */
 router.post('/activities', verifyAuthToken, createActivityLog);
 
-// Department Tasks Routes
+/**
+ * @swagger
+ * /department/tasks:
+ *   get:
+ *     summary: Get department tasks
+ *     tags: [Department]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: status
+ *         schema:
+ *           type: string
+ *           enum: [Pending, InProgress, Completed]
+ *       - in: query
+ *         name: assignedTo
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: List of tasks
+ */
 router.get('/tasks', verifyAuthToken, getDepartmentTasks);
+
+/**
+ * @swagger
+ * /department/tasks:
+ *   post:
+ *     summary: Create department task
+ *     tags: [Department]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - title
+ *             properties:
+ *               title:
+ *                 type: string
+ *               description:
+ *                 type: string
+ *               assignedTo:
+ *                 type: string
+ *               priority:
+ *                 type: string
+ *                 enum: [Low, Medium, High]
+ *               dueDate:
+ *                 type: string
+ *                 format: date
+ *     responses:
+ *       201:
+ *         description: Task created
+ */
 router.post('/tasks', verifyAuthToken, createDepartmentTask);
+
+/**
+ * @swagger
+ * /department/tasks/{id}:
+ *   put:
+ *     summary: Update department task
+ *     tags: [Department]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Task updated
+ */
 router.put('/tasks/:id', verifyAuthToken, updateDepartmentTask);
+
+/**
+ * @swagger
+ * /department/tasks/{id}:
+ *   delete:
+ *     summary: Delete department task
+ *     tags: [Department]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Task deleted
+ */
 router.delete('/tasks/:id', verifyAuthToken, deleteDepartmentTask);
 
-// Dashboard Stats
+/**
+ * @swagger
+ * /department/stats:
+ *   get:
+ *     summary: Get department dashboard statistics
+ *     tags: [Department]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Department stats
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 totalMembers:
+ *                   type: integer
+ *                 totalTasks:
+ *                   type: integer
+ *                 completedTasks:
+ *                   type: integer
+ *                 pendingTasks:
+ *                   type: integer
+ */
 router.get('/stats', verifyAuthToken, getDepartmentStats);
 
 module.exports = router;
