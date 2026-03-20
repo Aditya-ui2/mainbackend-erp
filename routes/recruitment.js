@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { authMiddleware } = require('../middleware/authMiddleware');
+const verifyAuthToken = require('../middleware/authMiddleware');
 const {
     getKamsWithRecruitment,
     createRecruitmentPosition,
@@ -12,18 +12,18 @@ const {
 } = require('../controllers/recruitment');
 
 // KAM Routes
-router.get('/kams', authMiddleware, getKamsWithRecruitment);
+router.get('/kams', verifyAuthToken, getKamsWithRecruitment);
 
 // Position Routes
-router.post('/positions', authMiddleware, createRecruitmentPosition);
-router.put('/positions/:id', authMiddleware, updateRecruitmentPosition);
+router.post('/positions', verifyAuthToken, createRecruitmentPosition);
+router.put('/positions/:id', verifyAuthToken, updateRecruitmentPosition);
 
 // Candidate Routes
-router.post('/candidates', authMiddleware, addCandidate);
-router.put('/candidates/:id/status', authMiddleware, updateCandidateStatus);
-router.get('/positions/:positionId/candidates', authMiddleware, getCandidatesByPosition);
+router.post('/candidates', verifyAuthToken, addCandidate);
+router.put('/candidates/:id/status', verifyAuthToken, updateCandidateStatus);
+router.get('/positions/:positionId/candidates', verifyAuthToken, getCandidatesByPosition);
 
 // Stats Route
-router.get('/stats', authMiddleware, getRecruitmentStats);
+router.get('/stats', verifyAuthToken, getRecruitmentStats);
 
 module.exports = router;
