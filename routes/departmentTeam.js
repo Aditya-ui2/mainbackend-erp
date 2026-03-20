@@ -14,26 +14,26 @@ const {
     deleteDepartmentTask,
     getDepartmentStats,
 } = require('../controllers/departmentTeam');
-const { verifyToken } = require('../middleware/authMiddleware');
+const verifyAuthToken = require('../middleware/authMiddleware');
 
 // Team Members Routes
-router.get('/members', verifyToken, getTeamMembers);
-router.get('/members/:id', verifyToken, getTeamMember);
-router.post('/members', verifyToken, addTeamMember);
-router.put('/members/:id', verifyToken, updateTeamMember);
-router.delete('/members/:id', verifyToken, deleteTeamMember);
+router.get('/members', verifyAuthToken, getTeamMembers);
+router.get('/members/:id', verifyAuthToken, getTeamMember);
+router.post('/members', verifyAuthToken, addTeamMember);
+router.put('/members/:id', verifyAuthToken, updateTeamMember);
+router.delete('/members/:id', verifyAuthToken, deleteTeamMember);
 
 // Activity Logs Routes
-router.get('/activities', verifyToken, getActivityLogs);
-router.post('/activities', verifyToken, createActivityLog);
+router.get('/activities', verifyAuthToken, getActivityLogs);
+router.post('/activities', verifyAuthToken, createActivityLog);
 
 // Department Tasks Routes
-router.get('/tasks', verifyToken, getDepartmentTasks);
-router.post('/tasks', verifyToken, createDepartmentTask);
-router.put('/tasks/:id', verifyToken, updateDepartmentTask);
-router.delete('/tasks/:id', verifyToken, deleteDepartmentTask);
+router.get('/tasks', verifyAuthToken, getDepartmentTasks);
+router.post('/tasks', verifyAuthToken, createDepartmentTask);
+router.put('/tasks/:id', verifyAuthToken, updateDepartmentTask);
+router.delete('/tasks/:id', verifyAuthToken, deleteDepartmentTask);
 
 // Dashboard Stats
-router.get('/stats', verifyToken, getDepartmentStats);
+router.get('/stats', verifyAuthToken, getDepartmentStats);
 
 module.exports = router;
