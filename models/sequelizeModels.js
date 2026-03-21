@@ -826,12 +826,156 @@ DepartmentTeam.init({
 TeamLeader.hasMany(DepartmentTeam, { foreignKey: 'managerId', as: 'teamMembers' });
 DepartmentTeam.belongsTo(TeamLeader, { foreignKey: 'managerId', as: 'manager' });
 
+// ============== RESUME BANK MODEL ==============
+class ResumeBank extends Model {}
+
+ResumeBank.init({
+    id: {
+        type: DataTypes.UUID,
+        defaultValue: DataTypes.UUIDV4,
+        primaryKey: true
+    },
+    // Storage identifiers
+    sharePointId: {
+        type: DataTypes.STRING,
+        allowNull: false,
+        unique: true
+    },
+    driveId: {
+        type: DataTypes.STRING,
+        allowNull: false
+    },
+    s3Key: {
+        type: DataTypes.STRING
+    },
+    // File details
+    fileName: {
+        type: DataTypes.STRING,
+        allowNull: false
+    },
+    fileType: {
+        type: DataTypes.ENUM('pdf', 'doc', 'docx'),
+        allowNull: false
+    },
+    fileSize: {
+        type: DataTypes.INTEGER
+    },
+    // Role categorization
+    roleType: {
+        type: DataTypes.STRING,
+        allowNull: false
+    },
+    subRole: {
+        type: DataTypes.STRING
+    },
+    // Candidate details
+    candidateName: {
+        type: DataTypes.STRING
+    },
+    email: {
+        type: DataTypes.STRING
+    },
+    phone: {
+        type: DataTypes.STRING
+    },
+    experience: {
+        type: DataTypes.STRING
+    },
+    skills: {
+        type: DataTypes.JSONB,
+        defaultValue: []
+    },
+    currentCompany: {
+        type: DataTypes.STRING
+    },
+    currentLocation: {
+        type: DataTypes.STRING
+    },
+    preferredLocation: {
+        type: DataTypes.STRING
+    },
+    currentSalary: {
+        type: DataTypes.STRING
+    },
+    expectedSalary: {
+        type: DataTypes.STRING
+    },
+    noticePeriod: {
+        type: DataTypes.STRING
+    },
+    // URLs
+    webUrl: {
+        type: DataTypes.STRING
+    },
+    downloadUrl: {
+        type: DataTypes.STRING
+    },
+    folderPath: {
+        type: DataTypes.STRING
+    },
+    // Status tracking
+    status: {
+        type: DataTypes.ENUM('Available', 'Shortlisted', 'Contacted', 'Interview Scheduled', 'Hired', 'Rejected', 'Not Interested'),
+        defaultValue: 'Available'
+    },
+    lastContactedAt: {
+        type: DataTypes.DATE
+    },
+    contactNotes: {
+        type: DataTypes.TEXT
+    },
+    // Assignment
+    assignedToId: {
+        type: DataTypes.UUID
+    },
+    assignedPositionId: {
+        type: DataTypes.UUID
+    },
+    // Sync metadata
+    lastSyncedAt: {
+        type: DataTypes.DATE,
+        defaultValue: DataTypes.NOW
+    },
+    sharePointCreatedAt: {
+        type: DataTypes.DATE
+    },
+    sharePointModifiedAt: {
+        type: DataTypes.DATE
+    },
+    sharePointCreatedBy: {
+        type: DataTypes.STRING
+    },
+    // Tags and rating
+    tags: {
+        type: DataTypes.JSONB,
+        defaultValue: []
+    },
+    rating: {
+        type: DataTypes.INTEGER
+    },
+    isStarred: {
+        type: DataTypes.BOOLEAN,
+        defaultValue: false
+    }
+}, {
+    sequelize,
+    modelName: 'ResumeBank',
+    tableName: 'ResumeBanks',
+    timestamps: true,
+    indexes: [
+        { fields: ['roleType'] },
+        { fields: ['status'] },
+        { fields: ['sharePointId'], unique: true }
+    ]
+});
+
 module.exports = {
     sequelize,
     SuperAdmin,
     Admin,
     TeamLeader,
     Employee,
+    
     EmployeeTeamLeader,
     Client,
     RequestTask,
@@ -841,5 +985,6 @@ module.exports = {
     Message,
     WorkAgreement,
     WorkHandover,
-    DepartmentTeam
+    DepartmentTeam,
+    ResumeBank
 };

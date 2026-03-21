@@ -1,5 +1,7 @@
-const { ResumeBank, RecruitmentPosition, DepartmentTeam } = require('../models/models');
+// Use Sequelize model for ResumeBank
+const { ResumeBank, DepartmentTeam, sequelize } = require('../models/sequelizeModels');
 const s3Service = require('../utils/s3Service');
+const { Op } = require('sequelize');
 
 /**
  * Sync all resumes from AWS S3
@@ -27,11 +29,13 @@ const syncResumes = async (req, res) => {
         
         for (const resume of result.files || []) {
             try {
-                const existingResume = await ResumeBank.findOne({ sharePointId: resume.id });
+                const existingResume = await ResumeBank.findOne({ 
+                    where: { sharePointId: resume.id } 
+                });
                 
                 const resumeData = {
-                    sharePointId: resume.id, // Using same field name for S3 file ID
-                    driveId: 's3', // Indicate this is from S3
+                    sharePointId: resume.id,
+                    driveId: 's3',
                     fileName: resume.name,
                     fileType: resume.fileType,
                     fileSize: resume.size,
@@ -43,11 +47,10 @@ const syncResumes = async (req, res) => {
                 };
                 
                 if (existingResume) {
-                    await ResumeBank.findByIdAndUpdate(existingResume._id, resumeData);
+                    await existingResume.update(resumeData);
                     savedResumes.push({ ...resumeData, updated: true });
                 } else {
-                    const newResume = new ResumeBank(resumeData);
-                    await newResume.save();
+                    await ResumeBank.create(resumeData);
                     savedResumes.push({ ...resumeData, created: true });
                 }
             } catch (err) {
@@ -84,15 +87,18 @@ const syncResumes = async (req, res) => {
  */
 const getRoleTypes = async (req, res) => {
     try {
-        const roles = await ResumeBank.distinct('roleType');
-        const roleCounts = await ResumeBank.aggregate([
-            { $group: { _id: '$roleType', count: { $sum: 1 } } },
-            { $sort: { count: -1 } }
-        ]);
+        const roleCounts = await ResumeBank.findAll({
+            attributes: [
+                'roleType',
+                [sequelize.fn('COUNT', sequelize.col('roleType')), 'count']
+            ],
+            group: ['roleType'],
+            order: [[sequelize.literal('count'), 'DESC']]
+        });
         
         res.json({
             success: true,
-            roles: roleCounts.map(r => ({ name: r._id, count: r.count }))
+            roles: roleCounts.map(r => ({ name: r.roleType, count: parseInt(r.get('count')) }))
         });
     } catch (error) {
         res.status(500).json({ success: false, message: error.message });
@@ -117,36 +123,31 @@ const getResumes = async (req, res) => {
             assignedTo
         } = req.query;
         
-        const query = {};
+        const where = {};
         
-        if (roleType) query.roleType = roleType;
-        if (status) query.status = status;
-        if (isStarred === 'true') query.isStarred = true;
-        if (assignedTo) query.assignedTo = assignedTo;
+        if (roleType && roleType !== 'All Roles') where.roleType = roleType;
+        if (status && status !== 'All Status') where.status = status;
+        if (isStarred === 'true') where.isStarred = true;
+        if (assignedTo) where.assignedToId = assignedTo;
         
         // Text search
         if (search) {
-            query.$or = [
-                { candidateName: { $regex: search, $options: 'i' } },
-                { fileName: { $regex: search, $options: 'i' } },
-                { skills: { $in: [new RegExp(search, 'i')] } },
-                { roleType: { $regex: search, $options: 'i' } }
+            where[Op.or] = [
+                { candidateName: { [Op.iLike]: `%${search}%` } },
+                { fileName: { [Op.iLike]: `%${search}%` } },
+                { roleType: { [Op.iLike]: `%${search}%` } }
             ];
         }
         
-        const skip = (parseInt(page) - 1) * parseInt(limit);
-        const sortOptions = { [sortBy]: sortOrder === 'asc' ? 1 : -1 };
+        const offset = (parseInt(page) - 1) * parseInt(limit);
+        const order = [[sortBy, sortOrder.toUpperCase()]];
         
-        const [resumes, total] = await Promise.all([
-            ResumeBank.find(query)
-                .populate('assignedTo', 'name email')
-                .populate('assignedPosition', 'title clientName')
-                .sort(sortOptions)
-                .skip(skip)
-                .limit(parseInt(limit))
-                .lean(),
-            ResumeBank.countDocuments(query)
-        ]);
+        const { rows: resumes, count: total } = await ResumeBank.findAndCountAll({
+            where,
+            order,
+            offset,
+            limit: parseInt(limit)
+        });
         
         res.json({
             success: true,
@@ -159,6 +160,7 @@ const getResumes = async (req, res) => {
             }
         });
     } catch (error) {
+        console.error('Error getting resumes:', error);
         res.status(500).json({ success: false, message: error.message });
     }
 };
@@ -169,9 +171,7 @@ const getResumes = async (req, res) => {
  */
 const getResumeById = async (req, res) => {
     try {
-        const resume = await ResumeBank.findById(req.params.id)
-            .populate('assignedTo', 'name email')
-            .populate('assignedPosition', 'title clientName');
+        const resume = await ResumeBank.findByPk(req.params.id);
             
         if (!resume) {
             return res.status(404).json({ success: false, message: 'Resume not found' });
@@ -184,7 +184,7 @@ const getResumeById = async (req, res) => {
 };
 
 /**
- * Update resume details (candidate info, status, etc.)
+ * Update resume details
  * PUT /api/resumebank/:id
  */
 const updateResume = async (req, res) => {
@@ -194,8 +194,14 @@ const updateResume = async (req, res) => {
             currentCompany, currentLocation, preferredLocation,
             currentSalary, expectedSalary, noticePeriod,
             status, tags, rating, isStarred, contactNotes,
-            assignedTo, assignedPosition
+            assignedToId, assignedPositionId
         } = req.body;
+        
+        const resume = await ResumeBank.findByPk(req.params.id);
+        
+        if (!resume) {
+            return res.status(404).json({ success: false, message: 'Resume not found' });
+        }
         
         const updateData = {};
         
@@ -218,19 +224,10 @@ const updateResume = async (req, res) => {
             updateData.contactNotes = contactNotes;
             updateData.lastContactedAt = new Date();
         }
-        if (assignedTo !== undefined) updateData.assignedTo = assignedTo;
-        if (assignedPosition !== undefined) updateData.assignedPosition = assignedPosition;
+        if (assignedToId !== undefined) updateData.assignedToId = assignedToId;
+        if (assignedPositionId !== undefined) updateData.assignedPositionId = assignedPositionId;
         
-        const resume = await ResumeBank.findByIdAndUpdate(
-            req.params.id, 
-            updateData, 
-            { new: true }
-        ).populate('assignedTo', 'name email')
-         .populate('assignedPosition', 'title clientName');
-        
-        if (!resume) {
-            return res.status(404).json({ success: false, message: 'Resume not found' });
-        }
+        await resume.update(updateData);
         
         res.json({ success: true, data: resume });
     } catch (error) {
@@ -246,9 +243,9 @@ const toggleStarResumes = async (req, res) => {
     try {
         const { resumeIds, isStarred } = req.body;
         
-        await ResumeBank.updateMany(
-            { _id: { $in: resumeIds } },
-            { isStarred }
+        await ResumeBank.update(
+            { isStarred },
+            { where: { id: { [Op.in]: resumeIds } } }
         );
         
         res.json({ 
@@ -268,9 +265,9 @@ const bulkUpdateStatus = async (req, res) => {
     try {
         const { resumeIds, status } = req.body;
         
-        await ResumeBank.updateMany(
-            { _id: { $in: resumeIds } },
-            { status }
+        await ResumeBank.update(
+            { status },
+            { where: { id: { [Op.in]: resumeIds } } }
         );
         
         res.json({ 
@@ -290,23 +287,18 @@ const assignToPosition = async (req, res) => {
     try {
         const { resumeIds, positionId, assignedTo } = req.body;
         
-        const position = await RecruitmentPosition.findById(positionId);
-        if (!position) {
-            return res.status(404).json({ success: false, message: 'Position not found' });
-        }
-        
-        await ResumeBank.updateMany(
-            { _id: { $in: resumeIds } },
+        await ResumeBank.update(
             { 
-                assignedPosition: positionId,
-                assignedTo: assignedTo || null,
+                assignedPositionId: positionId,
+                assignedToId: assignedTo || null,
                 status: 'Shortlisted'
-            }
+            },
+            { where: { id: { [Op.in]: resumeIds } } }
         );
         
         res.json({ 
             success: true, 
-            message: `Assigned ${resumeIds.length} resume(s) to ${position.title}` 
+            message: `Assigned ${resumeIds.length} resume(s) to position` 
         });
     } catch (error) {
         res.status(500).json({ success: false, message: error.message });
@@ -319,7 +311,7 @@ const assignToPosition = async (req, res) => {
  */
 const getDownloadUrl = async (req, res) => {
     try {
-        const resume = await ResumeBank.findById(req.params.id);
+        const resume = await ResumeBank.findByPk(req.params.id);
         
         if (!resume) {
             return res.status(404).json({ success: false, message: 'Resume not found' });
@@ -344,36 +336,48 @@ const getDownloadUrl = async (req, res) => {
  */
 const getStats = async (req, res) => {
     try {
-        const [
-            totalCount,
-            statusStats,
-            roleStats,
-            recentlyAdded
-        ] = await Promise.all([
-            ResumeBank.countDocuments(),
-            ResumeBank.aggregate([
-                { $group: { _id: '$status', count: { $sum: 1 } } }
-            ]),
-            ResumeBank.aggregate([
-                { $group: { _id: '$roleType', count: { $sum: 1 } } },
-                { $sort: { count: -1 } },
-                { $limit: 10 }
-            ]),
-            ResumeBank.countDocuments({
-                createdAt: { $gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) }
-            })
-        ]);
+        const totalCount = await ResumeBank.count();
+        
+        const statusStats = await ResumeBank.findAll({
+            attributes: [
+                'status',
+                [sequelize.fn('COUNT', sequelize.col('status')), 'count']
+            ],
+            group: ['status']
+        });
+        
+        const roleStats = await ResumeBank.findAll({
+            attributes: [
+                'roleType',
+                [sequelize.fn('COUNT', sequelize.col('roleType')), 'count']
+            ],
+            group: ['roleType'],
+            order: [[sequelize.literal('count'), 'DESC']],
+            limit: 10
+        });
+        
+        const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+        const recentlyAdded = await ResumeBank.count({
+            where: { createdAt: { [Op.gte]: sevenDaysAgo } }
+        });
         
         res.json({
             success: true,
             stats: {
                 total: totalCount,
                 recentlyAdded,
-                byStatus: statusStats.reduce((acc, s) => ({ ...acc, [s._id]: s.count }), {}),
-                topRoles: roleStats
+                byStatus: statusStats.reduce((acc, s) => ({ 
+                    ...acc, 
+                    [s.status || 'Unknown']: parseInt(s.get('count')) 
+                }), {}),
+                topRoles: roleStats.map(r => ({ 
+                    _id: r.roleType, 
+                    count: parseInt(r.get('count')) 
+                }))
             }
         });
     } catch (error) {
+        console.error('Error getting stats:', error);
         res.status(500).json({ success: false, message: error.message });
     }
 };
