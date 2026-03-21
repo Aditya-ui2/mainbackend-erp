@@ -48,7 +48,7 @@ router.post('/sync', resumeBankController.syncResumes);
  *       200:
  *         description: Statistics retrieved
  */
-router.get('/stats', authMiddleware.protect, resumeBankController.getStats);
+router.get('/stats', resumeBankController.getStats);
 
 /**
  * @swagger
@@ -62,7 +62,7 @@ router.get('/stats', authMiddleware.protect, resumeBankController.getStats);
  *       200:
  *         description: Role types retrieved
  */
-router.get('/roles', authMiddleware.protect, resumeBankController.getRoleTypes);
+router.get('/roles', resumeBankController.getRoleTypes);
 
 /**
  * @swagger
@@ -76,7 +76,7 @@ router.get('/roles', authMiddleware.protect, resumeBankController.getRoleTypes);
  *       200:
  *         description: Folder structure retrieved
  */
-router.get('/folders', authMiddleware.protect, resumeBankController.getFolders);
+router.get('/folders', resumeBankController.getFolders);
 
 /**
  * @swagger
@@ -97,7 +97,7 @@ router.get('/folders', authMiddleware.protect, resumeBankController.getFolders);
  *       200:
  *         description: Search results
  */
-router.get('/search-s3', authMiddleware.protect, resumeBankController.searchS3);
+router.get('/search-s3', resumeBankController.searchS3);
 
 /**
  * @swagger
@@ -150,7 +150,7 @@ router.get('/search-s3', authMiddleware.protect, resumeBankController.searchS3);
  *       200:
  *         description: Resumes retrieved
  */
-router.get('/', authMiddleware.protect, resumeBankController.getResumes);
+router.get('/', resumeBankController.getResumes);
 
 /**
  * @swagger
@@ -180,7 +180,7 @@ router.get('/', authMiddleware.protect, resumeBankController.getResumes);
  *       200:
  *         description: Resumes updated
  */
-router.post('/star', authMiddleware.protect, resumeBankController.toggleStarResumes);
+router.post('/star', resumeBankController.toggleStarResumes);
 
 /**
  * @swagger
@@ -211,7 +211,7 @@ router.post('/star', authMiddleware.protect, resumeBankController.toggleStarResu
  *       200:
  *         description: Status updated
  */
-router.post('/bulk-status', authMiddleware.protect, resumeBankController.bulkUpdateStatus);
+router.post('/bulk-status', resumeBankController.bulkUpdateStatus);
 
 /**
  * @swagger
@@ -244,7 +244,7 @@ router.post('/bulk-status', authMiddleware.protect, resumeBankController.bulkUpd
  *       200:
  *         description: Resumes assigned
  */
-router.post('/assign', authMiddleware.protect, resumeBankController.assignToPosition);
+router.post('/assign', resumeBankController.assignToPosition);
 
 /**
  * @swagger
@@ -264,7 +264,7 @@ router.post('/assign', authMiddleware.protect, resumeBankController.assignToPosi
  *       200:
  *         description: Resume details
  */
-router.get('/:id', authMiddleware.protect, resumeBankController.getResumeById);
+router.get('/:id', resumeBankController.getResumeById);
 
 /**
  * @swagger
@@ -316,7 +316,7 @@ router.get('/:id', authMiddleware.protect, resumeBankController.getResumeById);
  *       200:
  *         description: Resume updated
  */
-router.put('/:id', authMiddleware.protect, resumeBankController.updateResume);
+router.put('/:id', resumeBankController.updateResume);
 
 /**
  * @swagger
@@ -336,6 +336,6 @@ router.put('/:id', authMiddleware.protect, resumeBankController.updateResume);
  *       200:
  *         description: Download URL
  */
-router.get('/:id/download', authMiddleware.protect, resumeBankController.getDownloadUrl);
+router.get('/:id/download', resumeBankController.getDownloadUrl);
 
 module.exports = router;
