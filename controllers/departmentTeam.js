@@ -2,7 +2,7 @@
 const { DepartmentTeam, TeamLeader } = require('../models/sequelizeModels');
 // Keep using Mongoose for ActivityLog and DepartmentTask for now
 const { ActivityLog, DepartmentTask } = require('../models/models');
-const { hashPassword, comparePassword } = require('../utils/bcryptUtils');
+const { hashPassword, comparePasswords } = require('../utils/bcryptUtils');
 const { generateToken } = require('../utils/jwtUtils');
 const { Op } = require('sequelize');
 
@@ -448,7 +448,7 @@ const loginDepartmentTeam = async (req, res) => {
             });
         }
 
-        const isPasswordValid = await comparePassword(password, member.password);
+        const isPasswordValid = await comparePasswords(password, member.password);
         
         if (!isPasswordValid) {
             return res.status(401).json({ 
