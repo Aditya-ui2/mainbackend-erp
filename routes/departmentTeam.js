@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const {
+    loginDepartmentTeam,
     getTeamMembers,
     getTeamMember,
     addTeamMember,
@@ -22,6 +23,34 @@ const verifyAuthToken = require('../middleware/authMiddleware');
  *   name: Department
  *   description: Department & Team management - Members, Tasks, Activities
  */
+
+/**
+ * @swagger
+ * /department/login:
+ *   post:
+ *     summary: Login for department team members
+ *     tags: [Department]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - email
+ *               - password
+ *             properties:
+ *               email:
+ *                 type: string
+ *               password:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Login successful
+ *       401:
+ *         description: Invalid credentials
+ */
+router.post('/login', loginDepartmentTeam);
 
 /**
  * @swagger

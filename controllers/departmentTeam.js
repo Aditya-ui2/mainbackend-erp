@@ -1,4 +1,6 @@
 const { DepartmentTeam, ActivityLog, DepartmentTask, TeamLeader } = require('../models/models');
+const { hashPassword, comparePassword } = require('../utils/bcryptUtils');
+const { generateToken } = require('../utils/jwtUtils');
 
 // ============== TEAM MEMBER CRUD ==============
 
@@ -43,17 +45,24 @@ const getTeamMember = async (req, res) => {
 // Add new team member
 const addTeamMember = async (req, res) => {
     try {
-        const { name, email, phone, role, department, skills } = req.body;
+        const { name, email, password, phone, role, department, skills } = req.body;
         const managerId = req.user?.id;
+
+        if (!password) {
+            return res.status(400).json({ success: false, message: 'Password is required' });
+        }
 
         const existing = await DepartmentTeam.findOne({ email });
         if (existing) {
             return res.status(400).json({ success: false, message: 'Email already exists' });
         }
 
+        const hashedPassword = await hashPassword(password);
+
         const member = new DepartmentTeam({
             name,
-            email,
+            email: email.toLowerCase(),
+            password: hashedPassword,
             phone,
             role,
             department,
@@ -407,7 +416,85 @@ const getDepartmentStats = async (req, res) => {
     }
 };
 
+// ============== AUTHENTICATION ==============
+
+// Login department team member
+const loginDepartmentTeam = async (req, res) => {
+    try {
+        const { email, password } = req.body;
+
+        if (!email || !password) {
+            return res.status(400).json({ 
+                success: false, 
+                message: 'Email and password are required' 
+            });
+        }
+
+        const member = await DepartmentTeam.findOne({ email: email.toLowerCase() });
+        
+        if (!member) {
+            return res.status(401).json({ 
+                success: false, 
+                message: 'Invalid email or password' 
+            });
+        }
+
+        if (member.status !== 'Active') {
+            return res.status(401).json({ 
+                success: false, 
+                message: 'Account is inactive. Please contact administrator.' 
+            });
+        }
+
+        const isPasswordValid = await comparePassword(password, member.password);
+        
+        if (!isPasswordValid) {
+            return res.status(401).json({ 
+                success: false, 
+                message: 'Invalid email or password' 
+            });
+        }
+
+        const token = generateToken({
+            id: member._id,
+            email: member.email,
+            name: member.name,
+            role: member.role,
+            department: member.department,
+            userType: 'departmentTeam'
+        });
+
+        // Log activity
+        await logActivity(
+            member.department,
+            'LOGIN',
+            `${member.name} logged in`,
+            member._id,
+            null
+        );
+
+        res.status(200).json({
+            success: true,
+            message: 'Login successful',
+            token,
+            user: {
+                id: member._id,
+                name: member.name,
+                email: member.email,
+                role: member.role,
+                department: member.department,
+                avatar: member.avatar
+            }
+        });
+    } catch (error) {
+        console.error('Error logging in department team member:', error);
+        res.status(500).json({ success: false, message: 'Login failed' });
+    }
+};
+
 module.exports = {
+    // Authentication
+    loginDepartmentTeam,
     // Team members
     getTeamMembers,
     getTeamMember,

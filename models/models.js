@@ -300,7 +300,8 @@ const Candidate = mongoose.model('Candidate', candidateSchema);
 // Department Team Member Schema - for KAM team members (Manju, Jyoti, etc.)
 const departmentTeamSchema = new Schema({
     name: { type: String, required: true },
-    email: { type: String, required: true },
+    email: { type: String, required: true, unique: true },
+    password: { type: String, required: true },
     phone: { type: String },
     role: { type: String, default: 'Team Member' }, // HR Executive, Recruiter, etc.
     department: { 
