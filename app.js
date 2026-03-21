@@ -41,6 +41,7 @@ const workHandoverRoutes = require('./routes/workHandover');
 const recruitmentRoutes = require('./routes/recruitment');
 const departmentTeamRoutes = require('./routes/departmentTeam');
 const sharePointRoutes = require('./routes/sharepoint');
+const interviewRoutes = require('./routes/interview');
 const { uploadFile } = require('./utils/googleDriveServices');
 const { restartCronJobs } = require('./controllers/task_cron');
 
@@ -181,6 +182,7 @@ app.use('/workHandover', workHandoverRoutes);
 app.use('/recruitment', recruitmentRoutes);
 app.use('/department', departmentTeamRoutes);
 app.use('/sharepoint', sharePointRoutes);
+app.use('/interview', interviewRoutes);
 
 restartCronJobs();
 seedSuperAdmin();

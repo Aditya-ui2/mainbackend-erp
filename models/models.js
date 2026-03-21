@@ -391,6 +391,90 @@ const departmentTaskSchema = new Schema({
 const DepartmentTask = mongoose.model('DepartmentTask', departmentTaskSchema);
 
 
+// Interview Schedule Schema - with evaluation feedback
+const interviewSchema = new Schema({
+    candidate: { type: Schema.Types.ObjectId, ref: 'Candidate', required: true },
+    position: { type: Schema.Types.ObjectId, ref: 'RecruitmentPosition', required: true },
+    client: { type: Schema.Types.ObjectId, ref: 'Client', required: true },
+    
+    // Interview Details
+    interviewType: { 
+        type: String, 
+        enum: ['HR Round', 'Technical Round', 'Client Interview', 'Phone Screening', 'Final Round'], 
+        required: true 
+    },
+    interviewDate: { type: Date, required: true },
+    startTime: { type: String, required: true }, // e.g., "10:00 AM"
+    duration: { type: Number, default: 45 }, // in minutes
+    
+    // Meeting Details
+    meetingType: { type: String, enum: ['Video', 'In-Person', 'Phone'], default: 'Video' },
+    meetingLink: { type: String }, // Auto-generated or manual
+    meetingToken: { type: String }, // Unique token for meeting access
+    meetingPassword: { type: String },
+    
+    // Interviewer Details
+    interviewer: {
+        id: { type: Schema.Types.ObjectId, refPath: 'interviewer.type' },
+        type: { type: String, enum: ['TeamLeader', 'DepartmentTeam', 'Client'] },
+        name: { type: String, required: true },
+        email: { type: String },
+        role: { type: String } // e.g., "HR Head", "Tech Lead"
+    },
+    
+    // Status
+    status: { 
+        type: String, 
+        enum: ['Scheduled', 'In Progress', 'Completed', 'Cancelled', 'Rescheduled', 'No Show'], 
+        default: 'Scheduled' 
+    },
+    
+    // Evaluation/Feedback (filled by interviewer)
+    evaluation: {
+        skills: { type: Number, min: 1, max: 10 },
+        attitude: { type: Number, min: 1, max: 10 },
+        knowledge: { type: Number, min: 1, max: 10 },
+        communication: { type: Number, min: 1, max: 10 },
+        behavior: { type: Number, min: 1, max: 10 },
+        overallRating: { type: Number, min: 1, max: 10 },
+        strengths: { type: String },
+        weaknesses: { type: String },
+        recommendation: { 
+            type: String, 
+            enum: ['Strongly Recommend', 'Recommend', 'Neutral', 'Not Recommend', 'Strongly Not Recommend'] 
+        },
+        notes: { type: String },
+        feedbackSubmittedAt: { type: Date }
+    },
+    
+    // Email Tracking
+    emailSentToCandidate: { type: Boolean, default: false },
+    emailSentAt: { type: Date },
+    reminderSent: { type: Boolean, default: false },
+    
+    // Rescheduling
+    rescheduledFrom: { type: Date },
+    rescheduleReason: { type: String },
+    
+    // Metadata
+    notes: { type: String },
+    createdBy: {
+        id: { type: Schema.Types.ObjectId, refPath: 'createdBy.type' },
+        type: { type: String, enum: ['TeamLeader', 'DepartmentTeam'] },
+        name: { type: String }
+    }
+}, { timestamps: true });
+
+// Generate meeting token before saving
+interviewSchema.pre('save', function(next) {
+    if (!this.meetingToken) {
+        this.meetingToken = crypto.randomBytes(32).toString('hex');
+    }
+    next();
+});
+
+const Interview = mongoose.model('Interview', interviewSchema);
+
 module.exports = {
     SuperAdmin,
     Admin,
@@ -406,7 +490,8 @@ module.exports = {
     Candidate,
     DepartmentTeam,
     ActivityLog,
-    DepartmentTask
+    DepartmentTask,
+    Interview
 };
 
 
