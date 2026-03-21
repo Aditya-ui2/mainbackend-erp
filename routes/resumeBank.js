@@ -34,7 +34,7 @@ const authMiddleware = require('../middleware/authMiddleware');
  *       200:
  *         description: Sync completed
  */
-router.post('/sync', authMiddleware.protect, resumeBankController.syncResumes);
+router.post('/sync', resumeBankController.syncResumes);
 
 /**
  * @swagger
