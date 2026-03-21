@@ -42,6 +42,7 @@ const recruitmentRoutes = require('./routes/recruitment');
 const departmentTeamRoutes = require('./routes/departmentTeam');
 const sharePointRoutes = require('./routes/sharepoint');
 const interviewRoutes = require('./routes/interview');
+const resumeBankRoutes = require('./routes/resumeBank');
 const { uploadFile } = require('./utils/googleDriveServices');
 const { restartCronJobs } = require('./controllers/task_cron');
 
@@ -183,6 +184,7 @@ app.use('/recruitment', recruitmentRoutes);
 app.use('/department', departmentTeamRoutes);
 app.use('/sharepoint', sharePointRoutes);
 app.use('/interview', interviewRoutes);
+app.use('/api/resumebank', resumeBankRoutes);
 
 restartCronJobs();
 seedSuperAdmin();

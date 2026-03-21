@@ -475,6 +475,72 @@ interviewSchema.pre('save', function(next) {
 
 const Interview = mongoose.model('Interview', interviewSchema);
 
+// Resume Bank Schema - for syncing 10,000+ resumes from SharePoint
+const resumeBankSchema = new Schema({
+    // SharePoint identifiers
+    sharePointId: { type: String, required: true, unique: true },
+    driveId: { type: String, required: true },
+    
+    // File details
+    fileName: { type: String, required: true },
+    fileType: { type: String, enum: ['pdf', 'doc', 'docx'], required: true },
+    fileSize: { type: Number },
+    
+    // Role categorization
+    roleType: { type: String, required: true, index: true }, // e.g., "Software Engineer", "Product Manager"
+    subRole: { type: String }, // e.g., "Frontend Developer", "Backend Developer"
+    
+    // Candidate details (extracted or manual)
+    candidateName: { type: String, index: true },
+    email: { type: String },
+    phone: { type: String },
+    experience: { type: String }, // e.g., "3-5 years"
+    skills: [{ type: String }],
+    currentCompany: { type: String },
+    currentLocation: { type: String },
+    preferredLocation: { type: String },
+    currentSalary: { type: String },
+    expectedSalary: { type: String },
+    noticePeriod: { type: String },
+    
+    // SharePoint URLs
+    webUrl: { type: String },
+    downloadUrl: { type: String },
+    folderPath: { type: String },
+    
+    // Tracking
+    status: { 
+        type: String, 
+        enum: ['Available', 'Shortlisted', 'Contacted', 'Interview Scheduled', 'Hired', 'Rejected', 'Not Interested'],
+        default: 'Available',
+        index: true
+    },
+    lastContactedAt: { type: Date },
+    contactNotes: { type: String },
+    
+    // Assignment
+    assignedTo: { type: Schema.Types.ObjectId, ref: 'DepartmentTeam' },
+    assignedPosition: { type: Schema.Types.ObjectId, ref: 'RecruitmentPosition' },
+    
+    // Sync metadata
+    lastSyncedAt: { type: Date, default: Date.now },
+    sharePointCreatedAt: { type: Date },
+    sharePointModifiedAt: { type: Date },
+    sharePointCreatedBy: { type: String },
+    
+    // Tags for filtering
+    tags: [{ type: String }],
+    rating: { type: Number, min: 1, max: 5 }, // Internal rating
+    isStarred: { type: Boolean, default: false },
+}, { timestamps: true });
+
+// Indexes for faster search
+resumeBankSchema.index({ roleType: 1, status: 1 });
+resumeBankSchema.index({ candidateName: 'text', skills: 'text', roleType: 'text' });
+resumeBankSchema.index({ lastSyncedAt: -1 });
+
+const ResumeBank = mongoose.model('ResumeBank', resumeBankSchema);
+
 module.exports = {
     SuperAdmin,
     Admin,
@@ -491,7 +557,8 @@ module.exports = {
     DepartmentTeam,
     ActivityLog,
     DepartmentTask,
-    Interview
+    Interview,
+    ResumeBank
 };
 
 

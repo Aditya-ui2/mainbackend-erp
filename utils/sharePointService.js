@@ -284,6 +284,228 @@ class SharePointService {
 
     return await this.updateListItem(siteId, candidateList.id, sharePointId, fields);
   }
+
+  /* ═══════════════════════════════════════════════════════════
+   * RESUME BANK METHODS - Sync 10,000+ resumes from SharePoint
+   * ═══════════════════════════════════════════════════════════ */
+
+  /**
+   * Get all drives in the site (for finding document libraries)
+   */
+  async getDrives(siteId) {
+    const token = await this.getAccessToken();
+    
+    try {
+      const response = await axios.get(
+        `https://graph.microsoft.com/v1.0/sites/${siteId}/drives`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      return response.data.value;
+    } catch (error) {
+      console.error('Get Drives Error:', error.response?.data || error.message);
+      throw error;
+    }
+  }
+
+  /**
+   * Get folder contents from SharePoint drive
+   */
+  async getFolderContents(siteId, driveId, folderPath = 'root') {
+    const token = await this.getAccessToken();
+    
+    try {
+      let url;
+      if (folderPath === 'root') {
+        url = `https://graph.microsoft.com/v1.0/sites/${siteId}/drives/${driveId}/root/children`;
+      } else {
+        const encodedPath = encodeURIComponent(folderPath);
+        url = `https://graph.microsoft.com/v1.0/sites/${siteId}/drives/${driveId}/root:/${encodedPath}:/children`;
+      }
+      
+      const response = await axios.get(url, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      return response.data.value;
+    } catch (error) {
+      console.error('Get Folder Contents Error:', error.response?.data || error.message);
+      throw error;
+    }
+  }
+
+  /**
+   * Get all files recursively from a folder (with pagination for large folders)
+   */
+  async getAllFilesRecursive(siteId, driveId, folderPath = 'root', roleType = null) {
+    const token = await this.getAccessToken();
+    let allFiles = [];
+    
+    try {
+      const items = await this.getFolderContents(siteId, driveId, folderPath);
+      
+      for (const item of items) {
+        if (item.folder) {
+          // It's a folder - recurse into it
+          const subFolderPath = folderPath === 'root' ? item.name : `${folderPath}/${item.name}`;
+          const subFiles = await this.getAllFilesRecursive(siteId, driveId, subFolderPath, item.name);
+          allFiles = allFiles.concat(subFiles);
+        } else if (item.file) {
+          // It's a file - check if it's a resume (PDF, DOC, DOCX)
+          const ext = item.name.split('.').pop().toLowerCase();
+          if (['pdf', 'doc', 'docx'].includes(ext)) {
+            allFiles.push({
+              sharePointId: item.id,
+              driveId: driveId,
+              name: item.name,
+              roleType: roleType || this.extractRoleFromPath(folderPath),
+              fileType: ext,
+              size: item.size,
+              webUrl: item.webUrl,
+              downloadUrl: item['@microsoft.graph.downloadUrl'],
+              createdAt: item.createdDateTime,
+              modifiedAt: item.lastModifiedDateTime,
+              createdBy: item.createdBy?.user?.displayName,
+              path: folderPath
+            });
+          }
+        }
+      }
+      
+      return allFiles;
+    } catch (error) {
+      console.error('Get Files Recursive Error:', error.response?.data || error.message);
+      return allFiles; // Return what we have so far
+    }
+  }
+
+  /**
+   * Extract role type from folder path
+   */
+  extractRoleFromPath(path) {
+    if (!path || path === 'root') return 'General';
+    const parts = path.split('/');
+    // Assume the first meaningful folder is the role type
+    return parts.find(p => p && p !== 'Resumes') || 'General';
+  }
+
+  /**
+   * Get all role type folders from Resumes directory
+   */
+  async getRoleTypeFolders(siteId, driveId, basePath = 'Resumes') {
+    const token = await this.getAccessToken();
+    
+    try {
+      const items = await this.getFolderContents(siteId, driveId, basePath);
+      return items
+        .filter(item => item.folder)
+        .map(folder => ({
+          name: folder.name,
+          id: folder.id,
+          path: `${basePath}/${folder.name}`,
+          childCount: folder.folder.childCount || 0
+        }));
+    } catch (error) {
+      console.error('Get Role Folders Error:', error.response?.data || error.message);
+      throw error;
+    }
+  }
+
+  /**
+   * Sync resumes from a specific role folder
+   */
+  async syncResumesByRole(siteId, driveId, roleFolder) {
+    return await this.getAllFilesRecursive(siteId, driveId, roleFolder.path, roleFolder.name);
+  }
+
+  /**
+   * Sync ALL resumes from SharePoint (with progress callback)
+   */
+  async syncAllResumes(siteId, driveId, basePath = 'Resumes', progressCallback = null) {
+    const allResumes = [];
+    
+    try {
+      const roleFolders = await this.getRoleTypeFolders(siteId, driveId, basePath);
+      
+      for (let i = 0; i < roleFolders.length; i++) {
+        const folder = roleFolders[i];
+        
+        if (progressCallback) {
+          progressCallback({
+            current: i + 1,
+            total: roleFolders.length,
+            currentRole: folder.name,
+            resumeCount: allResumes.length
+          });
+        }
+        
+        const resumes = await this.syncResumesByRole(siteId, driveId, folder);
+        allResumes.push(...resumes);
+      }
+      
+      return {
+        totalResumes: allResumes.length,
+        roleTypes: [...new Set(allResumes.map(r => r.roleType))],
+        resumes: allResumes
+      };
+    } catch (error) {
+      console.error('Sync All Resumes Error:', error.response?.data || error.message);
+      throw error;
+    }
+  }
+
+  /**
+   * Search resumes by name or role
+   */
+  async searchResumes(siteId, driveId, query) {
+    const token = await this.getAccessToken();
+    
+    try {
+      const response = await axios.get(
+        `https://graph.microsoft.com/v1.0/sites/${siteId}/drives/${driveId}/root/search(q='${encodeURIComponent(query)}')`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      
+      // Filter only resume files
+      return response.data.value
+        .filter(item => {
+          const ext = item.name?.split('.').pop()?.toLowerCase();
+          return ['pdf', 'doc', 'docx'].includes(ext);
+        })
+        .map(item => ({
+          sharePointId: item.id,
+          driveId: driveId,
+          name: item.name,
+          roleType: this.extractRoleFromPath(item.parentReference?.path),
+          fileType: item.name.split('.').pop().toLowerCase(),
+          size: item.size,
+          webUrl: item.webUrl,
+          downloadUrl: item['@microsoft.graph.downloadUrl'],
+          createdAt: item.createdDateTime,
+          modifiedAt: item.lastModifiedDateTime,
+          path: item.parentReference?.path
+        }));
+    } catch (error) {
+      console.error('Search Resumes Error:', error.response?.data || error.message);
+      throw error;
+    }
+  }
+
+  /**
+   * Get file download URL
+   */
+  async getFileDownloadUrl(siteId, driveId, fileId) {
+    const token = await this.getAccessToken();
+    
+    try {
+      const response = await axios.get(
+        `https://graph.microsoft.com/v1.0/sites/${siteId}/drives/${driveId}/items/${fileId}`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      return response.data['@microsoft.graph.downloadUrl'];
+    } catch (error) {
+      console.error('Get Download URL Error:', error.response?.data || error.message);
+      throw error;
+    }
+  }
 }
 
 module.exports = new SharePointService();
