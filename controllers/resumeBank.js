@@ -1,6 +1,7 @@
 // Use Sequelize model for ResumeBank
 const { ResumeBank, DepartmentTeam, sequelize } = require('../models/sequelizeModels');
 const s3Service = require('../utils/s3Service');
+const sharePointService = require('../utils/sharePointService');
 const { Op } = require('sequelize');
 
 /**
@@ -14,49 +15,14 @@ const syncResumes = async (req, res) => {
         let result;
         
         if (roleType) {
-            // Sync specific role folder
             result = await s3Service.syncResumesByRole(roleType);
         } else {
-            // Full sync with progress tracking
             result = await s3Service.getAllResumes(({ processed, total, filesFound }) => {
-                console.log(`Syncing: ${processed}/${total} folders, ${filesFound} files found`);
+                console.log(`Syncing S3: ${processed}/${total} folders, ${filesFound} files found`);
             });
         }
         
-        // Process and save to database
-        const savedResumes = [];
-        const errors = [];
-        
-        for (const resume of result.files || []) {
-            try {
-                const existingResume = await ResumeBank.findOne({ 
-                    where: { sharePointId: resume.id } 
-                });
-                
-                const resumeData = {
-                    sharePointId: resume.id,
-                    driveId: 's3',
-                    fileName: resume.name,
-                    fileType: resume.fileType,
-                    fileSize: resume.size,
-                    roleType: resume.roleType || 'Uncategorized',
-                    folderPath: resume.folderPath,
-                    s3Key: resume.key,
-                    sharePointModifiedAt: resume.lastModified ? new Date(resume.lastModified) : null,
-                    lastSyncedAt: new Date()
-                };
-                
-                if (existingResume) {
-                    await existingResume.update(resumeData);
-                    savedResumes.push({ ...resumeData, updated: true });
-                } else {
-                    await ResumeBank.create(resumeData);
-                    savedResumes.push({ ...resumeData, created: true });
-                }
-            } catch (err) {
-                errors.push({ file: resume.name, error: err.message });
-            }
-        }
+        const { savedResumes, errors } = await saveResumesToDB(result.files || [], 's3');
         
         res.json({
             success: true,
@@ -73,13 +39,119 @@ const syncResumes = async (req, res) => {
         
     } catch (error) {
         console.error('Error syncing resumes:', error);
-        res.status(500).json({ 
-            success: false, 
-            message: 'Failed to sync resumes', 
-            error: error.message 
-        });
+        res.status(500).json({ success: false, message: 'Failed to sync resumes', error: error.message });
     }
 };
+
+/**
+ * Sync resumes from SharePoint
+ * POST /api/resumebank/sync-sharepoint
+ */
+const syncSharePoint = async (req, res) => {
+    try {
+        const { roleType } = req.body;
+        const basePath = process.env.SHAREPOINT_RESUME_PATH || 'Recruitment folders/Position wise';
+
+        // Get site and drive info
+        const siteId = await sharePointService.getSiteId();
+        const drives = await sharePointService.getDrives(siteId);
+        const docLib = drives.find(d => d.name === 'Documents' || d.name === 'Shared Documents');
+        
+        if (!docLib) {
+            return res.status(404).json({ success: false, message: 'SharePoint document library not found' });
+        }
+
+        let spResumes;
+
+        if (roleType) {
+            // Sync specific role folder
+            spResumes = await sharePointService.getAllFilesRecursive(siteId, docLib.id, `${basePath}/${roleType}`, roleType);
+        } else {
+            // Sync all resumes
+            const result = await sharePointService.syncAllResumes(siteId, docLib.id, basePath, ({ current, total, currentRole, resumeCount }) => {
+                console.log(`Syncing SharePoint: ${current}/${total} roles (${currentRole}), ${resumeCount} resumes found`);
+            });
+            spResumes = result.resumes || [];
+        }
+
+        // Convert SharePoint format to our DB format
+        const files = spResumes.map(r => ({
+            id: r.sharePointId,
+            name: r.name,
+            fileType: r.fileType,
+            size: r.size,
+            roleType: r.roleType || 'Uncategorized',
+            folderPath: r.path,
+            key: null,
+            webUrl: r.webUrl,
+            downloadUrl: r.downloadUrl,
+            lastModified: r.modifiedAt,
+            createdBy: r.createdBy,
+            driveId: r.driveId
+        }));
+
+        const { savedResumes, errors } = await saveResumesToDB(files, 'sharepoint');
+
+        res.json({
+            success: true,
+            message: `Synced ${savedResumes.length} resumes from SharePoint`,
+            stats: {
+                total: files.length,
+                saved: savedResumes.length,
+                created: savedResumes.filter(r => r.created).length,
+                updated: savedResumes.filter(r => r.updated).length,
+                errors: errors.length
+            },
+            errors: errors.length > 0 ? errors : undefined
+        });
+    } catch (error) {
+        console.error('Error syncing SharePoint resumes:', error);
+        res.status(500).json({ success: false, message: 'Failed to sync from SharePoint', error: error.message });
+    }
+};
+
+/**
+ * Helper: save resume list to database
+ */
+async function saveResumesToDB(files, source) {
+    const savedResumes = [];
+    const errors = [];
+
+    for (const resume of files) {
+        try {
+            const existingResume = await ResumeBank.findOne({ 
+                where: { sharePointId: resume.id } 
+            });
+            
+            const resumeData = {
+                sharePointId: resume.id,
+                driveId: source === 's3' ? 's3' : (resume.driveId || 'sharepoint'),
+                fileName: resume.name,
+                fileType: resume.fileType,
+                fileSize: resume.size,
+                roleType: resume.roleType || 'Uncategorized',
+                folderPath: resume.folderPath,
+                s3Key: source === 's3' ? resume.key : null,
+                webUrl: resume.webUrl || null,
+                downloadUrl: resume.downloadUrl || null,
+                sharePointModifiedAt: resume.lastModified ? new Date(resume.lastModified) : null,
+                sharePointCreatedBy: resume.createdBy || null,
+                lastSyncedAt: new Date()
+            };
+            
+            if (existingResume) {
+                await existingResume.update(resumeData);
+                savedResumes.push({ ...resumeData, updated: true });
+            } else {
+                await ResumeBank.create(resumeData);
+                savedResumes.push({ ...resumeData, created: true });
+            }
+        } catch (err) {
+            errors.push({ file: resume.name, error: err.message });
+        }
+    }
+    return { savedResumes, errors };
+}
 
 /**
  * Get all role types for filtering
@@ -316,15 +388,24 @@ const getDownloadUrl = async (req, res) => {
         if (!resume) {
             return res.status(404).json({ success: false, message: 'Resume not found' });
         }
+
+        let downloadUrl;
+
+        if (resume.driveId === 's3') {
+            // S3 pre-signed URL
+            downloadUrl = await s3Service.getDownloadUrl(resume.s3Key || resume.folderPath + resume.fileName);
+        } else {
+            // SharePoint — get fresh download URL via Graph API
+            try {
+                const siteId = await sharePointService.getSiteId();
+                downloadUrl = await sharePointService.getFileDownloadUrl(siteId, resume.driveId, resume.sharePointId);
+            } catch (spErr) {
+                // Fallback to stored webUrl if Graph API fails
+                downloadUrl = resume.webUrl || resume.downloadUrl;
+            }
+        }
         
-        // Get pre-signed download URL from S3
-        const downloadUrl = await s3Service.getDownloadUrl(resume.s3Key || resume.folderPath + resume.fileName);
-        
-        res.json({ 
-            success: true, 
-            downloadUrl,
-            fileName: resume.fileName
-        });
+        res.json({ success: true, downloadUrl, fileName: resume.fileName });
     } catch (error) {
         res.status(500).json({ success: false, message: error.message });
     }
@@ -424,6 +505,7 @@ const getFolders = async (req, res) => {
 
 module.exports = {
     syncResumes,
+    syncSharePoint,
     getRoleTypes,
     getResumes,
     getResumeById,

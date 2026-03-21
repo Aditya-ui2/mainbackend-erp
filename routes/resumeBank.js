@@ -38,6 +38,26 @@ router.post('/sync', resumeBankController.syncResumes);
 
 /**
  * @swagger
+ * /api/resumebank/sync-sharepoint:
+ *   post:
+ *     summary: Sync resumes from SharePoint
+ *     tags: [Resume Bank]
+ *     requestBody:
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               roleType:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: SharePoint sync completed
+ */
+router.post('/sync-sharepoint', resumeBankController.syncSharePoint);
+
+/**
+ * @swagger
  * /api/resumebank/stats:
  *   get:
  *     summary: Get resume bank statistics
