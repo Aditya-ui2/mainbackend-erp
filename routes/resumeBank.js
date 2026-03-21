@@ -34,7 +34,7 @@ const authMiddleware = require('../middleware/authMiddleware');
  *       200:
  *         description: Sync completed
  */
-router.post('/sync', authMiddleware.verifyTeamLeaderToken, resumeBankController.syncResumes);
+router.post('/sync', authMiddleware.protect, resumeBankController.syncResumes);
 
 /**
  * @swagger
@@ -48,7 +48,7 @@ router.post('/sync', authMiddleware.verifyTeamLeaderToken, resumeBankController.
  *       200:
  *         description: Statistics retrieved
  */
-router.get('/stats', authMiddleware.verifyTeamLeaderToken, resumeBankController.getStats);
+router.get('/stats', authMiddleware.protect, resumeBankController.getStats);
 
 /**
  * @swagger
@@ -62,7 +62,7 @@ router.get('/stats', authMiddleware.verifyTeamLeaderToken, resumeBankController.
  *       200:
  *         description: Role types retrieved
  */
-router.get('/roles', authMiddleware.verifyTeamLeaderToken, resumeBankController.getRoleTypes);
+router.get('/roles', authMiddleware.protect, resumeBankController.getRoleTypes);
 
 /**
  * @swagger
@@ -76,7 +76,7 @@ router.get('/roles', authMiddleware.verifyTeamLeaderToken, resumeBankController.
  *       200:
  *         description: Folder structure retrieved
  */
-router.get('/folders', authMiddleware.verifyTeamLeaderToken, resumeBankController.getFolders);
+router.get('/folders', authMiddleware.protect, resumeBankController.getFolders);
 
 /**
  * @swagger
@@ -97,7 +97,7 @@ router.get('/folders', authMiddleware.verifyTeamLeaderToken, resumeBankControlle
  *       200:
  *         description: Search results
  */
-router.get('/search-s3', authMiddleware.verifyTeamLeaderToken, resumeBankController.searchS3);
+router.get('/search-s3', authMiddleware.protect, resumeBankController.searchS3);
 
 /**
  * @swagger
@@ -150,7 +150,7 @@ router.get('/search-s3', authMiddleware.verifyTeamLeaderToken, resumeBankControl
  *       200:
  *         description: Resumes retrieved
  */
-router.get('/', authMiddleware.verifyTeamLeaderToken, resumeBankController.getResumes);
+router.get('/', authMiddleware.protect, resumeBankController.getResumes);
 
 /**
  * @swagger
@@ -180,7 +180,7 @@ router.get('/', authMiddleware.verifyTeamLeaderToken, resumeBankController.getRe
  *       200:
  *         description: Resumes updated
  */
-router.post('/star', authMiddleware.verifyTeamLeaderToken, resumeBankController.toggleStarResumes);
+router.post('/star', authMiddleware.protect, resumeBankController.toggleStarResumes);
 
 /**
  * @swagger
@@ -211,7 +211,7 @@ router.post('/star', authMiddleware.verifyTeamLeaderToken, resumeBankController.
  *       200:
  *         description: Status updated
  */
-router.post('/bulk-status', authMiddleware.verifyTeamLeaderToken, resumeBankController.bulkUpdateStatus);
+router.post('/bulk-status', authMiddleware.protect, resumeBankController.bulkUpdateStatus);
 
 /**
  * @swagger
@@ -244,7 +244,7 @@ router.post('/bulk-status', authMiddleware.verifyTeamLeaderToken, resumeBankCont
  *       200:
  *         description: Resumes assigned
  */
-router.post('/assign', authMiddleware.verifyTeamLeaderToken, resumeBankController.assignToPosition);
+router.post('/assign', authMiddleware.protect, resumeBankController.assignToPosition);
 
 /**
  * @swagger
@@ -264,7 +264,7 @@ router.post('/assign', authMiddleware.verifyTeamLeaderToken, resumeBankControlle
  *       200:
  *         description: Resume details
  */
-router.get('/:id', authMiddleware.verifyTeamLeaderToken, resumeBankController.getResumeById);
+router.get('/:id', authMiddleware.protect, resumeBankController.getResumeById);
 
 /**
  * @swagger
@@ -316,7 +316,7 @@ router.get('/:id', authMiddleware.verifyTeamLeaderToken, resumeBankController.ge
  *       200:
  *         description: Resume updated
  */
-router.put('/:id', authMiddleware.verifyTeamLeaderToken, resumeBankController.updateResume);
+router.put('/:id', authMiddleware.protect, resumeBankController.updateResume);
 
 /**
  * @swagger
@@ -336,6 +336,6 @@ router.put('/:id', authMiddleware.verifyTeamLeaderToken, resumeBankController.up
  *       200:
  *         description: Download URL
  */
-router.get('/:id/download', authMiddleware.verifyTeamLeaderToken, resumeBankController.getDownloadUrl);
+router.get('/:id/download', authMiddleware.protect, resumeBankController.getDownloadUrl);
 
 module.exports = router;
