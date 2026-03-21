@@ -477,9 +477,10 @@ const Interview = mongoose.model('Interview', interviewSchema);
 
 // Resume Bank Schema - for syncing 10,000+ resumes from SharePoint
 const resumeBankSchema = new Schema({
-    // SharePoint identifiers
+    // Storage identifiers (supports both S3 and SharePoint)
     sharePointId: { type: String, required: true, unique: true },
-    driveId: { type: String, required: true },
+    driveId: { type: String, required: true }, // 's3' for S3 storage
+    s3Key: { type: String }, // S3 object key for download
     
     // File details
     fileName: { type: String, required: true },

@@ -1,8 +1,8 @@
 const { ResumeBank, RecruitmentPosition, DepartmentTeam } = require('../models/models');
-const sharePointService = require('../utils/sharePointService');
+const s3Service = require('../utils/s3Service');
 
 /**
- * Sync all resumes from SharePoint
+ * Sync all resumes from AWS S3
  * POST /api/resumebank/sync
  */
 const syncResumes = async (req, res) => {
@@ -13,13 +13,11 @@ const syncResumes = async (req, res) => {
         
         if (roleType) {
             // Sync specific role folder
-            result = await sharePointService.syncResumesByRole(roleType);
+            result = await s3Service.syncResumesByRole(roleType);
         } else {
             // Full sync with progress tracking
-            let processedCount = 0;
-            
-            result = await sharePointService.syncAllResumes(({ processed, total }) => {
-                processedCount = processed;
+            result = await s3Service.getAllResumes(({ processed, total, filesFound }) => {
+                console.log(`Syncing: ${processed}/${total} folders, ${filesFound} files found`);
             });
         }
         
@@ -32,19 +30,15 @@ const syncResumes = async (req, res) => {
                 const existingResume = await ResumeBank.findOne({ sharePointId: resume.id });
                 
                 const resumeData = {
-                    sharePointId: resume.id,
-                    driveId: resume.driveId || result.driveId,
+                    sharePointId: resume.id, // Using same field name for S3 file ID
+                    driveId: 's3', // Indicate this is from S3
                     fileName: resume.name,
-                    fileType: resume.name.split('.').pop().toLowerCase(),
+                    fileType: resume.fileType,
                     fileSize: resume.size,
                     roleType: resume.roleType || 'Uncategorized',
-                    subRole: resume.subRole,
-                    webUrl: resume.webUrl,
-                    downloadUrl: resume.downloadUrl,
                     folderPath: resume.folderPath,
-                    sharePointCreatedAt: resume.createdDateTime ? new Date(resume.createdDateTime) : null,
-                    sharePointModifiedAt: resume.lastModifiedDateTime ? new Date(resume.lastModifiedDateTime) : null,
-                    sharePointCreatedBy: resume.createdBy?.user?.displayName,
+                    s3Key: resume.key,
+                    sharePointModifiedAt: resume.lastModified ? new Date(resume.lastModified) : null,
                     lastSyncedAt: new Date()
                 };
                 
@@ -63,7 +57,7 @@ const syncResumes = async (req, res) => {
         
         res.json({
             success: true,
-            message: `Synced ${savedResumes.length} resumes`,
+            message: `Synced ${savedResumes.length} resumes from S3`,
             stats: {
                 total: result.files?.length || 0,
                 saved: savedResumes.length,
@@ -331,8 +325,8 @@ const getDownloadUrl = async (req, res) => {
             return res.status(404).json({ success: false, message: 'Resume not found' });
         }
         
-        // Get fresh download URL from SharePoint
-        const downloadUrl = await sharePointService.getFileDownloadUrl(resume.driveId, resume.sharePointId);
+        // Get pre-signed download URL from S3
+        const downloadUrl = await s3Service.getDownloadUrl(resume.s3Key || resume.folderPath + resume.fileName);
         
         res.json({ 
             success: true, 
@@ -385,10 +379,10 @@ const getStats = async (req, res) => {
 };
 
 /**
- * Search resumes in SharePoint (without saving)
- * GET /api/resumebank/search-sharepoint
+ * Search resumes in S3 (without saving)
+ * GET /api/resumebank/search-s3
  */
-const searchSharePoint = async (req, res) => {
+const searchS3 = async (req, res) => {
     try {
         const { query } = req.query;
         
@@ -396,7 +390,7 @@ const searchSharePoint = async (req, res) => {
             return res.status(400).json({ success: false, message: 'Search query required' });
         }
         
-        const results = await sharePointService.searchResumes(query);
+        const results = await s3Service.searchResumes(query);
         
         res.json({
             success: true,
@@ -408,12 +402,12 @@ const searchSharePoint = async (req, res) => {
 };
 
 /**
- * Get folder structure from SharePoint
+ * Get folder structure from S3
  * GET /api/resumebank/folders
  */
 const getFolders = async (req, res) => {
     try {
-        const folders = await sharePointService.getRoleTypeFolders();
+        const folders = await s3Service.getRoleTypeFolders();
         
         res.json({
             success: true,
@@ -435,6 +429,6 @@ module.exports = {
     assignToPosition,
     getDownloadUrl,
     getStats,
-    searchSharePoint,
+    searchS3,
     getFolders
 };

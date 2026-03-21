@@ -68,7 +68,7 @@ router.get('/roles', authMiddleware.verifyTeamLeaderToken, resumeBankController.
  * @swagger
  * /api/resumebank/folders:
  *   get:
- *     summary: Get SharePoint folder structure
+ *     summary: Get S3 folder structure
  *     tags: [Resume Bank]
  *     security:
  *       - bearerAuth: []
@@ -80,9 +80,9 @@ router.get('/folders', authMiddleware.verifyTeamLeaderToken, resumeBankControlle
 
 /**
  * @swagger
- * /api/resumebank/search-sharepoint:
+ * /api/resumebank/search-s3:
  *   get:
- *     summary: Search resumes directly in SharePoint
+ *     summary: Search resumes directly in S3
  *     tags: [Resume Bank]
  *     security:
  *       - bearerAuth: []
@@ -97,7 +97,7 @@ router.get('/folders', authMiddleware.verifyTeamLeaderToken, resumeBankControlle
  *       200:
  *         description: Search results
  */
-router.get('/search-sharepoint', authMiddleware.verifyTeamLeaderToken, resumeBankController.searchSharePoint);
+router.get('/search-s3', authMiddleware.verifyTeamLeaderToken, resumeBankController.searchS3);
 
 /**
  * @swagger
