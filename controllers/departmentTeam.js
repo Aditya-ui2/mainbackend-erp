@@ -1,6 +1,10 @@
-const { DepartmentTeam, ActivityLog, DepartmentTask, TeamLeader } = require('../models/models');
+// Use Sequelize model for DepartmentTeam
+const { DepartmentTeam, TeamLeader } = require('../models/sequelizeModels');
+// Keep using Mongoose for ActivityLog and DepartmentTask for now
+const { ActivityLog, DepartmentTask } = require('../models/models');
 const { hashPassword, comparePassword } = require('../utils/bcryptUtils');
 const { generateToken } = require('../utils/jwtUtils');
+const { Op } = require('sequelize');
 
 // ============== TEAM MEMBER CRUD ==============
 
@@ -10,13 +14,19 @@ const getTeamMembers = async (req, res) => {
         const { department } = req.query;
         const managerId = req.user?.id;
 
-        const filter = {};
-        if (department) filter.department = department;
-        if (managerId) filter.manager = managerId;
+        const where = {};
+        if (department) where.department = department;
+        if (managerId) where.managerId = managerId;
 
-        const members = await DepartmentTeam.find(filter)
-            .populate('manager', 'name email')
-            .sort({ createdAt: -1 });
+        const members = await DepartmentTeam.findAll({
+            where,
+            include: [{
+                model: TeamLeader,
+                as: 'manager',
+                attributes: ['id', 'name', 'email']
+            }],
+            order: [['createdAt', 'DESC']]
+        });
 
         res.status(200).json({ success: true, members });
     } catch (error) {
@@ -28,8 +38,13 @@ const getTeamMembers = async (req, res) => {
 // Get single team member
 const getTeamMember = async (req, res) => {
     try {
-        const member = await DepartmentTeam.findById(req.params.id)
-            .populate('manager', 'name email');
+        const member = await DepartmentTeam.findByPk(req.params.id, {
+            include: [{
+                model: TeamLeader,
+                as: 'manager',
+                attributes: ['id', 'name', 'email']
+            }]
+        });
         
         if (!member) {
             return res.status(404).json({ success: false, message: 'Team member not found' });
@@ -52,37 +67,22 @@ const addTeamMember = async (req, res) => {
             return res.status(400).json({ success: false, message: 'Password is required' });
         }
 
-        const existing = await DepartmentTeam.findOne({ email });
+        const existing = await DepartmentTeam.findOne({ where: { email: email.toLowerCase() } });
         if (existing) {
             return res.status(400).json({ success: false, message: 'Email already exists' });
         }
 
         const hashedPassword = await hashPassword(password);
 
-        const member = new DepartmentTeam({
+        const member = await DepartmentTeam.create({
             name,
             email: email.toLowerCase(),
             password: hashedPassword,
             phone,
             role,
             department,
-            manager: managerId,
+            managerId: managerId,
             skills: skills || [],
-        });
-
-        await member.save();
-
-        // Log activity
-        await logActivity({
-            department,
-            performedBy: managerId,
-            performedByType: 'TeamLeader',
-            performedByName: req.user?.name || 'Manager',
-            action: 'added_team_member',
-            actionType: 'general',
-            description: `Added ${name} to the team as ${role}`,
-            relatedEntity: member._id,
-            relatedEntityType: 'DepartmentTeam'
         });
 
         res.status(201).json({ success: true, member, message: 'Team member added successfully' });
@@ -430,7 +430,9 @@ const loginDepartmentTeam = async (req, res) => {
             });
         }
 
-        const member = await DepartmentTeam.findOne({ email: email.toLowerCase() });
+        const member = await DepartmentTeam.findOne({ 
+            where: { email: email.toLowerCase() } 
+        });
         
         if (!member) {
             return res.status(401).json({ 
@@ -456,7 +458,7 @@ const loginDepartmentTeam = async (req, res) => {
         }
 
         const token = generateToken({
-            id: member._id,
+            id: member.id,
             email: member.email,
             name: member.name,
             role: member.role,
@@ -464,21 +466,12 @@ const loginDepartmentTeam = async (req, res) => {
             userType: 'departmentTeam'
         });
 
-        // Log activity
-        await logActivity(
-            member.department,
-            'LOGIN',
-            `${member.name} logged in`,
-            member._id,
-            null
-        );
-
         res.status(200).json({
             success: true,
             message: 'Login successful',
             token,
             user: {
-                id: member._id,
+                id: member.id,
                 name: member.name,
                 email: member.email,
                 role: member.role,

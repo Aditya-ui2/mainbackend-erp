@@ -748,6 +748,84 @@ RecurringTask.prototype.getAssignedUser = async function() {
     return null;
 };
 
+// ============ DEPARTMENT TEAM MODEL ============
+class DepartmentTeam extends Model {}
+
+DepartmentTeam.init({
+    id: {
+        type: DataTypes.UUID,
+        defaultValue: DataTypes.UUIDV4,
+        primaryKey: true
+    },
+    name: {
+        type: DataTypes.STRING,
+        allowNull: false
+    },
+    email: {
+        type: DataTypes.STRING,
+        allowNull: false,
+        unique: true
+    },
+    password: {
+        type: DataTypes.STRING,
+        allowNull: false
+    },
+    phone: {
+        type: DataTypes.STRING
+    },
+    role: {
+        type: DataTypes.STRING,
+        defaultValue: 'Team Member'
+    },
+    department: {
+        type: DataTypes.ENUM('HR Operations', 'HR Recruitment'),
+        allowNull: false
+    },
+    managerId: {
+        type: DataTypes.UUID,
+        references: {
+            model: 'TeamLeaders',
+            key: 'id'
+        }
+    },
+    status: {
+        type: DataTypes.ENUM('Active', 'Inactive', 'On Leave'),
+        defaultValue: 'Active'
+    },
+    avatar: {
+        type: DataTypes.STRING
+    },
+    skills: {
+        type: DataTypes.JSONB,
+        defaultValue: []
+    },
+    joinDate: {
+        type: DataTypes.DATE,
+        defaultValue: DataTypes.NOW
+    },
+    tasksCompleted: {
+        type: DataTypes.INTEGER,
+        defaultValue: 0
+    },
+    tasksAssigned: {
+        type: DataTypes.INTEGER,
+        defaultValue: 0
+    },
+    avgResponseTime: {
+        type: DataTypes.FLOAT,
+        defaultValue: 0
+    }
+}, {
+    sequelize,
+    modelName: 'DepartmentTeam',
+    tableName: 'DepartmentTeams',
+    timestamps: true
+});
+
+// DepartmentTeam -> TeamLeader (Manager relationship)
+TeamLeader.hasMany(DepartmentTeam, { foreignKey: 'managerId', as: 'teamMembers' });
+DepartmentTeam.belongsTo(TeamLeader, { foreignKey: 'managerId', as: 'manager' });
+
 module.exports = {
     sequelize,
     SuperAdmin,
@@ -762,5 +840,6 @@ module.exports = {
     Notification,
     Message,
     WorkAgreement,
-    WorkHandover
+    WorkHandover,
+    DepartmentTeam
 };

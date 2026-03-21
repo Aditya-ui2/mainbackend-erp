@@ -1,14 +1,15 @@
 require('dotenv').config();
-const mongoose = require('mongoose');
-const { DepartmentTeam } = require('../models/models');
+const { DepartmentTeam, sequelize } = require('../models/sequelizeModels');
 const { hashPassword } = require('../utils/bcryptUtils');
-
-const MONGO_URI = process.env.MONGO_URI;
 
 const seedDepartmentTeam = async () => {
     try {
-        await mongoose.connect(MONGO_URI);
-        console.log('Connected to MongoDB');
+        await sequelize.authenticate();
+        console.log('Connected to PostgreSQL');
+
+        // Sync the DepartmentTeam table
+        await DepartmentTeam.sync({ alter: true });
+        console.log('DepartmentTeam table synced');
 
         const users = [
             {
@@ -34,12 +35,12 @@ const seedDepartmentTeam = async () => {
         ];
 
         for (const userData of users) {
-            const existing = await DepartmentTeam.findOne({ email: userData.email });
+            const existing = await DepartmentTeam.findOne({ where: { email: userData.email } });
             
             if (existing) {
                 // Update existing user with new password
                 const hashedPassword = await hashPassword(userData.password);
-                await DepartmentTeam.findByIdAndUpdate(existing._id, {
+                await existing.update({
                     password: hashedPassword,
                     name: userData.name,
                     role: userData.role,
