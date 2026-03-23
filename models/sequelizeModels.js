@@ -1081,6 +1081,128 @@ ActivityLog.init({
     timestamps: true
 });
 
+// ============== LEAVE REQUEST MODEL ==============
+const LeaveRequest = sequelize.define('LeaveRequest', {
+    id: { type: DataTypes.UUID, defaultValue: DataTypes.UUIDV4, primaryKey: true },
+    memberId: { type: DataTypes.UUID, allowNull: false },
+    memberName: { type: DataTypes.STRING, allowNull: false },
+    department: { type: DataTypes.ENUM('HR Operations', 'HR Recruitment'), allowNull: false },
+    leaveType: { type: DataTypes.ENUM('Casual', 'Sick', 'Earned', 'Half Day', 'Work From Home'), allowNull: false },
+    startDate: { type: DataTypes.DATEONLY, allowNull: false },
+    endDate: { type: DataTypes.DATEONLY, allowNull: false },
+    reason: { type: DataTypes.TEXT, allowNull: false },
+    status: { type: DataTypes.ENUM('Pending', 'Approved', 'Rejected'), defaultValue: 'Pending' },
+    approvedBy: { type: DataTypes.UUID },
+    approverName: { type: DataTypes.STRING },
+    approverComment: { type: DataTypes.TEXT },
+    totalDays: { type: DataTypes.FLOAT, defaultValue: 1 },
+}, { tableName: 'LeaveRequests', timestamps: true });
+
+// ============== ATTENDANCE MODEL ==============
+const Attendance = sequelize.define('Attendance', {
+    id: { type: DataTypes.UUID, defaultValue: DataTypes.UUIDV4, primaryKey: true },
+    memberId: { type: DataTypes.UUID, allowNull: false },
+    memberName: { type: DataTypes.STRING, allowNull: false },
+    department: { type: DataTypes.ENUM('HR Operations', 'HR Recruitment'), allowNull: false },
+    date: { type: DataTypes.DATEONLY, allowNull: false },
+    checkIn: { type: DataTypes.DATE },
+    checkOut: { type: DataTypes.DATE },
+    status: { type: DataTypes.ENUM('Present', 'Absent', 'Half Day', 'On Leave', 'WFH'), defaultValue: 'Present' },
+    workHours: { type: DataTypes.FLOAT, defaultValue: 0 },
+    notes: { type: DataTypes.STRING },
+}, { tableName: 'Attendances', timestamps: true });
+
+// ============== DAILY REPORT MODEL ==============
+const DailyReport = sequelize.define('DailyReport', {
+    id: { type: DataTypes.UUID, defaultValue: DataTypes.UUIDV4, primaryKey: true },
+    memberId: { type: DataTypes.UUID, allowNull: false },
+    memberName: { type: DataTypes.STRING, allowNull: false },
+    department: { type: DataTypes.ENUM('HR Operations', 'HR Recruitment'), allowNull: false },
+    date: { type: DataTypes.DATEONLY, allowNull: false },
+    summary: { type: DataTypes.TEXT, allowNull: false },
+    tasksCompleted: { type: DataTypes.JSONB, defaultValue: [] },
+    tasksPlanned: { type: DataTypes.JSONB, defaultValue: [] },
+    blockers: { type: DataTypes.TEXT },
+    mood: { type: DataTypes.ENUM('Great', 'Good', 'Okay', 'Tough'), defaultValue: 'Good' },
+    headComment: { type: DataTypes.TEXT },
+}, { tableName: 'DailyReports', timestamps: true });
+
+// ============== ANNOUNCEMENT MODEL ==============
+const Announcement = sequelize.define('Announcement', {
+    id: { type: DataTypes.UUID, defaultValue: DataTypes.UUIDV4, primaryKey: true },
+    department: { type: DataTypes.ENUM('HR Operations', 'HR Recruitment'), allowNull: false },
+    title: { type: DataTypes.STRING, allowNull: false },
+    content: { type: DataTypes.TEXT, allowNull: false },
+    priority: { type: DataTypes.ENUM('Low', 'Medium', 'High', 'Urgent'), defaultValue: 'Medium' },
+    postedBy: { type: DataTypes.UUID, allowNull: false },
+    postedByName: { type: DataTypes.STRING, allowNull: false },
+    expiresAt: { type: DataTypes.DATE },
+    pinned: { type: DataTypes.BOOLEAN, defaultValue: false },
+}, { tableName: 'Announcements', timestamps: true });
+
+// ============== DEPARTMENT DOCUMENT MODEL ==============
+const DeptDocument = sequelize.define('DeptDocument', {
+    id: { type: DataTypes.UUID, defaultValue: DataTypes.UUIDV4, primaryKey: true },
+    department: { type: DataTypes.ENUM('HR Operations', 'HR Recruitment'), allowNull: false },
+    name: { type: DataTypes.STRING, allowNull: false },
+    description: { type: DataTypes.TEXT },
+    fileUrl: { type: DataTypes.STRING, allowNull: false },
+    fileType: { type: DataTypes.STRING },
+    fileSize: { type: DataTypes.INTEGER },
+    uploadedBy: { type: DataTypes.UUID, allowNull: false },
+    uploadedByName: { type: DataTypes.STRING, allowNull: false },
+    category: { type: DataTypes.ENUM('Policy', 'Template', 'Report', 'Training', 'Other'), defaultValue: 'Other' },
+}, { tableName: 'DeptDocuments', timestamps: true });
+
+// ============== TRAINING MODEL ==============
+const Training = sequelize.define('Training', {
+    id: { type: DataTypes.UUID, defaultValue: DataTypes.UUIDV4, primaryKey: true },
+    memberId: { type: DataTypes.UUID, allowNull: false },
+    memberName: { type: DataTypes.STRING, allowNull: false },
+    department: { type: DataTypes.ENUM('HR Operations', 'HR Recruitment'), allowNull: false },
+    title: { type: DataTypes.STRING, allowNull: false },
+    description: { type: DataTypes.TEXT },
+    category: { type: DataTypes.ENUM('Skill Development', 'Certification', 'Workshop', 'Webinar', 'On-the-Job'), defaultValue: 'Skill Development' },
+    status: { type: DataTypes.ENUM('Not Started', 'In Progress', 'Completed'), defaultValue: 'Not Started' },
+    startDate: { type: DataTypes.DATEONLY },
+    completedDate: { type: DataTypes.DATEONLY },
+    certificateUrl: { type: DataTypes.STRING },
+    progress: { type: DataTypes.INTEGER, defaultValue: 0 },
+    assignedBy: { type: DataTypes.UUID },
+    assignedByName: { type: DataTypes.STRING },
+}, { tableName: 'Trainings', timestamps: true });
+
+// ============== PAYSLIP MODEL ==============
+const Payslip = sequelize.define('Payslip', {
+    id: { type: DataTypes.UUID, defaultValue: DataTypes.UUIDV4, primaryKey: true },
+    memberId: { type: DataTypes.UUID, allowNull: false },
+    memberName: { type: DataTypes.STRING, allowNull: false },
+    department: { type: DataTypes.ENUM('HR Operations', 'HR Recruitment'), allowNull: false },
+    month: { type: DataTypes.STRING, allowNull: false },
+    year: { type: DataTypes.INTEGER, allowNull: false },
+    basicSalary: { type: DataTypes.FLOAT, defaultValue: 0 },
+    hra: { type: DataTypes.FLOAT, defaultValue: 0 },
+    otherAllowances: { type: DataTypes.FLOAT, defaultValue: 0 },
+    deductions: { type: DataTypes.FLOAT, defaultValue: 0 },
+    netSalary: { type: DataTypes.FLOAT, defaultValue: 0 },
+    status: { type: DataTypes.ENUM('Generated', 'Paid'), defaultValue: 'Generated' },
+    paidDate: { type: DataTypes.DATEONLY },
+    fileUrl: { type: DataTypes.STRING },
+}, { tableName: 'Payslips', timestamps: true });
+
+// ============== DEPARTMENT CHAT MODEL ==============
+const DeptChat = sequelize.define('DeptChat', {
+    id: { type: DataTypes.UUID, defaultValue: DataTypes.UUIDV4, primaryKey: true },
+    department: { type: DataTypes.ENUM('HR Operations', 'HR Recruitment'), allowNull: false },
+    senderId: { type: DataTypes.UUID, allowNull: false },
+    senderName: { type: DataTypes.STRING, allowNull: false },
+    senderRole: { type: DataTypes.STRING },
+    message: { type: DataTypes.TEXT, allowNull: false },
+    messageType: { type: DataTypes.ENUM('text', 'file', 'image'), defaultValue: 'text' },
+    fileUrl: { type: DataTypes.STRING },
+    replyTo: { type: DataTypes.UUID },
+}, { tableName: 'DeptChats', timestamps: true });
+
 module.exports = {
     sequelize,
     SuperAdmin,
@@ -1100,5 +1222,13 @@ module.exports = {
     DepartmentTeam,
     ResumeBank,
     DepartmentTask,
-    ActivityLog
+    ActivityLog,
+    LeaveRequest,
+    Attendance,
+    DailyReport,
+    Announcement,
+    DeptDocument,
+    Training,
+    Payslip,
+    DeptChat,
 };

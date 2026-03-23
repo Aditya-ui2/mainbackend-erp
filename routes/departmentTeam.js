@@ -382,4 +382,57 @@ router.get('/my-tasks', verifyAuthToken, getMyTasks);
  */
 router.get('/my-stats', verifyAuthToken, getMyStats);
 
+// ============== MEMBER FEATURES ROUTES ==============
+const mf = require('../controllers/memberFeatures');
+
+// Profile
+router.get('/my-profile', verifyAuthToken, mf.getMyProfile);
+router.put('/my-profile', verifyAuthToken, mf.updateMyProfile);
+
+// Leave Requests
+router.get('/leaves', verifyAuthToken, mf.getLeaveRequests);
+router.post('/leaves', verifyAuthToken, mf.applyLeave);
+router.get('/dept-leaves', verifyAuthToken, mf.getDeptLeaveRequests);
+router.put('/leaves/:id/approve', verifyAuthToken, mf.approveRejectLeave);
+
+// Attendance
+router.post('/attendance/check-in', verifyAuthToken, mf.checkIn);
+router.post('/attendance/check-out', verifyAuthToken, mf.checkOut);
+router.get('/my-attendance', verifyAuthToken, mf.getMyAttendance);
+router.get('/dept-attendance', verifyAuthToken, mf.getDeptAttendance);
+
+// Performance
+router.get('/performance', verifyAuthToken, mf.getPerformanceStats);
+
+// Daily Reports
+router.post('/daily-report', verifyAuthToken, mf.submitDailyReport);
+router.get('/my-reports', verifyAuthToken, mf.getMyReports);
+router.get('/dept-reports', verifyAuthToken, mf.getDeptReports);
+
+// Announcements
+router.get('/announcements', verifyAuthToken, mf.getAnnouncements);
+router.post('/announcements', verifyAuthToken, mf.createAnnouncement);
+router.delete('/announcements/:id', verifyAuthToken, mf.deleteAnnouncement);
+
+// Documents
+router.get('/documents', verifyAuthToken, mf.getDocuments);
+router.post('/documents', verifyAuthToken, mf.uploadDocument);
+router.delete('/documents/:id', verifyAuthToken, mf.deleteDocument);
+
+// Training
+router.get('/my-trainings', verifyAuthToken, mf.getMyTrainings);
+router.put('/trainings/:id', verifyAuthToken, mf.updateTraining);
+router.post('/trainings', verifyAuthToken, mf.assignTraining);
+
+// Payslips
+router.get('/my-payslips', verifyAuthToken, mf.getMyPayslips);
+router.post('/payslips', verifyAuthToken, mf.generatePayslip);
+
+// Team Chat
+router.get('/chat', verifyAuthToken, mf.getChatMessages);
+router.post('/chat', verifyAuthToken, mf.sendChatMessage);
+
+// Calendar
+router.get('/calendar', verifyAuthToken, mf.getCalendarEvents);
+
 module.exports = router;
