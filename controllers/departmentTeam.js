@@ -3,6 +3,7 @@ const { DepartmentTeam, TeamLeader, DepartmentTask, ActivityLog } = require('../
 const { hashPassword, comparePasswords } = require('../utils/bcryptUtils');
 const { generateToken } = require('../utils/jwtUtils');
 const { Op } = require('sequelize');
+const { addNotification } = require('./notification');
 
 // ============== TEAM MEMBER CRUD ==============
 
@@ -295,6 +296,28 @@ const updateDepartmentTask = async (req, res) => {
         }
 
         await task.update(updateData);
+
+        // Send notifications for comment
+        if (comments) {
+            const commenterName = req.user?.name || 'User';
+            if (userType === 'TeamLeader') {
+                // Head commented → notify team member
+                addNotification(task.assignedTo, 'DepartmentTeam', `💬 ${commenterName} commented on "${task.title}": ${comments}`, 'comment', 'medium');
+            } else {
+                // Member commented → notify head
+                if (task.assignedBy) {
+                    addNotification(task.assignedBy, 'TeamLeader', `💬 ${commenterName} commented on "${task.title}": ${comments}`, 'comment', 'medium');
+                }
+            }
+        }
+
+        // Send notification for status change
+        if (status && status !== task.getDataValue('status')) {
+            const changerName = req.user?.name || 'User';
+            if (task.assignedBy) {
+                addNotification(task.assignedBy, 'TeamLeader', `📋 ${changerName} changed "${task.title}" to ${status}`, 'task', 'medium');
+            }
+        }
 
         // Update team member stats if completed (Sequelize)
         if (status === 'Completed') {
