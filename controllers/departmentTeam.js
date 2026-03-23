@@ -1,7 +1,5 @@
-// Use Sequelize model for DepartmentTeam
-const { DepartmentTeam, TeamLeader } = require('../models/sequelizeModels');
-// Keep using Mongoose for ActivityLog and DepartmentTask for now
-const { ActivityLog, DepartmentTask } = require('../models/models');
+// Use Sequelize models for all operations (PostgreSQL)
+const { DepartmentTeam, TeamLeader, DepartmentTask, ActivityLog } = require('../models/sequelizeModels');
 const { hashPassword, comparePasswords } = require('../utils/bcryptUtils');
 const { generateToken } = require('../utils/jwtUtils');
 const { Op } = require('sequelize');
@@ -98,15 +96,13 @@ const updateTeamMember = async (req, res) => {
         const { name, email, phone, role, status, skills } = req.body;
         const managerId = req.user?.id;
 
-        const member = await DepartmentTeam.findByIdAndUpdate(
-            req.params.id,
-            { name, email, phone, role, status, skills },
-            { new: true }
-        );
+        const member = await DepartmentTeam.findByPk(req.params.id);
 
         if (!member) {
             return res.status(404).json({ success: false, message: 'Team member not found' });
         }
+
+        await member.update({ name, email, phone, role, status, skills });
 
         // Log activity
         await logActivity({
@@ -117,7 +113,7 @@ const updateTeamMember = async (req, res) => {
             action: 'updated_team_member',
             actionType: 'general',
             description: `Updated ${name}'s profile`,
-            relatedEntity: member._id,
+            relatedEntity: member.id,
             relatedEntityType: 'DepartmentTeam'
         });
 
@@ -131,12 +127,13 @@ const updateTeamMember = async (req, res) => {
 // Delete team member
 const deleteTeamMember = async (req, res) => {
     try {
-        const member = await DepartmentTeam.findByIdAndDelete(req.params.id);
+        const member = await DepartmentTeam.findByPk(req.params.id);
         
         if (!member) {
             return res.status(404).json({ success: false, message: 'Team member not found' });
         }
 
+        await member.destroy();
         res.status(200).json({ success: true, message: 'Team member removed successfully' });
     } catch (error) {
         console.error('Error deleting team member:', error);
@@ -149,8 +146,7 @@ const deleteTeamMember = async (req, res) => {
 // Helper function to log activity
 const logActivity = async (data) => {
     try {
-        const activity = new ActivityLog(data);
-        await activity.save();
+        const activity = await ActivityLog.create(data);
         return activity;
     } catch (error) {
         console.error('Error logging activity:', error);
@@ -162,13 +158,15 @@ const getActivityLogs = async (req, res) => {
     try {
         const { department, limit = 50, actionType } = req.query;
 
-        const filter = {};
-        if (department) filter.department = department;
-        if (actionType) filter.actionType = actionType;
+        const where = {};
+        if (department) where.department = department;
+        if (actionType) where.actionType = actionType;
 
-        const activities = await ActivityLog.find(filter)
-            .sort({ createdAt: -1 })
-            .limit(parseInt(limit));
+        const activities = await ActivityLog.findAll({
+            where,
+            order: [['createdAt', 'DESC']],
+            limit: parseInt(limit)
+        });
 
         res.status(200).json({ success: true, activities });
     } catch (error) {
@@ -196,14 +194,16 @@ const getDepartmentTasks = async (req, res) => {
         const { department, status, assignedTo } = req.query;
         const managerId = req.user?.id;
 
-        const filter = {};
-        if (department) filter.department = department;
-        if (status) filter.status = status;
-        if (assignedTo) filter.assignedTo = assignedTo;
-        if (managerId) filter.assignedBy = managerId;
+        const where = {};
+        if (department) where.department = department;
+        if (status) where.status = status;
+        if (assignedTo) where.assignedTo = assignedTo;
+        if (managerId) where.assignedBy = managerId;
 
-        const tasks = await DepartmentTask.find(filter)
-            .sort({ createdAt: -1 });
+        const tasks = await DepartmentTask.findAll({
+            where,
+            order: [['createdAt', 'DESC']]
+        });
 
         res.status(200).json({ success: true, tasks });
     } catch (error) {
@@ -224,7 +224,7 @@ const createDepartmentTask = async (req, res) => {
             return res.status(404).json({ success: false, message: 'Assignee not found' });
         }
 
-        const task = new DepartmentTask({
+        const task = await DepartmentTask.create({
             title,
             description,
             department,
@@ -235,8 +235,6 @@ const createDepartmentTask = async (req, res) => {
             priority,
             dueDate,
         });
-
-        await task.save();
 
         // Update assignee's task count (Sequelize)
         await assignee.increment('tasksAssigned', { by: 1 });
@@ -250,7 +248,7 @@ const createDepartmentTask = async (req, res) => {
             action: 'assigned_task',
             actionType: 'task',
             description: `Assigned "${title}" to ${assignee.name}`,
-            relatedEntity: task._id,
+            relatedEntity: task.id,
             relatedEntityType: 'Task'
         });
 
@@ -268,6 +266,12 @@ const updateDepartmentTask = async (req, res) => {
         const userId = req.user?.id;
         const userType = req.user?.userType || 'TeamLeader';
 
+        const task = await DepartmentTask.findByPk(req.params.id);
+
+        if (!task) {
+            return res.status(404).json({ success: false, message: 'Task not found' });
+        }
+
         const updateData = { ...req.body };
         
         // If marking as completed
@@ -277,9 +281,9 @@ const updateDepartmentTask = async (req, res) => {
 
         // Add comment if provided
         if (comments) {
-            const task = await DepartmentTask.findById(req.params.id);
+            const existingComments = task.comments || [];
             updateData.comments = [
-                ...(task.comments || []),
+                ...existingComments,
                 {
                     text: comments,
                     by: userId,
@@ -290,15 +294,7 @@ const updateDepartmentTask = async (req, res) => {
             ];
         }
 
-        const task = await DepartmentTask.findByIdAndUpdate(
-            req.params.id,
-            updateData,
-            { new: true }
-        );
-
-        if (!task) {
-            return res.status(404).json({ success: false, message: 'Task not found' });
-        }
+        await task.update(updateData);
 
         // Update team member stats if completed (Sequelize)
         if (status === 'Completed') {
@@ -316,7 +312,7 @@ const updateDepartmentTask = async (req, res) => {
                 action: 'completed_task',
                 actionType: 'task',
                 description: `Completed task "${task.title}"`,
-                relatedEntity: task._id,
+                relatedEntity: task.id,
                 relatedEntityType: 'Task'
             });
         }
@@ -331,12 +327,13 @@ const updateDepartmentTask = async (req, res) => {
 // Delete department task
 const deleteDepartmentTask = async (req, res) => {
     try {
-        const task = await DepartmentTask.findByIdAndDelete(req.params.id);
+        const task = await DepartmentTask.findByPk(req.params.id);
         
         if (!task) {
             return res.status(404).json({ success: false, message: 'Task not found' });
         }
 
+        await task.destroy();
         res.status(200).json({ success: true, message: 'Task deleted successfully' });
     } catch (error) {
         console.error('Error deleting department task:', error);
@@ -361,33 +358,38 @@ const getDepartmentStats = async (req, res) => {
         const activeMembers = teamMembers.filter(m => m.status === 'Active').length;
         const onLeave = teamMembers.filter(m => m.status === 'On Leave').length;
 
-        // Task stats (MongoDB)
-        const taskFilter = {};
-        if (department) taskFilter.department = department;
-        if (managerId) taskFilter.assignedBy = managerId;
+        // Task stats (PostgreSQL)
+        const taskWhere = {};
+        if (department) taskWhere.department = department;
+        if (managerId) taskWhere.assignedBy = managerId;
         
-        const allTasks = await DepartmentTask.find(taskFilter);
+        const allTasks = await DepartmentTask.findAll({ where: taskWhere });
         const pendingTasks = allTasks.filter(t => t.status === 'Pending').length;
         const inProgressTasks = allTasks.filter(t => t.status === 'In Progress').length;
         const completedTasks = allTasks.filter(t => t.status === 'Completed').length;
         const overdueTasks = allTasks.filter(t => t.status === 'Overdue' || (t.dueDate && new Date(t.dueDate) < new Date() && t.status !== 'Completed')).length;
 
         // Recent activities
-        const recentActivities = await ActivityLog.find({ department })
-            .sort({ createdAt: -1 })
-            .limit(10);
+        const activityWhere = {};
+        if (department) activityWhere.department = department;
+        const recentActivities = await ActivityLog.findAll({
+            where: activityWhere,
+            order: [['createdAt', 'DESC']],
+            limit: 10
+        });
 
         // Workload distribution
-        const workload = await DepartmentTask.aggregate([
-            { $match: { department, status: { $ne: 'Completed' } } },
-            { $group: { _id: '$assignedTo', count: { $sum: 1 } } }
-        ]);
+        const activeTasks = allTasks.filter(t => t.status !== 'Completed');
+        const workloadMap = {};
+        for (const t of activeTasks) {
+            workloadMap[t.assignedTo] = (workloadMap[t.assignedTo] || 0) + 1;
+        }
 
         // Map workload to team members (Sequelize)
         const workloadWithNames = await Promise.all(
-            workload.map(async (w) => {
-                const member = await DepartmentTeam.findByPk(w._id);
-                return { name: member?.name || 'Unknown', tasks: w.count };
+            Object.entries(workloadMap).map(async ([memberId, count]) => {
+                const member = await DepartmentTeam.findByPk(memberId);
+                return { name: member?.name || 'Unknown', tasks: count };
             })
         );
 
@@ -493,11 +495,13 @@ const getMyTasks = async (req, res) => {
         const userId = req.user?.id;
         const { status } = req.query;
 
-        const filter = { assignedTo: userId };
-        if (status) filter.status = status;
+        const where = { assignedTo: userId };
+        if (status) where.status = status;
 
-        const tasks = await DepartmentTask.find(filter)
-            .sort({ createdAt: -1 });
+        const tasks = await DepartmentTask.findAll({
+            where,
+            order: [['createdAt', 'DESC']]
+        });
 
         res.status(200).json({ success: true, tasks });
     } catch (error) {
@@ -511,7 +515,7 @@ const getMyStats = async (req, res) => {
     try {
         const userId = req.user?.id;
 
-        const allTasks = await DepartmentTask.find({ assignedTo: userId });
+        const allTasks = await DepartmentTask.findAll({ where: { assignedTo: userId } });
 
         const stats = {
             total: allTasks.length,

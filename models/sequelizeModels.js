@@ -969,6 +969,118 @@ ResumeBank.init({
     ]
 });
 
+// ============== DEPARTMENT TASK MODEL ==============
+class DepartmentTask extends Model {}
+
+DepartmentTask.init({
+    id: {
+        type: DataTypes.UUID,
+        defaultValue: DataTypes.UUIDV4,
+        primaryKey: true
+    },
+    title: {
+        type: DataTypes.STRING,
+        allowNull: false
+    },
+    description: {
+        type: DataTypes.TEXT
+    },
+    department: {
+        type: DataTypes.ENUM('HR Operations', 'HR Recruitment'),
+        allowNull: false
+    },
+    assignedBy: {
+        type: DataTypes.UUID,
+        allowNull: false
+    },
+    assignedByName: {
+        type: DataTypes.STRING
+    },
+    assignedTo: {
+        type: DataTypes.UUID,
+        allowNull: false
+    },
+    assignedToName: {
+        type: DataTypes.STRING
+    },
+    status: {
+        type: DataTypes.ENUM('Pending', 'In Progress', 'Completed', 'Overdue'),
+        defaultValue: 'Pending'
+    },
+    priority: {
+        type: DataTypes.ENUM('Low', 'Medium', 'High', 'Urgent'),
+        defaultValue: 'Medium'
+    },
+    dueDate: {
+        type: DataTypes.DATE
+    },
+    completedAt: {
+        type: DataTypes.DATE
+    },
+    comments: {
+        type: DataTypes.JSONB,
+        defaultValue: []
+    }
+}, {
+    sequelize,
+    modelName: 'DepartmentTask',
+    tableName: 'DepartmentTasks',
+    timestamps: true
+});
+
+// ============== ACTIVITY LOG MODEL ==============
+class ActivityLog extends Model {}
+
+ActivityLog.init({
+    id: {
+        type: DataTypes.UUID,
+        defaultValue: DataTypes.UUIDV4,
+        primaryKey: true
+    },
+    department: {
+        type: DataTypes.ENUM('HR Operations', 'HR Recruitment'),
+        allowNull: false
+    },
+    performedBy: {
+        type: DataTypes.STRING,
+        allowNull: false
+    },
+    performedByType: {
+        type: DataTypes.ENUM('TeamLeader', 'DepartmentTeam'),
+        allowNull: false
+    },
+    performedByName: {
+        type: DataTypes.STRING,
+        allowNull: false
+    },
+    action: {
+        type: DataTypes.STRING,
+        allowNull: false
+    },
+    actionType: {
+        type: DataTypes.ENUM('task', 'leave', 'payroll', 'attendance', 'candidate', 'interview', 'offer', 'general'),
+        defaultValue: 'general'
+    },
+    description: {
+        type: DataTypes.STRING,
+        allowNull: false
+    },
+    relatedEntity: {
+        type: DataTypes.STRING
+    },
+    relatedEntityType: {
+        type: DataTypes.STRING
+    },
+    metadata: {
+        type: DataTypes.JSONB
+    }
+}, {
+    sequelize,
+    modelName: 'ActivityLog',
+    tableName: 'ActivityLogs',
+    timestamps: true
+});
+
 module.exports = {
     sequelize,
     SuperAdmin,
@@ -986,5 +1098,7 @@ module.exports = {
     WorkAgreement,
     WorkHandover,
     DepartmentTeam,
-    ResumeBank
+    ResumeBank,
+    DepartmentTask,
+    ActivityLog
 };
