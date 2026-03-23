@@ -369,8 +369,9 @@ const departmentTaskSchema = new Schema({
         enum: ['HR Operations', 'HR Recruitment'], 
         required: true 
     },
-    assignedBy: { type: Schema.Types.ObjectId, ref: 'TeamLeader', required: true },
-    assignedTo: { type: Schema.Types.ObjectId, ref: 'DepartmentTeam', required: true },
+    assignedBy: { type: String, required: true },
+    assignedByName: { type: String },
+    assignedTo: { type: String, required: true },
     assignedToName: { type: String },
     status: { 
         type: String, 
@@ -382,7 +383,7 @@ const departmentTaskSchema = new Schema({
     completedAt: { type: Date },
     comments: [{
         text: String,
-        by: { type: Schema.Types.ObjectId, refPath: 'comments.byType' },
+        by: { type: String },
         byType: { type: String, enum: ['TeamLeader', 'DepartmentTeam'] },
         byName: String,
         createdAt: { type: Date, default: Date.now }

@@ -203,8 +203,6 @@ const getDepartmentTasks = async (req, res) => {
         if (managerId) filter.assignedBy = managerId;
 
         const tasks = await DepartmentTask.find(filter)
-            .populate('assignedTo', 'name email role')
-            .populate('assignedBy', 'name email')
             .sort({ createdAt: -1 });
 
         res.status(200).json({ success: true, tasks });
@@ -220,8 +218,8 @@ const createDepartmentTask = async (req, res) => {
         const { title, description, department, assignedTo, priority, dueDate } = req.body;
         const assignedBy = req.user?.id;
 
-        // Get assignee name
-        const assignee = await DepartmentTeam.findById(assignedTo);
+        // Get assignee name (DepartmentTeam is Sequelize/PostgreSQL)
+        const assignee = await DepartmentTeam.findByPk(assignedTo);
         if (!assignee) {
             return res.status(404).json({ success: false, message: 'Assignee not found' });
         }
@@ -231,6 +229,7 @@ const createDepartmentTask = async (req, res) => {
             description,
             department,
             assignedBy,
+            assignedByName: req.user?.name || 'Manager',
             assignedTo,
             assignedToName: assignee.name,
             priority,
@@ -239,10 +238,8 @@ const createDepartmentTask = async (req, res) => {
 
         await task.save();
 
-        // Update assignee's task count
-        await DepartmentTeam.findByIdAndUpdate(assignedTo, {
-            $inc: { tasksAssigned: 1 }
-        });
+        // Update assignee's task count (Sequelize)
+        await assignee.increment('tasksAssigned', { by: 1 });
 
         // Log activity
         await logActivity({
@@ -297,22 +294,23 @@ const updateDepartmentTask = async (req, res) => {
             req.params.id,
             updateData,
             { new: true }
-        ).populate('assignedTo', 'name email role');
+        );
 
         if (!task) {
             return res.status(404).json({ success: false, message: 'Task not found' });
         }
 
-        // Update team member stats if completed
+        // Update team member stats if completed (Sequelize)
         if (status === 'Completed') {
-            await DepartmentTeam.findByIdAndUpdate(task.assignedTo._id, {
-                $inc: { tasksCompleted: 1 }
-            });
+            const member = await DepartmentTeam.findByPk(task.assignedTo);
+            if (member) {
+                await member.increment('tasksCompleted', { by: 1 });
+            }
 
             // Log activity
             await logActivity({
                 department: task.department,
-                performedBy: task.assignedTo._id,
+                performedBy: task.assignedTo,
                 performedByType: 'DepartmentTeam',
                 performedByName: task.assignedToName,
                 action: 'completed_task',
@@ -354,16 +352,18 @@ const getDepartmentStats = async (req, res) => {
         const { department } = req.query;
         const managerId = req.user?.id;
 
-        const filter = { department };
-        if (managerId) filter.manager = managerId;
+        // Team stats (Sequelize/PostgreSQL)
+        const teamWhere = {};
+        if (department) teamWhere.department = department;
+        if (managerId) teamWhere.managerId = managerId;
 
-        // Team stats
-        const teamMembers = await DepartmentTeam.find(filter);
+        const teamMembers = await DepartmentTeam.findAll({ where: teamWhere });
         const activeMembers = teamMembers.filter(m => m.status === 'Active').length;
         const onLeave = teamMembers.filter(m => m.status === 'On Leave').length;
 
-        // Task stats
-        const taskFilter = { department };
+        // Task stats (MongoDB)
+        const taskFilter = {};
+        if (department) taskFilter.department = department;
         if (managerId) taskFilter.assignedBy = managerId;
         
         const allTasks = await DepartmentTask.find(taskFilter);
@@ -383,10 +383,10 @@ const getDepartmentStats = async (req, res) => {
             { $group: { _id: '$assignedTo', count: { $sum: 1 } } }
         ]);
 
-        // Map workload to team members
+        // Map workload to team members (Sequelize)
         const workloadWithNames = await Promise.all(
             workload.map(async (w) => {
-                const member = await DepartmentTeam.findById(w._id);
+                const member = await DepartmentTeam.findByPk(w._id);
                 return { name: member?.name || 'Unknown', tasks: w.count };
             })
         );
@@ -485,6 +485,49 @@ const loginDepartmentTeam = async (req, res) => {
     }
 };
 
+// ============== MEMBER SELF-SERVICE ==============
+
+// Get tasks assigned to the logged-in team member
+const getMyTasks = async (req, res) => {
+    try {
+        const userId = req.user?.id;
+        const { status } = req.query;
+
+        const filter = { assignedTo: userId };
+        if (status) filter.status = status;
+
+        const tasks = await DepartmentTask.find(filter)
+            .sort({ createdAt: -1 });
+
+        res.status(200).json({ success: true, tasks });
+    } catch (error) {
+        console.error('Error fetching my tasks:', error);
+        res.status(500).json({ success: false, message: 'Failed to fetch tasks' });
+    }
+};
+
+// Get personal stats for logged-in team member
+const getMyStats = async (req, res) => {
+    try {
+        const userId = req.user?.id;
+
+        const allTasks = await DepartmentTask.find({ assignedTo: userId });
+
+        const stats = {
+            total: allTasks.length,
+            pending: allTasks.filter(t => t.status === 'Pending').length,
+            inProgress: allTasks.filter(t => t.status === 'In Progress').length,
+            completed: allTasks.filter(t => t.status === 'Completed').length,
+            overdue: allTasks.filter(t => t.status === 'Overdue' || (t.dueDate && new Date(t.dueDate) < new Date() && t.status !== 'Completed')).length,
+        };
+
+        res.status(200).json({ success: true, stats });
+    } catch (error) {
+        console.error('Error fetching my stats:', error);
+        res.status(500).json({ success: false, message: 'Failed to fetch stats' });
+    }
+};
+
 module.exports = {
     // Authentication
     loginDepartmentTeam,
@@ -505,4 +548,7 @@ module.exports = {
     deleteDepartmentTask,
     // Stats
     getDepartmentStats,
+    // Member self-service
+    getMyTasks,
+    getMyStats,
 };

@@ -14,6 +14,8 @@ const {
     updateDepartmentTask,
     deleteDepartmentTask,
     getDepartmentStats,
+    getMyTasks,
+    getMyStats,
 } = require('../controllers/departmentTeam');
 const verifyAuthToken = require('../middleware/authMiddleware');
 
@@ -343,5 +345,41 @@ router.delete('/tasks/:id', verifyAuthToken, deleteDepartmentTask);
  *                   type: integer
  */
 router.get('/stats', verifyAuthToken, getDepartmentStats);
+
+// ============== MEMBER SELF-SERVICE ==============
+
+/**
+ * @swagger
+ * /department/my-tasks:
+ *   get:
+ *     summary: Get tasks assigned to the logged-in team member
+ *     tags: [Department]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: status
+ *         schema:
+ *           type: string
+ *           enum: [Pending, In Progress, Completed, Overdue]
+ *     responses:
+ *       200:
+ *         description: List of my tasks
+ */
+router.get('/my-tasks', verifyAuthToken, getMyTasks);
+
+/**
+ * @swagger
+ * /department/my-stats:
+ *   get:
+ *     summary: Get personal stats for logged-in team member
+ *     tags: [Department]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Personal task stats
+ */
+router.get('/my-stats', verifyAuthToken, getMyStats);
 
 module.exports = router;

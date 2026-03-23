@@ -31,6 +31,37 @@ const seedDepartmentTeam = async () => {
                 department: 'HR Operations',
                 status: 'Active',
                 skills: ['HR Operations', 'Payroll', 'Compliance']
+            },
+            // Team Members under Sachin (HR Recruitment)
+            {
+                name: 'Manju Sharma',
+                email: 'manju.recruitment@gmail.com',
+                password: 'Manju@123',
+                phone: '+91 9876543212',
+                role: 'HR Executive',
+                department: 'HR Recruitment',
+                status: 'Active',
+                skills: ['Sourcing', 'Screening', 'LinkedIn Recruiting']
+            },
+            {
+                name: 'Jyoti Verma',
+                email: 'jyoti.recruitment@gmail.com',
+                password: 'Jyoti@123',
+                phone: '+91 9876543213',
+                role: 'HR Executive',
+                department: 'HR Recruitment',
+                status: 'Active',
+                skills: ['Interviewing', 'Candidate Assessment', 'Onboarding']
+            },
+            {
+                name: 'Priyanshi Sharma',
+                email: 'priyanshi.recruitment@gmail.com',
+                password: 'Priyanshi@123',
+                phone: '+91 9876543214',
+                role: 'HR Executive',
+                department: 'HR Recruitment',
+                status: 'Active',
+                skills: ['Resume Screening', 'Job Posting', 'Offer Management']
             }
         ];
 
