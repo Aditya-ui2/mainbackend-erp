@@ -5,6 +5,9 @@ const {
     getKamsWithRecruitment,
     createRecruitmentPosition,
     updateRecruitmentPosition,
+    deleteRecruitmentPosition,
+    getAllPositions,
+    getAllCandidates,
     addCandidate,
     updateCandidateStatus,
     getCandidatesByPosition,
@@ -215,5 +218,14 @@ router.get('/positions/:positionId/candidates', verifyAuthToken, getCandidatesBy
  *                   type: object
  */
 router.get('/stats', verifyAuthToken, getRecruitmentStats);
+
+// Get all positions with filtering
+router.get('/positions', verifyAuthToken, getAllPositions);
+
+// Delete a position
+router.delete('/positions/:id', verifyAuthToken, deleteRecruitmentPosition);
+
+// Get all candidates with filtering (pipeline view)
+router.get('/candidates', verifyAuthToken, getAllCandidates);
 
 module.exports = router;

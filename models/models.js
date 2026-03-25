@@ -285,6 +285,21 @@ const candidateSchema = new Schema({
         enum: ['Submitted', 'Shared', 'Shortlisted', 'Interview', 'Selected', 'Rejected', 'OnHold'], 
         default: 'Submitted' 
     },
+    stage: {
+        type: String,
+        enum: ['Screening', 'Phone Interview', 'Technical Round', 'HR Round', 'Client Interview', 'Offer Sent', 'Joined', 'Rejected'],
+        default: 'Screening'
+    },
+    pipelineStatus: {
+        type: String,
+        enum: ['pending', 'hold', 'approved', 'rejected'],
+        default: 'pending'
+    },
+    location: { type: String },
+    rating: { type: Number, default: 0 },
+    noticePeriod: { type: String },
+    rejectionReason: { type: String },
+    source: { type: String },
     sharedAt: { type: Date },
     shortlistedAt: { type: Date },
     interviewDate: { type: Date },

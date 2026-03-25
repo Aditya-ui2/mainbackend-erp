@@ -183,7 +183,13 @@ const addCandidate = async (req, res) => {
             experience, 
             currentSalary, 
             expectedSalary,
-            notes 
+            notes,
+            location,
+            noticePeriod,
+            stage,
+            pipelineStatus,
+            rating,
+            source
         } = req.body;
 
         const candidate = new Candidate({
@@ -199,6 +205,12 @@ const addCandidate = async (req, res) => {
             currentSalary,
             expectedSalary,
             notes,
+            location,
+            noticePeriod,
+            stage: stage || 'Screening',
+            pipelineStatus: pipelineStatus || 'pending',
+            rating: rating || 0,
+            source,
             status: 'Submitted'
         });
 
@@ -223,19 +235,26 @@ const addCandidate = async (req, res) => {
 const updateCandidateStatus = async (req, res) => {
     try {
         const { id } = req.params;
-        const { status, interviewDate, notes } = req.body;
+        const { status, stage, pipelineStatus, rejectionReason, interviewDate, notes, rating } = req.body;
 
-        const updateData = { status };
+        const updateData = {};
         
-        if (status === 'Shared') {
-            updateData.sharedAt = new Date();
-        } else if (status === 'Shortlisted') {
-            updateData.shortlistedAt = new Date();
-        } else if (status === 'Interview' && interviewDate) {
-            updateData.interviewDate = interviewDate;
+        if (status) {
+            updateData.status = status;
+            if (status === 'Shared') {
+                updateData.sharedAt = new Date();
+            } else if (status === 'Shortlisted') {
+                updateData.shortlistedAt = new Date();
+            } else if (status === 'Interview' && interviewDate) {
+                updateData.interviewDate = interviewDate;
+            }
         }
         
+        if (stage) updateData.stage = stage;
+        if (pipelineStatus) updateData.pipelineStatus = pipelineStatus;
+        if (rejectionReason) updateData.rejectionReason = rejectionReason;
         if (notes) updateData.notes = notes;
+        if (rating !== undefined) updateData.rating = rating;
 
         const candidate = await Candidate.findByIdAndUpdate(
             id, 
@@ -317,6 +336,44 @@ const getRecruitmentStats = async (req, res) => {
         });
         const selected = await Candidate.countDocuments({ status: 'Selected' });
 
+        // Pipeline stage counts for funnel
+        const screeningCount = await Candidate.countDocuments({ stage: 'Screening' });
+        const phoneInterviewCount = await Candidate.countDocuments({ stage: 'Phone Interview' });
+        const technicalCount = await Candidate.countDocuments({ stage: 'Technical Round' });
+        const hrRoundCount = await Candidate.countDocuments({ stage: 'HR Round' });
+        const clientInterviewCount = await Candidate.countDocuments({ stage: 'Client Interview' });
+        const offerSentCount = await Candidate.countDocuments({ stage: 'Offer Sent' });
+        const joinedCount = await Candidate.countDocuments({ stage: 'Joined' });
+        const rejectedCount = await Candidate.countDocuments({ stage: 'Rejected' });
+
+        // Position-wise metrics
+        const positions = await RecruitmentPosition.find()
+            .populate('client', 'companyName name')
+            .lean();
+        const positionMetrics = await Promise.all(positions.slice(0, 10).map(async (pos) => {
+            const candidateCount = await Candidate.countDocuments({ position: pos._id });
+            const filledCount = await Candidate.countDocuments({ position: pos._id, stage: 'Joined' });
+            return {
+                position: pos.title,
+                openings: pos.openings || 1,
+                filled: filledCount,
+                total: candidateCount,
+            };
+        }));
+
+        // Client-wise metrics
+        const clientGroups = {};
+        positions.forEach(pos => {
+            const clientName = pos.client?.companyName || pos.client?.name || 'Unknown';
+            if (!clientGroups[clientName]) clientGroups[clientName] = { openings: 0, positions: [] };
+            clientGroups[clientName].openings += (pos.openings || 1);
+            clientGroups[clientName].positions.push(pos._id);
+        });
+        const clientMetrics = await Promise.all(Object.entries(clientGroups).map(async ([client, data]) => {
+            const filledCount = await Candidate.countDocuments({ position: { $in: data.positions }, stage: 'Joined' });
+            return { client, openings: data.openings, filled: filledCount };
+        }));
+
         res.status(200).json({ 
             success: true, 
             data: {
@@ -331,7 +388,19 @@ const getRecruitmentStats = async (req, res) => {
                     sharedCVs,
                     shortlisted,
                     selected
-                }
+                },
+                funnel: {
+                    screening: screeningCount,
+                    phoneInterview: phoneInterviewCount,
+                    technical: technicalCount,
+                    hrRound: hrRoundCount,
+                    clientInterview: clientInterviewCount,
+                    offerSent: offerSentCount,
+                    joined: joinedCount,
+                    rejected: rejectedCount,
+                },
+                positionMetrics,
+                clientMetrics,
             }
         });
     } catch (error) {
@@ -344,10 +413,118 @@ const getRecruitmentStats = async (req, res) => {
     }
 };
 
+// Get all recruitment positions with filtering
+const getAllPositions = async (req, res) => {
+    try {
+        const { status, priority, client, search, sortBy, sortOrder } = req.query;
+        
+        const query = {};
+        if (status) query.status = status;
+        if (priority) query.priority = priority;
+        if (client) query.client = client;
+        if (search) {
+            query.$or = [
+                { title: { $regex: search, $options: 'i' } },
+                { location: { $regex: search, $options: 'i' } },
+                { description: { $regex: search, $options: 'i' } },
+            ];
+        }
+
+        const sortOptions = {};
+        if (sortBy) {
+            sortOptions[sortBy] = sortOrder === 'asc' ? 1 : -1;
+        } else {
+            sortOptions.createdAt = -1;
+        }
+
+        const positions = await RecruitmentPosition.find(query)
+            .populate('client', 'name companyName')
+            .sort(sortOptions)
+            .lean();
+
+        // Get candidate counts for each position
+        const positionsWithStats = await Promise.all(positions.map(async (pos) => {
+            const candidateCount = await Candidate.countDocuments({ position: pos._id });
+            const filledCount = await Candidate.countDocuments({ position: pos._id, status: 'Selected' });
+            return {
+                ...pos,
+                candidateCount,
+                filled: filledCount,
+                clientName: pos.client?.companyName || pos.client?.name || 'Unknown',
+                clientLogo: (pos.client?.companyName || pos.client?.name || 'NA').substring(0, 2).toUpperCase(),
+            };
+        }));
+
+        res.status(200).json({
+            success: true,
+            data: positionsWithStats
+        });
+    } catch (error) {
+        console.error('Error fetching positions:', error);
+        res.status(500).json({ success: false, message: 'Failed to fetch positions', error: error.message });
+    }
+};
+
+// Delete a recruitment position
+const deleteRecruitmentPosition = async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        // Delete associated candidates first
+        await Candidate.deleteMany({ position: id });
+
+        const position = await RecruitmentPosition.findByIdAndDelete(id);
+        if (!position) {
+            return res.status(404).json({ success: false, message: 'Position not found' });
+        }
+
+        res.status(200).json({ success: true, message: 'Position and associated candidates deleted' });
+    } catch (error) {
+        console.error('Error deleting position:', error);
+        res.status(500).json({ success: false, message: 'Failed to delete position', error: error.message });
+    }
+};
+
+// Get all candidates with filtering (for pipeline view)
+const getAllCandidates = async (req, res) => {
+    try {
+        const { status, positionId, search, stage, pipelineStatus } = req.query;
+
+        const query = {};
+        if (status) query.status = status;
+        if (positionId) query.position = positionId;
+        if (pipelineStatus) query.pipelineStatus = pipelineStatus;
+        if (stage) query.stage = stage;
+        if (search) {
+            query.$or = [
+                { name: { $regex: search, $options: 'i' } },
+                { email: { $regex: search, $options: 'i' } },
+            ];
+        }
+
+        const candidates = await Candidate.find(query)
+            .populate('position', 'title')
+            .populate('client', 'companyName name')
+            .sort({ createdAt: -1 })
+            .lean();
+
+        res.status(200).json({
+            success: true,
+            data: candidates
+        });
+    } catch (error) {
+        console.error('Error fetching all candidates:', error);
+        res.status(500).json({ success: false, message: 'Failed to fetch candidates', error: error.message });
+    }
+};
+
 module.exports = {
     getKamsWithRecruitment,
     createRecruitmentPosition,
     updateRecruitmentPosition,
+    deleteRecruitmentPosition,
+    getAllPositions,
+    getAllCandidates,
     addCandidate,
     updateCandidateStatus,
     getCandidatesByPosition,
