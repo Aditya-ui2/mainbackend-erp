@@ -1,4 +1,5 @@
-const { Client, TeamLeader, Task, sequelize } = require('../models/sequelizeModels');
+const { Client, TeamLeader, Task, RequestTask, RecurringTask, WorkAgreement, sequelize } = require('../models/sequelizeModels');
+const { RecruitmentPosition, Candidate, Interview } = require('../models/models');
 const { hashPassword, comparePasswords } = require('../utils/bcryptUtils');
 const { drive, getOrCreateFolder, updateFilePermissions } = require('../utils/googleDriveServices');
 const { generateToken } = require('../utils/jwtUtils');
@@ -810,6 +811,225 @@ const getClientDocuments = async (req, res) => {
 };
 
 
+// ── Unified Client Dashboard Overview (Recruitment + Operations) ──
+const getClientDashboardOverview = async (req, res) => {
+    try {
+        const { clientId } = req.params;
+        if (!clientId) return res.status(400).json({ success: false, message: 'Client ID required' });
+
+        // ═══ PARALLEL: Fetch PostgreSQL (ops) + MongoDB (recruitment) data ═══
+        const [
+            client,
+            tasks,
+            requestedTasks,
+            recurringTasks,
+            workAgreements,
+            positions,
+        ] = await Promise.all([
+            // Client details + KAM info
+            Client.findByPk(clientId, {
+                attributes: ['id', 'name', 'companyName', 'email', 'contactNumber', 'spocName', 'status'],
+                include: [{ model: TeamLeader, as: 'teamLeader', attributes: ['id', 'name', 'email', 'phone'] }],
+            }),
+            // Active tasks
+            Task.findAll({
+                where: { clientId },
+                attributes: ['id', 'title', 'category', 'priority', 'status', 'dueDate', 'frequency', 'createdAt', 'updatedAt'],
+                order: [['createdAt', 'DESC']],
+                limit: 50,
+            }),
+            // Requested tasks
+            RequestTask.findAll({
+                where: { clientId },
+                attributes: ['id', 'title', 'description', 'category', 'priority', 'status', 'rejectionReason', 'dueDate', 'frequency', 'createdAt'],
+                order: [['createdAt', 'DESC']],
+                limit: 20,
+            }),
+            // Recurring tasks
+            RecurringTask.findAll({
+                where: { clientId, active: true },
+                attributes: ['id', 'title', 'frequency', 'priority', 'active', 'createdAt'],
+                order: [['createdAt', 'DESC']],
+            }),
+            // Work agreements
+            WorkAgreement.findAll({
+                where: { clientId },
+                attributes: ['id', 'title', 'allowedScopes', 'maxTasks', 'startDate', 'endDate', 'status', 'notes'],
+                order: [['createdAt', 'DESC']],
+            }),
+            // Recruitment positions (MongoDB)
+            RecruitmentPosition.find({ client: clientId })
+                .select('title location type status priority openings filled deadline createdAt')
+                .sort({ createdAt: -1 })
+                .lean(),
+        ]);
+
+        if (!client) return res.status(404).json({ success: false, message: 'Client not found' });
+
+        const positionIds = positions.map(p => p._id);
+
+        // ═══ PARALLEL: Recruitment deep data ═══
+        const [candidates, interviewAgg] = await Promise.all([
+            Candidate.find({ client: clientId })
+                .select('name stage pipelineStatus position createdAt updatedAt')
+                .populate('position', 'title')
+                .sort({ createdAt: -1 })
+                .lean(),
+            Interview.aggregate([
+                { $match: { position: { $in: positionIds } } },
+                {
+                    $facet: {
+                        byStatus: [{ $group: { _id: '$status', count: { $sum: 1 } } }],
+                        upcoming: [
+                            { $match: { status: 'Scheduled', interviewDate: { $gte: new Date() } } },
+                            { $sort: { interviewDate: 1 } },
+                            { $limit: 5 },
+                            {
+                                $lookup: {
+                                    from: 'candidates', localField: 'candidate', foreignField: '_id',
+                                    as: 'cInfo', pipeline: [{ $project: { name: 1 } }]
+                                }
+                            },
+                            {
+                                $lookup: {
+                                    from: 'recruitmentpositions', localField: 'position', foreignField: '_id',
+                                    as: 'pInfo', pipeline: [{ $project: { title: 1 } }]
+                                }
+                            },
+                            {
+                                $project: {
+                                    candidateName: { $arrayElemAt: ['$cInfo.name', 0] },
+                                    positionTitle: { $arrayElemAt: ['$pInfo.title', 0] },
+                                    interviewDate: 1, startTime: 1, interviewType: 1, status: 1,
+                                }
+                            }
+                        ]
+                    }
+                }
+            ]),
+        ]);
+
+        // ═══ BUILD RESPONSE ═══
+        const intData = interviewAgg[0] || { byStatus: [], upcoming: [] };
+        const intStatusMap = {};
+        intData.byStatus.forEach(s => { intStatusMap[s._id] = s.count; });
+
+        // Stage funnel
+        const stageCounts = {};
+        candidates.forEach(c => { stageCounts[c.stage] = (stageCounts[c.stage] || 0) + 1; });
+
+        // Candidate counts per position
+        const candByPos = {};
+        candidates.forEach(c => {
+            const pid = c.position?._id?.toString();
+            if (pid) candByPos[pid] = (candByPos[pid] || 0) + 1;
+        });
+
+        // Task stats
+        const taskStatusCounts = { active: 0, wip: 0, review: 0, pending: 0, resolved: 0 };
+        const overdueTasks = [];
+        const now = new Date();
+        tasks.forEach(t => {
+            const s = (t.status || '').toLowerCase().replace(/\s/g, '');
+            if (s === 'active') taskStatusCounts.active++;
+            else if (s === 'workinprogress') taskStatusCounts.wip++;
+            else if (s === 'review') taskStatusCounts.review++;
+            else if (s === 'pending') taskStatusCounts.pending++;
+            else if (s === 'resolved') taskStatusCounts.resolved++;
+            if (t.dueDate && new Date(t.dueDate) < now && s !== 'resolved') {
+                overdueTasks.push({ id: t.id, title: t.title, dueDate: t.dueDate, status: t.status, priority: t.priority });
+            }
+        });
+
+        // Active agreement
+        const activeAgreement = workAgreements.find(a => a.status === 'Active');
+
+        res.status(200).json({
+            success: true,
+            data: {
+                // Client info
+                client: {
+                    name: client.name,
+                    companyName: client.companyName,
+                    email: client.email,
+                    contact: client.contactNumber,
+                    spocName: client.spocName,
+                    status: client.status,
+                    kam: client.teamLeader ? { name: client.teamLeader.name, email: client.teamLeader.email, phone: client.teamLeader.phone } : null,
+                },
+                // ═══ RECRUITMENT ═══
+                recruitment: {
+                    summary: {
+                        totalPositions: positions.length,
+                        openPositions: positions.filter(p => ['Open', 'Urgent'].includes(p.status)).length,
+                        totalCandidates: candidates.length,
+                        inPipeline: candidates.filter(c => !['Joined', 'Rejected'].includes(c.stage)).length,
+                        hired: stageCounts['Joined'] || 0,
+                        scheduledInterviews: intStatusMap['Scheduled'] || 0,
+                        completedInterviews: intStatusMap['Completed'] || 0,
+                    },
+                    positions: positions.map(p => ({
+                        id: p._id, title: p.title, location: p.location, type: p.type,
+                        status: p.status, priority: p.priority, openings: p.openings || 1,
+                        filled: p.filled || 0, candidateCount: candByPos[p._id.toString()] || 0,
+                        deadline: p.deadline, postedDate: p.createdAt,
+                    })),
+                    funnel: {
+                        screening: stageCounts['Screening'] || 0,
+                        phoneInterview: stageCounts['Phone Interview'] || 0,
+                        technical: stageCounts['Technical Round'] || 0,
+                        hrRound: stageCounts['HR Round'] || 0,
+                        clientInterview: stageCounts['Client Interview'] || 0,
+                        offerSent: stageCounts['Offer Sent'] || 0,
+                        joined: stageCounts['Joined'] || 0,
+                        rejected: stageCounts['Rejected'] || 0,
+                    },
+                    upcomingInterviews: intData.upcoming,
+                    candidates: candidates.slice(0, 30).map(c => ({
+                        id: c._id, name: c.name, stage: c.stage,
+                        position: c.position?.title || '', updatedAt: c.updatedAt,
+                    })),
+                },
+                // ═══ OPERATIONS ═══
+                operations: {
+                    taskSummary: {
+                        total: tasks.length,
+                        ...taskStatusCounts,
+                        overdue: overdueTasks.length,
+                        completionRate: tasks.length ? Math.round((taskStatusCounts.resolved / tasks.length) * 100) : 0,
+                    },
+                    recentTasks: tasks.slice(0, 10).map(t => ({
+                        id: t.id, title: t.title, category: t.category, priority: t.priority,
+                        status: t.status, dueDate: t.dueDate, createdAt: t.createdAt,
+                    })),
+                    overdueTasks,
+                    requestedTasks: requestedTasks.map(rt => ({
+                        id: rt.id, title: rt.title, description: rt.description,
+                        category: rt.category, priority: rt.priority, status: rt.status,
+                        rejectionReason: rt.rejectionReason, dueDate: rt.dueDate,
+                        frequency: rt.frequency, createdAt: rt.createdAt,
+                    })),
+                    recurringTasks: recurringTasks.map(rc => ({
+                        id: rc.id, title: rc.title, frequency: rc.frequency,
+                        priority: rc.priority, createdAt: rc.createdAt,
+                    })),
+                    agreement: activeAgreement ? {
+                        title: activeAgreement.title,
+                        scopes: activeAgreement.allowedScopes,
+                        maxTasks: activeAgreement.maxTasks,
+                        startDate: activeAgreement.startDate,
+                        endDate: activeAgreement.endDate,
+                        status: activeAgreement.status,
+                    } : null,
+                },
+            }
+        });
+    } catch (error) {
+        console.error('Error in getClientDashboardOverview:', error);
+        res.status(500).json({ success: false, message: 'Failed to load dashboard', error: error.message });
+    }
+};
+
 module.exports = {
     signupClient,
     loginClient,
@@ -820,5 +1040,6 @@ module.exports = {
     getAllClients,
     getClientsForTeamLeader,
     uploadDocuments,
-    getClientDocuments
+    getClientDocuments,
+    getClientDashboardOverview
 };

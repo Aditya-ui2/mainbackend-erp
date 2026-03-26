@@ -1,6 +1,6 @@
 const express = require('express');
 const verifyAuthToken = require('../middleware/authMiddleware');
-const { onboardClient, signupClient, loginClient, editClient, deleteClient, getAllClients, getClientsForTeamLeader, uploadDocuments, getClientDocuments, getClientDetails } = require('../controllers/client');
+const { onboardClient, signupClient, loginClient, editClient, deleteClient, getAllClients, getClientsForTeamLeader, uploadDocuments, getClientDocuments, getClientDetails, getClientDashboardOverview } = require('../controllers/client');
 const router = express.Router();
 
 // Client signup route
@@ -28,5 +28,8 @@ router.post('/getClientsForTeamLeader', getClientsForTeamLeader);
 router.post('/upload-documents', uploadDocuments);
 
 router.post('/getClientDocuments', getClientDocuments);
+
+// Unified dashboard overview (recruitment + operations)
+router.get('/dashboard-overview/:clientId', getClientDashboardOverview);
 
 module.exports = router;
