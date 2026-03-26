@@ -277,19 +277,41 @@ const getInterviews = async (req, res) => {
             groupedInterviews[dateKey].push(interview);
         });
 
-        // Calculate stats
+        // Calculate stats using single aggregation instead of 4 separate queries
         const today = new Date();
         today.setHours(0, 0, 0, 0);
         const tomorrow = new Date(today);
         tomorrow.setDate(tomorrow.getDate() + 1);
 
+        const statsAgg = await Interview.aggregate([
+            {
+                $facet: {
+                    todaysInterviews: [
+                        { $match: { interviewDate: { $gte: today, $lt: tomorrow } } },
+                        { $count: 'count' }
+                    ],
+                    scheduled: [
+                        { $match: { status: 'Scheduled' } },
+                        { $count: 'count' }
+                    ],
+                    completed: [
+                        { $match: { status: 'Completed' } },
+                        { $count: 'count' }
+                    ],
+                    cancelled: [
+                        { $match: { status: 'Cancelled' } },
+                        { $count: 'count' }
+                    ]
+                }
+            }
+        ]);
+
+        const facets = statsAgg[0] || {};
         const stats = {
-            todaysInterviews: await Interview.countDocuments({
-                interviewDate: { $gte: today, $lt: tomorrow }
-            }),
-            scheduled: await Interview.countDocuments({ status: 'Scheduled' }),
-            completed: await Interview.countDocuments({ status: 'Completed' }),
-            cancelled: await Interview.countDocuments({ status: 'Cancelled' })
+            todaysInterviews: facets.todaysInterviews?.[0]?.count || 0,
+            scheduled: facets.scheduled?.[0]?.count || 0,
+            completed: facets.completed?.[0]?.count || 0,
+            cancelled: facets.cancelled?.[0]?.count || 0
         };
 
         res.status(200).json({

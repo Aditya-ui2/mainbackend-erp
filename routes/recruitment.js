@@ -11,7 +11,8 @@ const {
     addCandidate,
     updateCandidateStatus,
     getCandidatesByPosition,
-    getRecruitmentStats
+    getRecruitmentStats,
+    getClientRecruitmentProgress
 } = require('../controllers/recruitment');
 
 /**
@@ -227,5 +228,8 @@ router.delete('/positions/:id', verifyAuthToken, deleteRecruitmentPosition);
 
 // Get all candidates with filtering (pipeline view)
 router.get('/candidates', verifyAuthToken, getAllCandidates);
+
+// Client-facing: Get recruitment progress for a specific client
+router.get('/client-progress/:clientId', verifyAuthToken, getClientRecruitmentProgress);
 
 module.exports = router;

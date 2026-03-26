@@ -1,4 +1,4 @@
-const { TeamLeader, Client, RecruitmentPosition, Candidate } = require('../models/models');
+const { TeamLeader, Client, RecruitmentPosition, Candidate, Interview } = require('../models/models');
 
 // Get all KAMs (TeamLeaders) with their clients and recruitment positions
 const getKamsWithRecruitment = async (req, res) => {
@@ -442,17 +442,30 @@ const getAllPositions = async (req, res) => {
             .sort(sortOptions)
             .lean();
 
-        // Get candidate counts for each position
-        const positionsWithStats = await Promise.all(positions.map(async (pos) => {
-            const candidateCount = await Candidate.countDocuments({ position: pos._id });
-            const filledCount = await Candidate.countDocuments({ position: pos._id, status: 'Selected' });
-            return {
-                ...pos,
-                candidateCount,
-                filled: filledCount,
-                clientName: pos.client?.companyName || pos.client?.name || 'Unknown',
-                clientLogo: (pos.client?.companyName || pos.client?.name || 'NA').substring(0, 2).toUpperCase(),
-            };
+        // Get candidate counts using aggregation instead of N+1 queries
+        const positionIds = positions.map(p => p._id);
+        const [candidateCounts, filledCounts] = await Promise.all([
+            Candidate.aggregate([
+                { $match: { position: { $in: positionIds } } },
+                { $group: { _id: '$position', count: { $sum: 1 } } }
+            ]),
+            Candidate.aggregate([
+                { $match: { position: { $in: positionIds }, status: 'Selected' } },
+                { $group: { _id: '$position', count: { $sum: 1 } } }
+            ])
+        ]);
+
+        const candidateCountMap = {};
+        candidateCounts.forEach(c => { candidateCountMap[c._id.toString()] = c.count; });
+        const filledCountMap = {};
+        filledCounts.forEach(c => { filledCountMap[c._id.toString()] = c.count; });
+
+        const positionsWithStats = positions.map(pos => ({
+            ...pos,
+            candidateCount: candidateCountMap[pos._id.toString()] || 0,
+            filled: filledCountMap[pos._id.toString()] || 0,
+            clientName: pos.client?.companyName || pos.client?.name || 'Unknown',
+            clientLogo: (pos.client?.companyName || pos.client?.name || 'NA').substring(0, 2).toUpperCase(),
         }));
 
         res.status(200).json({
@@ -488,7 +501,7 @@ const deleteRecruitmentPosition = async (req, res) => {
 // Get all candidates with filtering (for pipeline view)
 const getAllCandidates = async (req, res) => {
     try {
-        const { status, positionId, search, stage, pipelineStatus } = req.query;
+        const { status, positionId, search, stage, pipelineStatus, page = 1, limit = 100 } = req.query;
 
         const query = {};
         if (status) query.status = status;
@@ -502,19 +515,158 @@ const getAllCandidates = async (req, res) => {
             ];
         }
 
-        const candidates = await Candidate.find(query)
-            .populate('position', 'title')
-            .populate('client', 'companyName name')
-            .sort({ createdAt: -1 })
-            .lean();
+        const skip = (parseInt(page) - 1) * parseInt(limit);
+        const [candidates, total] = await Promise.all([
+            Candidate.find(query)
+                .populate('position', 'title')
+                .populate('client', 'companyName name')
+                .sort({ createdAt: -1 })
+                .skip(skip)
+                .limit(parseInt(limit))
+                .lean(),
+            Candidate.countDocuments(query)
+        ]);
 
         res.status(200).json({
             success: true,
-            data: candidates
+            data: candidates,
+            pagination: { page: parseInt(page), limit: parseInt(limit), total, totalPages: Math.ceil(total / parseInt(limit)) }
         });
     } catch (error) {
         console.error('Error fetching all candidates:', error);
         res.status(500).json({ success: false, message: 'Failed to fetch candidates', error: error.message });
+    }
+};
+
+// Get recruitment progress for a specific client (client-facing read-only view)
+const getClientRecruitmentProgress = async (req, res) => {
+    try {
+        const { clientId } = req.params;
+
+        // Get all positions for this client
+        const positions = await RecruitmentPosition.find({ client: clientId })
+            .select('title location type status priority openings filled deadline createdAt')
+            .sort({ createdAt: -1 })
+            .lean();
+
+        const positionIds = positions.map(p => p._id);
+
+        // Get all candidates and interview stats in parallel using aggregation
+        const [candidates, candidateStages, interviewStats, interviews] = await Promise.all([
+            Candidate.find({ client: clientId })
+                .select('name stage pipelineStatus position createdAt updatedAt')
+                .populate('position', 'title')
+                .sort({ createdAt: -1 })
+                .lean(),
+            Candidate.aggregate([
+                { $match: { client: require('mongoose').Types.ObjectId(clientId) } },
+                { $group: { _id: '$stage', count: { $sum: 1 } } }
+            ]),
+            Interview.aggregate([
+                { $match: { position: { $in: positionIds } } },
+                {
+                    $facet: {
+                        byStatus: [{ $group: { _id: '$status', count: { $sum: 1 } } }],
+                        upcoming: [
+                            { $match: { status: 'Scheduled', interviewDate: { $gte: new Date() } } },
+                            { $sort: { interviewDate: 1 } },
+                            { $limit: 10 },
+                            {
+                                $lookup: {
+                                    from: 'candidates', localField: 'candidate', foreignField: '_id',
+                                    as: 'candidateInfo', pipeline: [{ $project: { name: 1 } }]
+                                }
+                            },
+                            {
+                                $lookup: {
+                                    from: 'recruitmentpositions', localField: 'position', foreignField: '_id',
+                                    as: 'positionInfo', pipeline: [{ $project: { title: 1 } }]
+                                }
+                            },
+                            {
+                                $project: {
+                                    candidateName: { $arrayElemAt: ['$candidateInfo.name', 0] },
+                                    positionTitle: { $arrayElemAt: ['$positionInfo.title', 0] },
+                                    interviewDate: 1, startTime: 1, interviewType: 1, status: 1
+                                }
+                            }
+                        ]
+                    }
+                }
+            ]),
+            Interview.countDocuments({ position: { $in: positionIds } })
+        ]);
+
+        // Build stage funnel
+        const stageFunnel = {};
+        candidateStages.forEach(s => { stageFunnel[s._id] = s.count; });
+
+        // Build position summaries with candidate counts using aggregation results
+        const candidatesByPosition = {};
+        candidates.forEach(c => {
+            const posId = c.position?._id?.toString();
+            if (posId) {
+                if (!candidatesByPosition[posId]) candidatesByPosition[posId] = 0;
+                candidatesByPosition[posId]++;
+            }
+        });
+
+        const positionSummaries = positions.map(p => ({
+            id: p._id,
+            title: p.title,
+            location: p.location,
+            type: p.type,
+            status: p.status,
+            priority: p.priority,
+            openings: p.openings || 1,
+            filled: p.filled || 0,
+            candidateCount: candidatesByPosition[p._id.toString()] || 0,
+            deadline: p.deadline,
+            postedDate: p.createdAt,
+        }));
+
+        const interviewData = interviewStats[0] || { byStatus: [], upcoming: [] };
+        const interviewStatusMap = {};
+        interviewData.byStatus.forEach(s => { interviewStatusMap[s._id] = s.count; });
+
+        res.status(200).json({
+            success: true,
+            data: {
+                summary: {
+                    totalPositions: positions.length,
+                    openPositions: positions.filter(p => p.status === 'Open' || p.status === 'Urgent').length,
+                    totalCandidates: candidates.length,
+                    inPipeline: candidates.filter(c => !['Joined', 'Rejected'].includes(c.stage)).length,
+                    hired: candidates.filter(c => c.stage === 'Joined').length,
+                    totalInterviews: interviews,
+                    scheduledInterviews: interviewStatusMap['Scheduled'] || 0,
+                    completedInterviews: interviewStatusMap['Completed'] || 0,
+                },
+                positions: positionSummaries,
+                funnel: {
+                    screening: stageFunnel['Screening'] || 0,
+                    phoneInterview: stageFunnel['Phone Interview'] || 0,
+                    technical: stageFunnel['Technical Round'] || 0,
+                    hrRound: stageFunnel['HR Round'] || 0,
+                    clientInterview: stageFunnel['Client Interview'] || 0,
+                    offerSent: stageFunnel['Offer Sent'] || 0,
+                    joined: stageFunnel['Joined'] || 0,
+                    rejected: stageFunnel['Rejected'] || 0,
+                },
+                upcomingInterviews: interviewData.upcoming,
+                candidates: candidates.map(c => ({
+                    id: c._id,
+                    name: c.name,
+                    stage: c.stage,
+                    pipelineStatus: c.pipelineStatus,
+                    position: c.position?.title || '',
+                    updatedAt: c.updatedAt,
+                })),
+            }
+        });
+    } catch (error) {
+        console.error('Error fetching client recruitment progress:', error);
+        res.status(500).json({ success: false, message: 'Failed to fetch recruitment progress', error: error.message });
     }
 };
 
@@ -528,5 +680,6 @@ module.exports = {
     addCandidate,
     updateCandidateStatus,
     getCandidatesByPosition,
-    getRecruitmentStats
+    getRecruitmentStats,
+    getClientRecruitmentProgress
 };
