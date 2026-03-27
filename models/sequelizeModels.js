@@ -1536,6 +1536,7 @@ const Payslip = sequelize.define('Payslip', {
     fileUrl: { type: DataTypes.STRING },
 }, { tableName: 'Payslips', timestamps: true });
 
+
 // ============== DEPARTMENT CHAT MODEL ==============
 const DeptChat = sequelize.define('DeptChat', {
     id: { type: DataTypes.UUID, defaultValue: DataTypes.UUIDV4, primaryKey: true },
