@@ -14,3 +14,5 @@ build/
 # IDE specific files (optional)
 .vscode/
 .aider*
+.env.save
+.env
