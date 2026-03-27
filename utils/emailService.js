@@ -3,6 +3,13 @@ const axios = require('axios'); // Make sure to install axios: npm install axios
 
 const sendEmail = async (options) => {
     try {
+        const apiKey = process.env.BREVO_API_KEY;
+        if (!apiKey) {
+            const err = new Error('BREVO_API_KEY is missing');
+            err.code = 'BREVO_API_KEY_MISSING';
+            throw err;
+        }
+
         const response = await axios.post(
             'https://api.brevo.com/v3/smtp/email',
             {
@@ -20,7 +27,7 @@ const sendEmail = async (options) => {
             {
                 headers: {
                     'accept': 'application/json',
-                    'api-key': process.env.BREVO_API_KEY,
+                    'api-key': apiKey,
                     'content-type': 'application/json'
                 }
             }

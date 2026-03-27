@@ -1,7 +1,10 @@
 const express = require('express');
 const verifyAuthToken = require('../middleware/authMiddleware');
-const { onboardClient, signupClient, loginClient, editClient, deleteClient, getAllClients, getClientsForTeamLeader, uploadDocuments, getClientDocuments, getClientDetails, getClientDashboardOverview } = require('../controllers/client');
+const { onboardClient, signupClient, loginClient, editClient, deleteClient, getAllClients, getClientsForTeamLeader, uploadDocuments, getClientDocuments, getClientDetails, getClientDashboardOverview, createClient } = require('../controllers/client');
 const router = express.Router();
+
+// Client create route (Admin directly)
+router.post('/create', verifyAuthToken, createClient);
 
 // Client signup route
 router.post('/signup', signupClient);

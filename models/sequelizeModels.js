@@ -769,6 +769,134 @@ const Candidate = sequelize.define('Candidate', {
     timestamps: true
 });
 
+// ============ INTERVIEW MODEL ============
+const Interview = sequelize.define('Interview', {
+    id: {
+        type: DataTypes.UUID,
+        defaultValue: DataTypes.UUIDV4,
+        primaryKey: true
+    },
+    candidateId: {
+        type: DataTypes.UUID,
+        allowNull: false,
+        references: {
+            model: 'candidates',
+            key: 'id'
+        }
+    },
+    positionId: {
+        type: DataTypes.UUID,
+        allowNull: false,
+        references: {
+            model: 'recruitment_positions',
+            key: 'id'
+        }
+    },
+    clientId: {
+        type: DataTypes.UUID,
+        allowNull: false,
+        references: {
+            model: 'clients',
+            key: 'id'
+        }
+    },
+    // Interview Details
+    interviewType: {
+        type: DataTypes.ENUM('HR Round', 'Technical Round', 'Client Interview', 'Phone Screening', 'Final Round'),
+        allowNull: false
+    },
+    interviewDate: {
+        type: DataTypes.DATE,
+        allowNull: false
+    },
+    startTime: {
+        type: DataTypes.STRING,
+        allowNull: false
+    },
+    duration: {
+        type: DataTypes.INTEGER,
+        defaultValue: 45
+    },
+    // Meeting Details
+    meetingType: {
+        type: DataTypes.ENUM('Video', 'In-Person', 'Phone'),
+        defaultValue: 'Video',
+        allowNull: false
+    },
+    meetingLink: {
+        type: DataTypes.STRING,
+        allowNull: true
+    },
+    meetingToken: {
+        type: DataTypes.STRING,
+        allowNull: true,
+        unique: true
+    },
+    meetingPassword: {
+        type: DataTypes.STRING,
+        allowNull: true
+    },
+    // Interviewer Details (flattened)
+    interviewerId: {
+        type: DataTypes.UUID,
+        allowNull: true
+    },
+    interviewerType: {
+        type: DataTypes.ENUM('TeamLeader', 'DepartmentTeam', 'Client'),
+        allowNull: true
+    },
+    interviewerName: {
+        type: DataTypes.STRING,
+        allowNull: true
+    },
+    interviewerEmail: {
+        type: DataTypes.STRING,
+        allowNull: true
+    },
+    interviewerRole: {
+        type: DataTypes.STRING,
+        allowNull: true
+    },
+    status: {
+        type: DataTypes.ENUM('Scheduled', 'In Progress', 'Completed', 'Cancelled', 'Rescheduled', 'No Show'),
+        defaultValue: 'Scheduled',
+        allowNull: false
+    },
+    evaluation: {
+        type: DataTypes.JSONB,
+        allowNull: true
+    },
+    emailSentToCandidate: {
+        type: DataTypes.BOOLEAN,
+        defaultValue: false,
+        allowNull: false
+    },
+    emailSentAt: {
+        type: DataTypes.DATE,
+        allowNull: true
+    },
+    reminderSent: {
+        type: DataTypes.BOOLEAN,
+        defaultValue: false,
+        allowNull: false
+    },
+    rescheduledFrom: {
+        type: DataTypes.DATE,
+        allowNull: true
+    },
+    rescheduleReason: {
+        type: DataTypes.TEXT,
+        allowNull: true
+    },
+    notes: {
+        type: DataTypes.TEXT,
+        allowNull: true
+    }
+}, {
+    tableName: 'interviews',
+    timestamps: true
+});
+
 // ============ WORK AGREEMENT MODEL ============
 const WorkAgreement = sequelize.define('WorkAgreement', {
     id: {
@@ -928,6 +1056,16 @@ Candidate.belongsTo(RecruitmentPosition, { foreignKey: 'positionId', as: 'positi
 // Client -> Candidate (One to Many)
 Client.hasMany(Candidate, { foreignKey: 'clientId', as: 'candidates' });
 Candidate.belongsTo(Client, { foreignKey: 'clientId', as: 'client' });
+
+// Candidate/Position/Client -> Interview (One to Many)
+Candidate.hasMany(Interview, { foreignKey: 'candidateId', as: 'interviews' });
+Interview.belongsTo(Candidate, { foreignKey: 'candidateId', as: 'candidate' });
+
+RecruitmentPosition.hasMany(Interview, { foreignKey: 'positionId', as: 'interviews' });
+Interview.belongsTo(RecruitmentPosition, { foreignKey: 'positionId', as: 'position' });
+
+Client.hasMany(Interview, { foreignKey: 'clientId', as: 'interviews' });
+Interview.belongsTo(Client, { foreignKey: 'clientId', as: 'client' });
 
 // TeamLeader -> WorkHandover (One to Many, from)
 TeamLeader.hasMany(WorkHandover, { foreignKey: 'fromUserId', as: 'handoversOut' });

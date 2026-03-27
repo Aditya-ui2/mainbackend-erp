@@ -1060,8 +1060,63 @@ const getClientDashboardOverview = async (req, res) => {
         res.status(500).json({ success: false, message: 'Failed to load dashboard', error: error.message });
     }
 };
+const createClient = async (req, res) => {
+  try {
+    const {
+      name,
+      email,
+      contactNumber,
+      companyName,
+      corporateAddress
+    } = req.body;
+
+    if (!name || !email || !contactNumber) {
+      return res.status(400).json({
+        success: false,
+        message: "name, email, contactNumber required"
+      });
+    }
+
+    const existing = await Client.findOne({ where: { email } });
+
+    if (existing) {
+      return res.status(400).json({
+        success: false,
+        message: "Client already exists"
+      });
+    }
+
+    // Generate a default password and hash it
+    const defaultPassword = `${companyName.replace(/\s+/g, '')}@123`;
+    const hashedPassword = await hashPassword(defaultPassword);
+
+    const client = await Client.create({
+      name,
+      email,
+      password: hashedPassword,
+      contactNumber,
+      companyName,
+      corporateAddress,
+      status: "Accepted"
+    });
+
+    res.status(201).json({
+      success: true,
+      message: "Client created successfully",
+      data: client
+    });
+
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
 
 module.exports = {
+    createClient,
     signupClient,
     loginClient,
     onboardClient,

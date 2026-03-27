@@ -216,6 +216,17 @@ const options = {
                         }
                     }
                 },
+                ClientCreate: {
+                    type: 'object',
+                    required: ['name', 'email', 'contactNumber'],
+                    properties: {
+                        name: { type: 'string' },
+                        email: { type: 'string', format: 'email' },
+                        contactNumber: { type: 'string' },
+                        companyName: { type: 'string' },
+                        corporateAddress: { type: 'string' }
+                    }
+                },
                 ClientLogin: {
                     type: 'object',
                     required: ['email', 'password'],
@@ -677,6 +688,22 @@ const options = {
             },
 
             // ============ CLIENT ROUTES ============
+            '/client/create': {
+                post: {
+                    tags: ['Client'],
+                    summary: 'Directly create an active Client (Admin)',
+                    security: [{ bearerAuth: [] }],
+                    requestBody: {
+                        required: true,
+                        content: { 'application/json': { schema: { $ref: '#/components/schemas/ClientCreate' } } }
+                    },
+                    responses: {
+                        201: { description: 'Client created successfully' },
+                        400: { description: 'Bad Request' },
+                        500: { description: 'Server Error' }
+                    }
+                }
+            },
             '/client/signup': {
                 post: {
                     tags: ['Client'],

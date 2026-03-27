@@ -11,7 +11,7 @@ const {
     getInterviewFeedbackForm,
     cancelInterview,
     sendInterviewReminder
-} = require('../controllers/interview');
+} = require('../controllers/interview_sequelize');
 
 /**
  * @swagger
