@@ -1536,35 +1536,6 @@ const Payslip = sequelize.define('Payslip', {
     fileUrl: { type: DataTypes.STRING },
 }, { tableName: 'Payslips', timestamps: true });
 
-// ============== INTERVIEW MODEL ==============
-const Interview = sequelize.define('Interview', {
-    id: { type: DataTypes.UUID, defaultValue: DataTypes.UUIDV4, primaryKey: true },
-    candidateId: { type: DataTypes.UUID, allowNull: false, references: { model: 'candidates', key: 'id' } },
-    positionId: { type: DataTypes.UUID, allowNull: false, references: { model: 'recruitment_positions', key: 'id' } },
-    clientId: { type: DataTypes.UUID, allowNull: false, references: { model: 'clients', key: 'id' } },
-    interviewType: { type: DataTypes.ENUM('HR Round', 'Technical Round', 'Client Interview', 'Phone Screening', 'Final Round'), allowNull: false },
-    interviewDate: { type: DataTypes.DATE, allowNull: false },
-    startTime: { type: DataTypes.STRING, allowNull: false },
-    duration: { type: DataTypes.INTEGER, defaultValue: 45 },
-    meetingType: { type: DataTypes.ENUM('Video', 'In-Person', 'Phone'), defaultValue: 'Video' },
-    meetingLink: { type: DataTypes.STRING },
-    meetingToken: { type: DataTypes.STRING },
-    meetingPassword: { type: DataTypes.STRING },
-    interviewer: { type: DataTypes.JSONB, defaultValue: {} },
-    status: { type: DataTypes.ENUM('Scheduled', 'In Progress', 'Completed', 'Cancelled', 'Rescheduled', 'No Show'), defaultValue: 'Scheduled' },
-    evaluation: { type: DataTypes.JSONB, defaultValue: {} },
-    emailSentToCandidate: { type: DataTypes.BOOLEAN, defaultValue: false },
-    emailSentAt: { type: DataTypes.DATE },
-    reminderSent: { type: DataTypes.BOOLEAN, defaultValue: false },
-}, { tableName: 'interviews', timestamps: true });
-
-// === Interview Associations ===
-Interview.belongsTo(Candidate, { foreignKey: 'candidateId', as: 'candidate' });
-Interview.belongsTo(RecruitmentPosition, { foreignKey: 'positionId', as: 'position' });
-Interview.belongsTo(Client, { foreignKey: 'clientId', as: 'client' });
-Candidate.hasMany(Interview, { foreignKey: 'candidateId', as: 'interviews' });
-RecruitmentPosition.hasMany(Interview, { foreignKey: 'positionId', as: 'interviews' });
-
 // ============== DEPARTMENT CHAT MODEL ==============
 const DeptChat = sequelize.define('DeptChat', {
     id: { type: DataTypes.UUID, defaultValue: DataTypes.UUIDV4, primaryKey: true },

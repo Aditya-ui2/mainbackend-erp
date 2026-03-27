@@ -79,7 +79,7 @@ const sendInterviewInvitation = async (interview, candidate, position) => {
                         </div>
                         <div class="detail-row">
                             <span class="detail-label">👤 Interviewer:</span>
-                            <span class="detail-value">${interview.interviewer.name} (${interview.interviewer.role || 'Hiring Team'})</span>
+                            <span class="detail-value">${interview.interviewerName || 'TBD'} (${interview.interviewerRole || 'Hiring Team'})</span>
                         </div>
                         <div class="detail-row">
                             <span class="detail-label">🎥 Mode:</span>
@@ -157,10 +157,8 @@ const scheduleInterview = async (req, res) => {
             candidateId, positionId, clientId, interviewType, interviewDate,
             startTime, duration: duration || 45, meetingType: meetingType || 'Video',
             meetingLink, meetingToken,
-            interviewer: {
-                id: interviewerId, type: interviewerType, name: interviewerName,
-                email: interviewerEmail, role: interviewerRole
-            },
+            interviewerId, interviewerType, interviewerName,
+            interviewerEmail, interviewerRole, notes,
         });
 
         await candidate.update({ status: 'Interview', interviewDate });
@@ -307,7 +305,7 @@ const getInterviewByToken = async (req, res) => {
             data: {
                 interviewDate: interview.interviewDate, startTime: interview.startTime,
                 duration: interview.duration, interviewType: interview.interviewType,
-                meetingType: interview.meetingType, interviewer: interview.interviewer?.name,
+                meetingType: interview.meetingType, interviewer: interview.interviewerName,
                 position: interview.position?.title, company: interview.client?.companyName,
                 status: interview.status
             }
