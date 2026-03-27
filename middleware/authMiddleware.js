@@ -13,10 +13,13 @@ const verifyAuthToken = (req, res, next) => {
         }
 
         // Extract the token from the header (usually "Bearer <token>")
-        const token = authHeader.split(' ')[1];
+        let token = authHeader.split(' ')[1];
         if (!token) {
             return res.status(401).json({ message: 'Token is missing' });
         }
+
+        // Handle accidental quoted token in Authorization header.
+        token = token.replace(/^"|"$/g, '');
 
         // Verify the token
         const decoded = verifyToken(token);
@@ -31,7 +34,7 @@ const verifyAuthToken = (req, res, next) => {
         next();
     } catch (error) {
         console.error('Error verifying token:', error);
-        return res.status(500).json({ message: 'Server error' });
+        return res.status(401).json({ message: 'Invalid or expired token' });
     }
 };
 

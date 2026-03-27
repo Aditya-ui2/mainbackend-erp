@@ -60,6 +60,7 @@ router.get('/kams', verifyAuthToken, getKamsWithRecruitment);
  *                 type: string
  *               clientId:
  *                 type: string
+ *                 format: uuid
  *               location:
  *                 type: string
  *               openings:
@@ -73,6 +74,10 @@ router.get('/kams', verifyAuthToken, getKamsWithRecruitment);
  *     responses:
  *       201:
  *         description: Position created successfully
+ *       400:
+ *         description: Validation failed (missing fields or invalid clientId)
+ *       500:
+ *         description: Failed to create position
  */
 router.post('/positions', verifyAuthToken, createRecruitmentPosition);
 
@@ -129,11 +134,21 @@ router.put('/positions/:id', verifyAuthToken, updateRecruitmentPosition);
  *                 type: string
  *               positionId:
  *                 type: string
+ *               clientId:
+ *                 type: string
+ *                 format: uuid
+ *                 description: Optional, auto-resolved from positionId when omitted
+ *               cvUrl:
+ *                 type: string
  *               resumeUrl:
  *                 type: string
  *               experience:
  *                 type: string
+ *               currentSalary:
+ *                 type: string
  *               currentCTC:
+ *                 type: string
+ *               expectedSalary:
  *                 type: string
  *               expectedCTC:
  *                 type: string
@@ -170,7 +185,7 @@ router.post('/candidates', verifyAuthToken, addCandidate);
  *             properties:
  *               status:
  *                 type: string
- *                 enum: [New, Shared, Shortlisted, Interview, Selected, Rejected, OnHold]
+ *                 enum: [Submitted, Shared, Shortlisted, Interview, Selected, Rejected, OnHold]
  *     responses:
  *       200:
  *         description: Status updated

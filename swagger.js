@@ -13,12 +13,12 @@ const options = {
         },
         servers: [
             {
-                url: 'http://15.206.67.102:3000',
-                description: 'Production server (AWS EC2)'
-            },
-            {
                 url: 'http://localhost:3000',
                 description: 'Development server'
+            },
+            {
+                url: 'http://15.206.67.102:3000',
+                description: 'Production server (AWS EC2)'
             }
         ],
         components: {

@@ -577,6 +577,198 @@ const Message = sequelize.define('Message', {
     timestamps: true
 });
 
+// ============ RECRUITMENT POSITION MODEL ============
+const RecruitmentPosition = sequelize.define('RecruitmentPosition', {
+    id: {
+        type: DataTypes.UUID,
+        defaultValue: DataTypes.UUIDV4,
+        primaryKey: true
+    },
+    title: {
+        type: DataTypes.STRING,
+        allowNull: false
+    },
+    description: {
+        type: DataTypes.TEXT,
+        allowNull: true
+    },
+    location: {
+        type: DataTypes.STRING,
+        allowNull: false
+    },
+    type: {
+        type: DataTypes.ENUM('Full-time', 'Part-time', 'Contract', 'Internship'),
+        defaultValue: 'Full-time'
+    },
+    salary: {
+        type: DataTypes.STRING,
+        allowNull: true
+    },
+    status: {
+        type: DataTypes.ENUM('Open', 'Closed', 'Hold'),
+        defaultValue: 'Open'
+    },
+    priority: {
+        type: DataTypes.ENUM('Low', 'Medium', 'High', 'Urgent'),
+        defaultValue: 'Medium'
+    },
+    openings: {
+        type: DataTypes.INTEGER,
+        defaultValue: 1
+    },
+    filled: {
+        type: DataTypes.INTEGER,
+        defaultValue: 0
+    },
+    skills: {
+        type: DataTypes.JSONB,
+        defaultValue: []
+    },
+    experience: {
+        type: DataTypes.STRING,
+        allowNull: true
+    },
+    clientId: {
+        type: DataTypes.UUID,
+        allowNull: false,
+        references: {
+            model: 'clients',
+            key: 'id'
+        }
+    },
+    teamLeaderId: {
+        type: DataTypes.UUID,
+        allowNull: true,
+        references: {
+            model: 'team_leaders',
+            key: 'id'
+        }
+    },
+    postedDate: {
+        type: DataTypes.DATE,
+        defaultValue: DataTypes.NOW
+    },
+    deadline: {
+        type: DataTypes.DATEONLY,
+        allowNull: true
+    }
+}, {
+    tableName: 'recruitment_positions',
+    timestamps: true
+});
+
+// ============ CANDIDATE MODEL ============
+const Candidate = sequelize.define('Candidate', {
+    id: {
+        type: DataTypes.UUID,
+        defaultValue: DataTypes.UUIDV4,
+        primaryKey: true
+    },
+    name: {
+        type: DataTypes.STRING,
+        allowNull: false
+    },
+    email: {
+        type: DataTypes.STRING,
+        allowNull: false
+    },
+    phone: {
+        type: DataTypes.STRING,
+        allowNull: true
+    },
+    positionId: {
+        type: DataTypes.UUID,
+        allowNull: false,
+        references: {
+            model: 'recruitment_positions',
+            key: 'id'
+        }
+    },
+    clientId: {
+        type: DataTypes.UUID,
+        allowNull: false,
+        references: {
+            model: 'clients',
+            key: 'id'
+        }
+    },
+    cvUrl: {
+        type: DataTypes.STRING,
+        allowNull: true
+    },
+    cvFileName: {
+        type: DataTypes.STRING,
+        allowNull: true
+    },
+    status: {
+        type: DataTypes.ENUM('Submitted', 'Shared', 'Shortlisted', 'Interview', 'Selected', 'Rejected', 'OnHold'),
+        defaultValue: 'Submitted'
+    },
+    stage: {
+        type: DataTypes.ENUM('Screening', 'Phone Interview', 'Technical Round', 'HR Round', 'Client Interview', 'Offer Sent', 'Joined', 'Rejected'),
+        defaultValue: 'Screening'
+    },
+    pipelineStatus: {
+        type: DataTypes.ENUM('pending', 'hold', 'approved', 'rejected'),
+        defaultValue: 'pending'
+    },
+    location: {
+        type: DataTypes.STRING,
+        allowNull: true
+    },
+    rating: {
+        type: DataTypes.FLOAT,
+        defaultValue: 0
+    },
+    noticePeriod: {
+        type: DataTypes.STRING,
+        allowNull: true
+    },
+    rejectionReason: {
+        type: DataTypes.STRING,
+        allowNull: true
+    },
+    source: {
+        type: DataTypes.STRING,
+        allowNull: true
+    },
+    sharedAt: {
+        type: DataTypes.DATE,
+        allowNull: true
+    },
+    shortlistedAt: {
+        type: DataTypes.DATE,
+        allowNull: true
+    },
+    interviewDate: {
+        type: DataTypes.DATE,
+        allowNull: true
+    },
+    notes: {
+        type: DataTypes.TEXT,
+        allowNull: true
+    },
+    skills: {
+        type: DataTypes.JSONB,
+        defaultValue: []
+    },
+    experience: {
+        type: DataTypes.STRING,
+        allowNull: true
+    },
+    currentSalary: {
+        type: DataTypes.STRING,
+        allowNull: true
+    },
+    expectedSalary: {
+        type: DataTypes.STRING,
+        allowNull: true
+    }
+}, {
+    tableName: 'candidates',
+    timestamps: true
+});
+
 // ============ WORK AGREEMENT MODEL ============
 const WorkAgreement = sequelize.define('WorkAgreement', {
     id: {
@@ -721,6 +913,22 @@ RecurringTask.belongsTo(Client, { foreignKey: 'clientId', as: 'client' });
 Client.hasMany(WorkAgreement, { foreignKey: 'clientId', as: 'workAgreements' });
 WorkAgreement.belongsTo(Client, { foreignKey: 'clientId', as: 'client' });
 
+// Client -> RecruitmentPosition (One to Many)
+Client.hasMany(RecruitmentPosition, { foreignKey: 'clientId', as: 'recruitmentPositions' });
+RecruitmentPosition.belongsTo(Client, { foreignKey: 'clientId', as: 'client' });
+
+// TeamLeader -> RecruitmentPosition (One to Many)
+TeamLeader.hasMany(RecruitmentPosition, { foreignKey: 'teamLeaderId', as: 'recruitmentPositions' });
+RecruitmentPosition.belongsTo(TeamLeader, { foreignKey: 'teamLeaderId', as: 'teamLeader' });
+
+// RecruitmentPosition -> Candidate (One to Many)
+RecruitmentPosition.hasMany(Candidate, { foreignKey: 'positionId', as: 'candidates' });
+Candidate.belongsTo(RecruitmentPosition, { foreignKey: 'positionId', as: 'position' });
+
+// Client -> Candidate (One to Many)
+Client.hasMany(Candidate, { foreignKey: 'clientId', as: 'candidates' });
+Candidate.belongsTo(Client, { foreignKey: 'clientId', as: 'client' });
+
 // TeamLeader -> WorkHandover (One to Many, from)
 TeamLeader.hasMany(WorkHandover, { foreignKey: 'fromUserId', as: 'handoversOut' });
 WorkHandover.belongsTo(TeamLeader, { foreignKey: 'fromUserId', as: 'fromUser' });
@@ -784,7 +992,7 @@ DepartmentTeam.init({
     managerId: {
         type: DataTypes.UUID,
         references: {
-            model: 'TeamLeaders',
+            model: 'team_leaders',
             key: 'id'
         }
     },
@@ -1190,59 +1398,11 @@ const Payslip = sequelize.define('Payslip', {
     fileUrl: { type: DataTypes.STRING },
 }, { tableName: 'Payslips', timestamps: true });
 
-// ============== RECRUITMENT POSITION MODEL ==============
-const RecruitmentPosition = sequelize.define('RecruitmentPosition', {
-    id: { type: DataTypes.UUID, defaultValue: DataTypes.UUIDV4, primaryKey: true },
-    title: { type: DataTypes.STRING, allowNull: false },
-    description: { type: DataTypes.TEXT },
-    location: { type: DataTypes.STRING, allowNull: false },
-    type: { type: DataTypes.ENUM('Full-time', 'Part-time', 'Contract', 'Internship'), defaultValue: 'Full-time' },
-    salary: { type: DataTypes.STRING },
-    status: { type: DataTypes.ENUM('Open', 'Closed', 'Hold'), defaultValue: 'Open' },
-    priority: { type: DataTypes.ENUM('Low', 'Medium', 'High', 'Urgent'), defaultValue: 'Medium' },
-    openings: { type: DataTypes.INTEGER, defaultValue: 1 },
-    filled: { type: DataTypes.INTEGER, defaultValue: 0 },
-    skills: { type: DataTypes.JSONB, defaultValue: [] },
-    experience: { type: DataTypes.STRING },
-    clientId: { type: DataTypes.UUID, allowNull: false, references: { model: 'clients', key: 'id' } },
-    teamLeaderId: { type: DataTypes.UUID, allowNull: true, references: { model: 'team_leaders', key: 'id' } },
-    postedDate: { type: DataTypes.DATE, defaultValue: DataTypes.NOW },
-    deadline: { type: DataTypes.DATE },
-}, { tableName: 'RecruitmentPositions', timestamps: true });
-
-// ============== CANDIDATE MODEL ==============
-const Candidate = sequelize.define('Candidate', {
-    id: { type: DataTypes.UUID, defaultValue: DataTypes.UUIDV4, primaryKey: true },
-    name: { type: DataTypes.STRING, allowNull: false },
-    email: { type: DataTypes.STRING, allowNull: false },
-    phone: { type: DataTypes.STRING },
-    positionId: { type: DataTypes.UUID, allowNull: false, references: { model: 'RecruitmentPositions', key: 'id' } },
-    clientId: { type: DataTypes.UUID, allowNull: false, references: { model: 'clients', key: 'id' } },
-    cvUrl: { type: DataTypes.STRING },
-    cvFileName: { type: DataTypes.STRING },
-    status: { type: DataTypes.ENUM('Submitted', 'Shared', 'Shortlisted', 'Interview', 'Selected', 'Rejected', 'OnHold'), defaultValue: 'Submitted' },
-    stage: { type: DataTypes.ENUM('Screening', 'Phone Interview', 'Technical Round', 'HR Round', 'Client Interview', 'Offer Sent', 'Joined', 'Rejected'), defaultValue: 'Screening' },
-    pipelineStatus: { type: DataTypes.ENUM('pending', 'hold', 'approved', 'rejected'), defaultValue: 'pending' },
-    location: { type: DataTypes.STRING },
-    rating: { type: DataTypes.INTEGER, defaultValue: 0 },
-    noticePeriod: { type: DataTypes.STRING },
-    rejectionReason: { type: DataTypes.STRING },
-    source: { type: DataTypes.STRING },
-    sharedAt: { type: DataTypes.DATE },
-    shortlistedAt: { type: DataTypes.DATE },
-    interviewDate: { type: DataTypes.DATE },
-    notes: { type: DataTypes.TEXT },
-    skills: { type: DataTypes.JSONB, defaultValue: [] },
-    experience: { type: DataTypes.STRING },
-    currentSalary: { type: DataTypes.STRING },
-    expectedSalary: { type: DataTypes.STRING },
-}, { tableName: 'Candidates', timestamps: true });
-
 // ============== INTERVIEW MODEL ==============
 const Interview = sequelize.define('Interview', {
     id: { type: DataTypes.UUID, defaultValue: DataTypes.UUIDV4, primaryKey: true },
-    candidateId: { type: DataTypes.UUID, allowNull: false, references: { model: 'Candidates', key: 'id' } },
-    positionId: { type: DataTypes.UUID, allowNull: false, references: { model: 'RecruitmentPositions', key: 'id' } },
+    candidateId: { type: DataTypes.UUID, allowNull: false, references: { model: 'candidates', key: 'id' } },
+    positionId: { type: DataTypes.UUID, allowNull: false, references: { model: 'recruitment_positions', key: 'id' } },
     clientId: { type: DataTypes.UUID, allowNull: false, references: { model: 'clients', key: 'id' } },
     interviewType: { type: DataTypes.ENUM('HR Round', 'Technical Round', 'Client Interview', 'Phone Screening', 'Final Round'), allowNull: false },
     interviewDate: { type: DataTypes.DATE, allowNull: false },
@@ -1258,20 +1418,14 @@ const Interview = sequelize.define('Interview', {
     emailSentToCandidate: { type: DataTypes.BOOLEAN, defaultValue: false },
     emailSentAt: { type: DataTypes.DATE },
     reminderSent: { type: DataTypes.BOOLEAN, defaultValue: false },
-}, { tableName: 'Interviews', timestamps: true });
+}, { tableName: 'interviews', timestamps: true });
 
-// === Recruitment Associations ===
-RecruitmentPosition.belongsTo(Client, { foreignKey: 'clientId', as: 'client' });
-RecruitmentPosition.belongsTo(TeamLeader, { foreignKey: 'teamLeaderId', as: 'teamLeader' });
-Client.hasMany(RecruitmentPosition, { foreignKey: 'clientId', as: 'positions' });
-
-Candidate.belongsTo(RecruitmentPosition, { foreignKey: 'positionId', as: 'position' });
-Candidate.belongsTo(Client, { foreignKey: 'clientId', as: 'client' });
-RecruitmentPosition.hasMany(Candidate, { foreignKey: 'positionId', as: 'candidates' });
-
+// === Interview Associations ===
 Interview.belongsTo(Candidate, { foreignKey: 'candidateId', as: 'candidate' });
 Interview.belongsTo(RecruitmentPosition, { foreignKey: 'positionId', as: 'position' });
 Interview.belongsTo(Client, { foreignKey: 'clientId', as: 'client' });
+Candidate.hasMany(Interview, { foreignKey: 'candidateId', as: 'interviews' });
+RecruitmentPosition.hasMany(Interview, { foreignKey: 'positionId', as: 'interviews' });
 
 // ============== DEPARTMENT CHAT MODEL ==============
 const DeptChat = sequelize.define('DeptChat', {
@@ -1292,7 +1446,6 @@ module.exports = {
     Admin,
     TeamLeader,
     Employee,
-    
     EmployeeTeamLeader,
     Client,
     RequestTask,
@@ -1300,6 +1453,9 @@ module.exports = {
     RecurringTask,
     Notification,
     Message,
+    RecruitmentPosition,
+    Candidate,
+    Interview,
     WorkAgreement,
     WorkHandover,
     DepartmentTeam,
@@ -1314,7 +1470,4 @@ module.exports = {
     Training,
     Payslip,
     DeptChat,
-    RecruitmentPosition,
-    Candidate,
-    Interview,
 };

@@ -1,4 +1,4 @@
-    const { sequelize, DepartmentTeam } = require('../models/sequelizeModels');
+const { sequelize, DepartmentTeam } = require('../models/sequelizeModels');
 const { hashPassword } = require('../utils/bcryptUtils');
 
 const seedDepartmentTeamUsers = async () => {
