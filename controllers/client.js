@@ -1,5 +1,5 @@
-const { Client, TeamLeader, Task, RequestTask, RecurringTask, WorkAgreement, sequelize } = require('../models/sequelizeModels');
-const { RecruitmentPosition, Candidate, Interview } = require('../models/models');
+const { Client, TeamLeader, Task, RequestTask, RecurringTask, WorkAgreement, RecruitmentPosition, Candidate, Interview, sequelize } = require('../models/sequelizeModels');
+const { Op, fn, col } = require('sequelize');
 const { hashPassword, comparePasswords } = require('../utils/bcryptUtils');
 const { drive, getOrCreateFolder, updateFilePermissions } = require('../utils/googleDriveServices');
 const { generateToken } = require('../utils/jwtUtils');
@@ -299,6 +299,15 @@ const getClientDetails = async (req, res) => {
                     model: Task,
                     as: 'tasks',
                     attributes: ['id', 'title', 'description', 'status', 'dueDate', 'priority', 'createdAt', 'updatedAt']
+                },
+                {
+                    model: WorkAgreement,
+                    as: 'workAgreements',
+                    attributes: ['id', 'allowedScopes', 'status'],
+                    where: { status: 'Active' },
+                    required: false,
+                    limit: 1,
+                    order: [['createdAt', 'DESC']],
                 }
             ],
             attributes: { exclude: ['password'] }
@@ -350,10 +359,22 @@ const getClientDetails = async (req, res) => {
             updatedAt: client.updatedAt
         };
 
+        // Determine allowed services from active work agreement
+        const activeAg = client.workAgreements?.[0];
+        const scopes = activeAg?.allowedScopes || [];
+        const hasRec = scopes.some(s => s.toLowerCase().includes('recruitment'));
+        const hasOps = scopes.some(s => s.toLowerCase().includes('operation'));
+        const allowedServices = scopes.length === 0
+            ? ['recruitment', 'operations']
+            : [
+                ...(hasRec ? ['recruitment'] : []),
+                ...(hasOps ? ['operations'] : []),
+              ];
+
         res.status(200).json({
             success: true,
             message: 'Client details retrieved successfully',
-            data: clientData
+            data: { ...clientData, allowedServices }
         });
 
     } catch (error) {
@@ -857,62 +878,51 @@ const getClientDashboardOverview = async (req, res) => {
                 attributes: ['id', 'title', 'allowedScopes', 'maxTasks', 'startDate', 'endDate', 'status', 'notes'],
                 order: [['createdAt', 'DESC']],
             }),
-            // Recruitment positions (MongoDB)
-            RecruitmentPosition.find({ client: clientId })
-                .select('title location type status priority openings filled deadline createdAt')
-                .sort({ createdAt: -1 })
-                .lean(),
+            // Recruitment positions (PostgreSQL)
+            RecruitmentPosition.findAll({
+                where: { clientId },
+                attributes: ['id', 'title', 'location', 'type', 'status', 'priority', 'openings', 'filled', 'deadline', 'createdAt'],
+                order: [['createdAt', 'DESC']],
+            }),
         ]);
 
         if (!client) return res.status(404).json({ success: false, message: 'Client not found' });
 
-        const positionIds = positions.map(p => p._id);
+        const positionIds = positions.map(p => p.id);
 
         // ═══ PARALLEL: Recruitment deep data ═══
-        const [candidates, interviewAgg] = await Promise.all([
-            Candidate.find({ client: clientId })
-                .select('name stage pipelineStatus position createdAt updatedAt')
-                .populate('position', 'title')
-                .sort({ createdAt: -1 })
-                .lean(),
-            Interview.aggregate([
-                { $match: { position: { $in: positionIds } } },
-                {
-                    $facet: {
-                        byStatus: [{ $group: { _id: '$status', count: { $sum: 1 } } }],
-                        upcoming: [
-                            { $match: { status: 'Scheduled', interviewDate: { $gte: new Date() } } },
-                            { $sort: { interviewDate: 1 } },
-                            { $limit: 5 },
-                            {
-                                $lookup: {
-                                    from: 'candidates', localField: 'candidate', foreignField: '_id',
-                                    as: 'cInfo', pipeline: [{ $project: { name: 1 } }]
-                                }
-                            },
-                            {
-                                $lookup: {
-                                    from: 'recruitmentpositions', localField: 'position', foreignField: '_id',
-                                    as: 'pInfo', pipeline: [{ $project: { title: 1 } }]
-                                }
-                            },
-                            {
-                                $project: {
-                                    candidateName: { $arrayElemAt: ['$cInfo.name', 0] },
-                                    positionTitle: { $arrayElemAt: ['$pInfo.title', 0] },
-                                    interviewDate: 1, startTime: 1, interviewType: 1, status: 1,
-                                }
-                            }
-                        ]
-                    }
-                }
-            ]),
+        const [candidates, upcomingInterviews] = await Promise.all([
+            Candidate.findAll({
+                where: { clientId },
+                attributes: ['id', 'name', 'stage', 'pipelineStatus', 'positionId', 'createdAt', 'updatedAt'],
+                include: [{ model: RecruitmentPosition, as: 'position', attributes: ['title'] }],
+                order: [['createdAt', 'DESC']],
+            }),
+            Interview.findAll({
+                where: {
+                    positionId: { [Op.in]: positionIds.length ? positionIds : ['00000000-0000-0000-0000-000000000000'] },
+                    status: 'Scheduled',
+                    interviewDate: { [Op.gte]: new Date() },
+                },
+                include: [
+                    { model: Candidate, as: 'candidate', attributes: ['name'] },
+                    { model: RecruitmentPosition, as: 'position', attributes: ['title'] },
+                ],
+                order: [['interviewDate', 'ASC']],
+                limit: 5,
+            }),
         ]);
 
         // ═══ BUILD RESPONSE ═══
-        const intData = interviewAgg[0] || { byStatus: [], upcoming: [] };
         const intStatusMap = {};
-        intData.byStatus.forEach(s => { intStatusMap[s._id] = s.count; });
+        if (positionIds.length) {
+            const [scheduledCount, completedCount] = await Promise.all([
+                Interview.count({ where: { positionId: { [Op.in]: positionIds }, status: 'Scheduled' } }),
+                Interview.count({ where: { positionId: { [Op.in]: positionIds }, status: 'Completed' } }),
+            ]);
+            intStatusMap['Scheduled'] = scheduledCount;
+            intStatusMap['Completed'] = completedCount;
+        }
 
         // Stage funnel
         const stageCounts = {};
@@ -921,7 +931,7 @@ const getClientDashboardOverview = async (req, res) => {
         // Candidate counts per position
         const candByPos = {};
         candidates.forEach(c => {
-            const pid = c.position?._id?.toString();
+            const pid = c.positionId;
             if (pid) candByPos[pid] = (candByPos[pid] || 0) + 1;
         });
 
@@ -944,9 +954,23 @@ const getClientDashboardOverview = async (req, res) => {
         // Active agreement
         const activeAgreement = workAgreements.find(a => a.status === 'Active');
 
+        // Determine client's allowed services from agreement scopes
+        const scopes = activeAgreement?.allowedScopes || [];
+        const hasRecruitment = scopes.some(s => s.toLowerCase().includes('recruitment'));
+        const hasOperations = scopes.some(s => s.toLowerCase().includes('operation'));
+        // If no agreement exists, show both by default
+        const allowedServices = scopes.length === 0
+            ? ['recruitment', 'operations']
+            : [
+                ...(hasRecruitment ? ['recruitment'] : []),
+                ...(hasOperations ? ['operations'] : []),
+              ];
+
         res.status(200).json({
             success: true,
             data: {
+                // Allowed services for this client
+                allowedServices,
                 // Client info
                 client: {
                     name: client.name,
@@ -969,9 +993,9 @@ const getClientDashboardOverview = async (req, res) => {
                         completedInterviews: intStatusMap['Completed'] || 0,
                     },
                     positions: positions.map(p => ({
-                        id: p._id, title: p.title, location: p.location, type: p.type,
+                        id: p.id, title: p.title, location: p.location, type: p.type,
                         status: p.status, priority: p.priority, openings: p.openings || 1,
-                        filled: p.filled || 0, candidateCount: candByPos[p._id.toString()] || 0,
+                        filled: p.filled || 0, candidateCount: candByPos[p.id] || 0,
                         deadline: p.deadline, postedDate: p.createdAt,
                     })),
                     funnel: {
@@ -984,9 +1008,16 @@ const getClientDashboardOverview = async (req, res) => {
                         joined: stageCounts['Joined'] || 0,
                         rejected: stageCounts['Rejected'] || 0,
                     },
-                    upcomingInterviews: intData.upcoming,
+                    upcomingInterviews: upcomingInterviews.map(i => ({
+                        candidateName: i.candidate?.name,
+                        positionTitle: i.position?.title,
+                        interviewDate: i.interviewDate,
+                        startTime: i.startTime,
+                        interviewType: i.interviewType,
+                        status: i.status,
+                    })),
                     candidates: candidates.slice(0, 30).map(c => ({
-                        id: c._id, name: c.name, stage: c.stage,
+                        id: c.id, name: c.name, stage: c.stage,
                         position: c.position?.title || '', updatedAt: c.updatedAt,
                     })),
                 },

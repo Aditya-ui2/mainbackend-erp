@@ -1,4 +1,5 @@
-const { Interview, Candidate, RecruitmentPosition, DepartmentTeam, TeamLeader } = require('../models/models');
+const { Interview, Candidate, RecruitmentPosition, DepartmentTeam, TeamLeader, Client } = require('../models/sequelizeModels');
+const { Op } = require('sequelize');
 const sendEmail = require('../utils/emailService');
 const crypto = require('crypto');
 
@@ -138,101 +139,53 @@ const sendInterviewInvitation = async (interview, candidate, position) => {
 const scheduleInterview = async (req, res) => {
     try {
         const {
-            candidateId,
-            positionId,
-            clientId,
-            interviewType,
-            interviewDate,
-            startTime,
-            duration,
-            meetingType,
-            interviewerId,
-            interviewerType,
-            interviewerName,
-            interviewerEmail,
-            interviewerRole,
-            notes
+            candidateId, positionId, clientId, interviewType, interviewDate,
+            startTime, duration, meetingType, interviewerId, interviewerType,
+            interviewerName, interviewerEmail, interviewerRole, notes
         } = req.body;
 
-        // Validate candidate exists
-        const candidate = await Candidate.findById(candidateId);
-        if (!candidate) {
-            return res.status(404).json({ success: false, message: 'Candidate not found' });
-        }
+        const candidate = await Candidate.findByPk(candidateId);
+        if (!candidate) return res.status(404).json({ success: false, message: 'Candidate not found' });
 
-        // Get position details
-        const position = await RecruitmentPosition.findById(positionId);
-        if (!position) {
-            return res.status(404).json({ success: false, message: 'Position not found' });
-        }
+        const position = await RecruitmentPosition.findByPk(positionId);
+        if (!position) return res.status(404).json({ success: false, message: 'Position not found' });
 
-        // Generate meeting token
         const meetingToken = crypto.randomBytes(32).toString('hex');
         const meetingLink = generateMeetingLink(meetingToken);
 
-        // Create interview
-        const interview = new Interview({
-            candidate: candidateId,
-            position: positionId,
-            client: clientId,
-            interviewType,
-            interviewDate,
-            startTime,
-            duration: duration || 45,
-            meetingType: meetingType || 'Video',
-            meetingLink,
-            meetingToken,
+        const interview = await Interview.create({
+            candidateId, positionId, clientId, interviewType, interviewDate,
+            startTime, duration: duration || 45, meetingType: meetingType || 'Video',
+            meetingLink, meetingToken,
             interviewer: {
-                id: interviewerId,
-                type: interviewerType,
-                name: interviewerName,
-                email: interviewerEmail,
-                role: interviewerRole
+                id: interviewerId, type: interviewerType, name: interviewerName,
+                email: interviewerEmail, role: interviewerRole
             },
-            notes,
-            createdBy: {
-                id: req.user?.userId,
-                type: req.user?.role === 'teamLeader' ? 'TeamLeader' : 'DepartmentTeam',
-                name: req.user?.name || 'System'
-            }
         });
 
-        await interview.save();
+        await candidate.update({ status: 'Interview', interviewDate });
 
-        // Update candidate status to Interview
-        await Candidate.findByIdAndUpdate(candidateId, { 
-            status: 'Interview', 
-            interviewDate 
-        });
-
-        // Send automated email to candidate
         const emailSent = await sendInterviewInvitation(interview, candidate, position);
-        
         if (emailSent) {
-            interview.emailSentToCandidate = true;
-            interview.emailSentAt = new Date();
-            await interview.save();
+            await interview.update({ emailSentToCandidate: true, emailSentAt: new Date() });
         }
 
-        // Populate the response
-        const populatedInterview = await Interview.findById(interview._id)
-            .populate('candidate', 'name email phone')
-            .populate('position', 'title location')
-            .populate('client', 'companyName');
+        const populatedInterview = await Interview.findByPk(interview.id, {
+            include: [
+                { model: Candidate, as: 'candidate', attributes: ['name', 'email', 'phone'] },
+                { model: RecruitmentPosition, as: 'position', attributes: ['title', 'location'] },
+                { model: Client, as: 'client', attributes: ['companyName'] },
+            ]
+        });
 
         res.status(201).json({
             success: true,
             message: 'Interview scheduled successfully' + (emailSent ? ' and invitation email sent to candidate' : ''),
-            data: populatedInterview,
-            emailSent
+            data: populatedInterview, emailSent
         });
     } catch (error) {
         console.error('Error scheduling interview:', error);
-        res.status(500).json({ 
-            success: false, 
-            message: 'Failed to schedule interview', 
-            error: error.message 
-        });
+        res.status(500).json({ success: false, message: 'Failed to schedule interview', error: error.message });
     }
 };
 
@@ -245,88 +198,57 @@ const getInterviews = async (req, res) => {
     try {
         const { status, date, interviewType, candidateId, positionId } = req.query;
         
-        let query = {};
-        
-        if (status) query.status = status;
-        if (interviewType) query.interviewType = interviewType;
-        if (candidateId) query.candidate = candidateId;
-        if (positionId) query.position = positionId;
-        
-        // Filter by date if provided
+        const where = {};
+        if (status) where.status = status;
+        if (interviewType) where.interviewType = interviewType;
+        if (candidateId) where.candidateId = candidateId;
+        if (positionId) where.positionId = positionId;
         if (date) {
             const startOfDay = new Date(date);
             startOfDay.setHours(0, 0, 0, 0);
             const endOfDay = new Date(date);
             endOfDay.setHours(23, 59, 59, 999);
-            query.interviewDate = { $gte: startOfDay, $lte: endOfDay };
+            where.interviewDate = { [Op.between]: [startOfDay, endOfDay] };
         }
 
-        const interviews = await Interview.find(query)
-            .populate('candidate', 'name email phone cvUrl')
-            .populate('position', 'title location')
-            .populate('client', 'companyName')
-            .sort({ interviewDate: -1, startTime: 1 });
+        const interviews = await Interview.findAll({
+            where,
+            include: [
+                { model: Candidate, as: 'candidate', attributes: ['name', 'email', 'phone', 'cvUrl'] },
+                { model: RecruitmentPosition, as: 'position', attributes: ['title', 'location'] },
+                { model: Client, as: 'client', attributes: ['companyName'] },
+            ],
+            order: [['interviewDate', 'DESC'], ['startTime', 'ASC']],
+        });
 
-        // Group interviews by date
+        // Group by date
         const groupedInterviews = {};
         interviews.forEach(interview => {
             const dateKey = new Date(interview.interviewDate).toISOString().split('T')[0];
-            if (!groupedInterviews[dateKey]) {
-                groupedInterviews[dateKey] = [];
-            }
+            if (!groupedInterviews[dateKey]) groupedInterviews[dateKey] = [];
             groupedInterviews[dateKey].push(interview);
         });
 
-        // Calculate stats using single aggregation instead of 4 separate queries
+        // Stats
         const today = new Date();
         today.setHours(0, 0, 0, 0);
         const tomorrow = new Date(today);
         tomorrow.setDate(tomorrow.getDate() + 1);
 
-        const statsAgg = await Interview.aggregate([
-            {
-                $facet: {
-                    todaysInterviews: [
-                        { $match: { interviewDate: { $gte: today, $lt: tomorrow } } },
-                        { $count: 'count' }
-                    ],
-                    scheduled: [
-                        { $match: { status: 'Scheduled' } },
-                        { $count: 'count' }
-                    ],
-                    completed: [
-                        { $match: { status: 'Completed' } },
-                        { $count: 'count' }
-                    ],
-                    cancelled: [
-                        { $match: { status: 'Cancelled' } },
-                        { $count: 'count' }
-                    ]
-                }
-            }
+        const [todaysInterviews, scheduled, completed, cancelled] = await Promise.all([
+            Interview.count({ where: { interviewDate: { [Op.gte]: today, [Op.lt]: tomorrow } } }),
+            Interview.count({ where: { status: 'Scheduled' } }),
+            Interview.count({ where: { status: 'Completed' } }),
+            Interview.count({ where: { status: 'Cancelled' } }),
         ]);
 
-        const facets = statsAgg[0] || {};
-        const stats = {
-            todaysInterviews: facets.todaysInterviews?.[0]?.count || 0,
-            scheduled: facets.scheduled?.[0]?.count || 0,
-            completed: facets.completed?.[0]?.count || 0,
-            cancelled: facets.cancelled?.[0]?.count || 0
-        };
-
         res.status(200).json({
-            success: true,
-            data: interviews,
-            groupedByDate: groupedInterviews,
-            stats
+            success: true, data: interviews, groupedByDate: groupedInterviews,
+            stats: { todaysInterviews, scheduled, completed, cancelled }
         });
     } catch (error) {
         console.error('Error fetching interviews:', error);
-        res.status(500).json({ 
-            success: false, 
-            message: 'Failed to fetch interviews', 
-            error: error.message 
-        });
+        res.status(500).json({ success: false, message: 'Failed to fetch interviews', error: error.message });
     }
 };
 
@@ -337,23 +259,19 @@ const getInterviews = async (req, res) => {
  */
 const getInterviewById = async (req, res) => {
     try {
-        const interview = await Interview.findById(req.params.id)
-            .populate('candidate', 'name email phone cvUrl skills experience')
-            .populate('position', 'title location description skills')
-            .populate('client', 'companyName');
+        const interview = await Interview.findByPk(req.params.id, {
+            include: [
+                { model: Candidate, as: 'candidate', attributes: ['name', 'email', 'phone', 'cvUrl', 'skills', 'experience'] },
+                { model: RecruitmentPosition, as: 'position', attributes: ['title', 'location', 'description', 'skills'] },
+                { model: Client, as: 'client', attributes: ['companyName'] },
+            ]
+        });
 
-        if (!interview) {
-            return res.status(404).json({ success: false, message: 'Interview not found' });
-        }
-
+        if (!interview) return res.status(404).json({ success: false, message: 'Interview not found' });
         res.status(200).json({ success: true, data: interview });
     } catch (error) {
         console.error('Error fetching interview:', error);
-        res.status(500).json({ 
-            success: false, 
-            message: 'Failed to fetch interview', 
-            error: error.message 
-        });
+        res.status(500).json({ success: false, message: 'Failed to fetch interview', error: error.message });
     }
 };
 
@@ -366,48 +284,37 @@ const getInterviewByToken = async (req, res) => {
     try {
         const { token } = req.params;
         
-        const interview = await Interview.findOne({ meetingToken: token })
-            .populate('candidate', 'name email')
-            .populate('position', 'title location')
-            .populate('client', 'companyName');
+        const interview = await Interview.findOne({
+            where: { meetingToken: token },
+            include: [
+                { model: Candidate, as: 'candidate', attributes: ['name', 'email'] },
+                { model: RecruitmentPosition, as: 'position', attributes: ['title', 'location'] },
+                { model: Client, as: 'client', attributes: ['companyName'] },
+            ]
+        });
 
-        if (!interview) {
-            return res.status(404).json({ success: false, message: 'Invalid meeting link' });
-        }
+        if (!interview) return res.status(404).json({ success: false, message: 'Invalid meeting link' });
 
-        // Check if interview is today or upcoming
         const interviewDate = new Date(interview.interviewDate);
         const today = new Date();
         today.setHours(0, 0, 0, 0);
-        
         if (interviewDate < today) {
-            return res.status(400).json({ 
-                success: false, 
-                message: 'This interview has already passed' 
-            });
+            return res.status(400).json({ success: false, message: 'This interview has already passed' });
         }
 
         res.status(200).json({ 
             success: true, 
             data: {
-                interviewDate: interview.interviewDate,
-                startTime: interview.startTime,
-                duration: interview.duration,
-                interviewType: interview.interviewType,
-                meetingType: interview.meetingType,
-                interviewer: interview.interviewer.name,
-                position: interview.position?.title,
-                company: interview.client?.companyName,
+                interviewDate: interview.interviewDate, startTime: interview.startTime,
+                duration: interview.duration, interviewType: interview.interviewType,
+                meetingType: interview.meetingType, interviewer: interview.interviewer?.name,
+                position: interview.position?.title, company: interview.client?.companyName,
                 status: interview.status
             }
         });
     } catch (error) {
         console.error('Error fetching interview by token:', error);
-        res.status(500).json({ 
-            success: false, 
-            message: 'Failed to fetch interview', 
-            error: error.message 
-        });
+        res.status(500).json({ success: false, message: 'Failed to fetch interview', error: error.message });
     }
 };
 
@@ -421,45 +328,30 @@ const updateInterviewStatus = async (req, res) => {
         const { id } = req.params;
         const { status, rescheduleReason, newDate, newTime } = req.body;
 
-        const interview = await Interview.findById(id);
-        if (!interview) {
-            return res.status(404).json({ success: false, message: 'Interview not found' });
-        }
+        const interview = await Interview.findByPk(id);
+        if (!interview) return res.status(404).json({ success: false, message: 'Interview not found' });
 
-        // Handle rescheduling
         if (status === 'Rescheduled' && newDate) {
-            interview.rescheduledFrom = interview.interviewDate;
-            interview.interviewDate = newDate;
-            if (newTime) interview.startTime = newTime;
-            interview.rescheduleReason = rescheduleReason;
-            
-            // Regenerate meeting token for new link
-            interview.meetingToken = crypto.randomBytes(32).toString('hex');
-            interview.meetingLink = generateMeetingLink(interview.meetingToken);
-            
-            // Send updated email
-            const candidate = await Candidate.findById(interview.candidate);
-            const position = await RecruitmentPosition.findById(interview.position);
-            if (candidate && position) {
-                await sendInterviewInvitation(interview, candidate, position);
-            }
+            const newToken = crypto.randomBytes(32).toString('hex');
+            await interview.update({
+                interviewDate: newDate,
+                startTime: newTime || interview.startTime,
+                meetingToken: newToken,
+                meetingLink: generateMeetingLink(newToken),
+                status,
+            });
+
+            const candidate = await Candidate.findByPk(interview.candidateId);
+            const position = await RecruitmentPosition.findByPk(interview.positionId);
+            if (candidate && position) await sendInterviewInvitation(interview, candidate, position);
+        } else {
+            await interview.update({ status });
         }
 
-        interview.status = status;
-        await interview.save();
-
-        res.status(200).json({
-            success: true,
-            message: 'Interview status updated',
-            data: interview
-        });
+        res.status(200).json({ success: true, message: 'Interview status updated', data: interview });
     } catch (error) {
         console.error('Error updating interview status:', error);
-        res.status(500).json({ 
-            success: false, 
-            message: 'Failed to update interview', 
-            error: error.message 
-        });
+        res.status(500).json({ success: false, message: 'Failed to update interview', error: error.message });
     }
 };
 
@@ -471,75 +363,40 @@ const updateInterviewStatus = async (req, res) => {
 const submitInterviewFeedback = async (req, res) => {
     try {
         const { id } = req.params;
-        const {
-            skills,
-            attitude,
-            knowledge,
-            communication,
-            behavior,
-            overallRating,
-            strengths,
-            weaknesses,
-            recommendation,
-            notes
-        } = req.body;
+        const { skills, attitude, knowledge, communication, behavior, overallRating, strengths, weaknesses, recommendation, notes } = req.body;
 
-        // Validate ratings
         const ratings = [skills, attitude, knowledge, communication, behavior];
         for (const rating of ratings) {
             if (rating && (rating < 1 || rating > 10)) {
-                return res.status(400).json({ 
-                    success: false, 
-                    message: 'All ratings must be between 1 and 10' 
-                });
+                return res.status(400).json({ success: false, message: 'All ratings must be between 1 and 10' });
             }
         }
 
-        const interview = await Interview.findById(id);
-        if (!interview) {
-            return res.status(404).json({ success: false, message: 'Interview not found' });
-        }
+        const interview = await Interview.findByPk(id);
+        if (!interview) return res.status(404).json({ success: false, message: 'Interview not found' });
 
-        // Calculate overall rating if not provided
-        const calculatedOverall = overallRating || 
-            Math.round((skills + attitude + knowledge + communication + behavior) / 5);
+        const calculatedOverall = overallRating || Math.round((skills + attitude + knowledge + communication + behavior) / 5);
 
-        interview.evaluation = {
-            skills,
-            attitude,
-            knowledge,
-            communication,
-            behavior,
-            overallRating: calculatedOverall,
-            strengths,
-            weaknesses,
-            recommendation,
-            notes,
-            feedbackSubmittedAt: new Date()
-        };
-        interview.status = 'Completed';
-        
-        await interview.save();
+        await interview.update({
+            evaluation: {
+                skills, attitude, knowledge, communication, behavior,
+                overallRating: calculatedOverall, strengths, weaknesses,
+                recommendation, notes, feedbackSubmittedAt: new Date()
+            },
+            status: 'Completed'
+        });
 
         // Update candidate status based on recommendation
         if (recommendation === 'Strongly Recommend' || recommendation === 'Recommend') {
-            await Candidate.findByIdAndUpdate(interview.candidate, { status: 'Shortlisted' });
+            await Candidate.update({ status: 'Shortlisted' }, { where: { id: interview.candidateId } });
         } else if (recommendation === 'Not Recommend' || recommendation === 'Strongly Not Recommend') {
-            await Candidate.findByIdAndUpdate(interview.candidate, { status: 'Rejected' });
+            await Candidate.update({ status: 'Rejected' }, { where: { id: interview.candidateId } });
         }
 
-        res.status(200).json({
-            success: true,
-            message: 'Interview feedback submitted successfully',
-            data: interview
-        });
+        res.status(200).json({ success: true, message: 'Interview feedback submitted successfully', data: interview });
     } catch (error) {
         console.error('Error submitting feedback:', error);
-        res.status(500).json({ 
-            success: false, 
-            message: 'Failed to submit feedback', 
-            error: error.message 
-        });
+        res.status(500).json({ success: false, message: 'Failed to submit feedback', error: error.message });
     }
 };
 
@@ -552,23 +409,21 @@ const getInterviewFeedbackForm = async (req, res) => {
     try {
         const { id } = req.params;
 
-        const interview = await Interview.findById(id)
-            .populate('candidate', 'name email phone skills experience cvUrl')
-            .populate('position', 'title description skills requirements');
+        const interview = await Interview.findByPk(id, {
+            include: [
+                { model: Candidate, as: 'candidate', attributes: ['name', 'email', 'phone', 'skills', 'experience', 'cvUrl'] },
+                { model: RecruitmentPosition, as: 'position', attributes: ['title', 'description', 'skills'] },
+            ]
+        });
 
-        if (!interview) {
-            return res.status(404).json({ success: false, message: 'Interview not found' });
-        }
+        if (!interview) return res.status(404).json({ success: false, message: 'Interview not found' });
 
         res.status(200).json({
             success: true,
             data: {
-                interviewId: interview._id,
-                candidate: interview.candidate,
-                position: interview.position,
-                interviewType: interview.interviewType,
-                interviewDate: interview.interviewDate,
-                startTime: interview.startTime,
+                interviewId: interview.id, candidate: interview.candidate,
+                position: interview.position, interviewType: interview.interviewType,
+                interviewDate: interview.interviewDate, startTime: interview.startTime,
                 existingEvaluation: interview.evaluation,
                 evaluationCriteria: [
                     { key: 'skills', label: 'Technical Skills', description: 'Rate the candidate\'s technical expertise and proficiency' },
@@ -581,11 +436,7 @@ const getInterviewFeedbackForm = async (req, res) => {
         });
     } catch (error) {
         console.error('Error fetching feedback form:', error);
-        res.status(500).json({ 
-            success: false, 
-            message: 'Failed to fetch feedback form', 
-            error: error.message 
-        });
+        res.status(500).json({ success: false, message: 'Failed to fetch feedback form', error: error.message });
     }
 };
 
@@ -599,29 +450,20 @@ const cancelInterview = async (req, res) => {
         const { id } = req.params;
         const { reason } = req.body;
 
-        const interview = await Interview.findById(id);
-        if (!interview) {
-            return res.status(404).json({ success: false, message: 'Interview not found' });
-        }
+        const interview = await Interview.findByPk(id);
+        if (!interview) return res.status(404).json({ success: false, message: 'Interview not found' });
 
-        interview.status = 'Cancelled';
-        interview.notes = (interview.notes || '') + `\nCancelled: ${reason || 'No reason provided'}`;
-        await interview.save();
-
-        // Update candidate status
-        await Candidate.findByIdAndUpdate(interview.candidate, { status: 'Shortlisted' });
-
-        res.status(200).json({
-            success: true,
-            message: 'Interview cancelled successfully'
+        await interview.update({
+            status: 'Cancelled',
+            notes: (interview.notes || '') + `\nCancelled: ${reason || 'No reason provided'}`
         });
+
+        await Candidate.update({ status: 'Shortlisted' }, { where: { id: interview.candidateId } });
+
+        res.status(200).json({ success: true, message: 'Interview cancelled successfully' });
     } catch (error) {
         console.error('Error cancelling interview:', error);
-        res.status(500).json({ 
-            success: false, 
-            message: 'Failed to cancel interview', 
-            error: error.message 
-        });
+        res.status(500).json({ success: false, message: 'Failed to cancel interview', error: error.message });
     }
 };
 
@@ -634,15 +476,15 @@ const sendInterviewReminder = async (req, res) => {
     try {
         const { id } = req.params;
         
-        const interview = await Interview.findById(id)
-            .populate('candidate', 'name email')
-            .populate('position', 'title');
+        const interview = await Interview.findByPk(id, {
+            include: [
+                { model: Candidate, as: 'candidate', attributes: ['name', 'email'] },
+                { model: RecruitmentPosition, as: 'position', attributes: ['title'] },
+            ]
+        });
 
-        if (!interview) {
-            return res.status(404).json({ success: false, message: 'Interview not found' });
-        }
+        if (!interview) return res.status(404).json({ success: false, message: 'Interview not found' });
 
-        // Send reminder email
         const meetingLink = generateMeetingLink(interview.meetingToken);
         const formattedDate = new Date(interview.interviewDate).toLocaleDateString('en-IN', {
             weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
@@ -673,10 +515,7 @@ const sendInterviewReminder = async (req, res) => {
         interview.reminderSent = true;
         await interview.save();
 
-        res.status(200).json({
-            success: true,
-            message: 'Reminder email sent successfully'
-        });
+        res.status(200).json({ success: true, message: 'Reminder email sent successfully' });
     } catch (error) {
         console.error('Error sending reminder:', error);
         res.status(500).json({ 

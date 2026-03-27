@@ -1190,6 +1190,89 @@ const Payslip = sequelize.define('Payslip', {
     fileUrl: { type: DataTypes.STRING },
 }, { tableName: 'Payslips', timestamps: true });
 
+// ============== RECRUITMENT POSITION MODEL ==============
+const RecruitmentPosition = sequelize.define('RecruitmentPosition', {
+    id: { type: DataTypes.UUID, defaultValue: DataTypes.UUIDV4, primaryKey: true },
+    title: { type: DataTypes.STRING, allowNull: false },
+    description: { type: DataTypes.TEXT },
+    location: { type: DataTypes.STRING, allowNull: false },
+    type: { type: DataTypes.ENUM('Full-time', 'Part-time', 'Contract', 'Internship'), defaultValue: 'Full-time' },
+    salary: { type: DataTypes.STRING },
+    status: { type: DataTypes.ENUM('Open', 'Closed', 'Hold'), defaultValue: 'Open' },
+    priority: { type: DataTypes.ENUM('Low', 'Medium', 'High', 'Urgent'), defaultValue: 'Medium' },
+    openings: { type: DataTypes.INTEGER, defaultValue: 1 },
+    filled: { type: DataTypes.INTEGER, defaultValue: 0 },
+    skills: { type: DataTypes.JSONB, defaultValue: [] },
+    experience: { type: DataTypes.STRING },
+    clientId: { type: DataTypes.UUID, allowNull: false, references: { model: 'clients', key: 'id' } },
+    teamLeaderId: { type: DataTypes.UUID, allowNull: true, references: { model: 'team_leaders', key: 'id' } },
+    postedDate: { type: DataTypes.DATE, defaultValue: DataTypes.NOW },
+    deadline: { type: DataTypes.DATE },
+}, { tableName: 'RecruitmentPositions', timestamps: true });
+
+// ============== CANDIDATE MODEL ==============
+const Candidate = sequelize.define('Candidate', {
+    id: { type: DataTypes.UUID, defaultValue: DataTypes.UUIDV4, primaryKey: true },
+    name: { type: DataTypes.STRING, allowNull: false },
+    email: { type: DataTypes.STRING, allowNull: false },
+    phone: { type: DataTypes.STRING },
+    positionId: { type: DataTypes.UUID, allowNull: false, references: { model: 'RecruitmentPositions', key: 'id' } },
+    clientId: { type: DataTypes.UUID, allowNull: false, references: { model: 'clients', key: 'id' } },
+    cvUrl: { type: DataTypes.STRING },
+    cvFileName: { type: DataTypes.STRING },
+    status: { type: DataTypes.ENUM('Submitted', 'Shared', 'Shortlisted', 'Interview', 'Selected', 'Rejected', 'OnHold'), defaultValue: 'Submitted' },
+    stage: { type: DataTypes.ENUM('Screening', 'Phone Interview', 'Technical Round', 'HR Round', 'Client Interview', 'Offer Sent', 'Joined', 'Rejected'), defaultValue: 'Screening' },
+    pipelineStatus: { type: DataTypes.ENUM('pending', 'hold', 'approved', 'rejected'), defaultValue: 'pending' },
+    location: { type: DataTypes.STRING },
+    rating: { type: DataTypes.INTEGER, defaultValue: 0 },
+    noticePeriod: { type: DataTypes.STRING },
+    rejectionReason: { type: DataTypes.STRING },
+    source: { type: DataTypes.STRING },
+    sharedAt: { type: DataTypes.DATE },
+    shortlistedAt: { type: DataTypes.DATE },
+    interviewDate: { type: DataTypes.DATE },
+    notes: { type: DataTypes.TEXT },
+    skills: { type: DataTypes.JSONB, defaultValue: [] },
+    experience: { type: DataTypes.STRING },
+    currentSalary: { type: DataTypes.STRING },
+    expectedSalary: { type: DataTypes.STRING },
+}, { tableName: 'Candidates', timestamps: true });
+
+// ============== INTERVIEW MODEL ==============
+const Interview = sequelize.define('Interview', {
+    id: { type: DataTypes.UUID, defaultValue: DataTypes.UUIDV4, primaryKey: true },
+    candidateId: { type: DataTypes.UUID, allowNull: false, references: { model: 'Candidates', key: 'id' } },
+    positionId: { type: DataTypes.UUID, allowNull: false, references: { model: 'RecruitmentPositions', key: 'id' } },
+    clientId: { type: DataTypes.UUID, allowNull: false, references: { model: 'clients', key: 'id' } },
+    interviewType: { type: DataTypes.ENUM('HR Round', 'Technical Round', 'Client Interview', 'Phone Screening', 'Final Round'), allowNull: false },
+    interviewDate: { type: DataTypes.DATE, allowNull: false },
+    startTime: { type: DataTypes.STRING, allowNull: false },
+    duration: { type: DataTypes.INTEGER, defaultValue: 45 },
+    meetingType: { type: DataTypes.ENUM('Video', 'In-Person', 'Phone'), defaultValue: 'Video' },
+    meetingLink: { type: DataTypes.STRING },
+    meetingToken: { type: DataTypes.STRING },
+    meetingPassword: { type: DataTypes.STRING },
+    interviewer: { type: DataTypes.JSONB, defaultValue: {} },
+    status: { type: DataTypes.ENUM('Scheduled', 'In Progress', 'Completed', 'Cancelled', 'Rescheduled', 'No Show'), defaultValue: 'Scheduled' },
+    evaluation: { type: DataTypes.JSONB, defaultValue: {} },
+    emailSentToCandidate: { type: DataTypes.BOOLEAN, defaultValue: false },
+    emailSentAt: { type: DataTypes.DATE },
+    reminderSent: { type: DataTypes.BOOLEAN, defaultValue: false },
+}, { tableName: 'Interviews', timestamps: true });
+
+// === Recruitment Associations ===
+RecruitmentPosition.belongsTo(Client, { foreignKey: 'clientId', as: 'client' });
+RecruitmentPosition.belongsTo(TeamLeader, { foreignKey: 'teamLeaderId', as: 'teamLeader' });
+Client.hasMany(RecruitmentPosition, { foreignKey: 'clientId', as: 'positions' });
+
+Candidate.belongsTo(RecruitmentPosition, { foreignKey: 'positionId', as: 'position' });
+Candidate.belongsTo(Client, { foreignKey: 'clientId', as: 'client' });
+RecruitmentPosition.hasMany(Candidate, { foreignKey: 'positionId', as: 'candidates' });
+
+Interview.belongsTo(Candidate, { foreignKey: 'candidateId', as: 'candidate' });
+Interview.belongsTo(RecruitmentPosition, { foreignKey: 'positionId', as: 'position' });
+Interview.belongsTo(Client, { foreignKey: 'clientId', as: 'client' });
+
 // ============== DEPARTMENT CHAT MODEL ==============
 const DeptChat = sequelize.define('DeptChat', {
     id: { type: DataTypes.UUID, defaultValue: DataTypes.UUIDV4, primaryKey: true },
@@ -1231,4 +1314,7 @@ module.exports = {
     Training,
     Payslip,
     DeptChat,
+    RecruitmentPosition,
+    Candidate,
+    Interview,
 };
