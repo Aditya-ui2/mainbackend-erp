@@ -202,13 +202,11 @@ app.get('/', (req, res) => {
     res.send("You have landed on the test page");
 });
 
-// Swagger API Documentation (only in development)
-if (process.env.NODE_ENV !== 'production') {
-    app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec, {
-        customCss: '.swagger-ui .topbar { display: none }',
-        customSiteTitle: 'MabiconsERP API Documentation'
-    }));
-}
+// Swagger API Documentation
+app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec, {
+    customCss: '.swagger-ui .topbar { display: none }',
+    customSiteTitle: 'MabiconsERP API Documentation'
+}));
 
 app.use('/superAdmin', superAdminRoute);
 app.use('/admin', adminRoute);
