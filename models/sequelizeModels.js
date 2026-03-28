@@ -644,6 +644,14 @@ const RecruitmentPosition = sequelize.define('RecruitmentPosition', {
             key: 'id'
         }
     },
+    departmentTeamId: {
+        type: DataTypes.UUID,
+        allowNull: true,
+        references: {
+            model: 'department_teams',
+            key: 'id'
+        }
+    },
     postedDate: {
         type: DataTypes.DATE,
         defaultValue: DataTypes.NOW

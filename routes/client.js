@@ -24,7 +24,7 @@ router.delete('/delete', verifyAuthToken, authorize('superadmin', 'admin'), dele
 
 router.post('/getClientDetails', verifyAuthToken, clientIsolation, getClientDetails);
 
-router.get('/all', verifyAuthToken, authorize('superadmin', 'admin', 'teamleader', 'kam'), getAllClients);
+router.get('/all', verifyAuthToken, authorize('superadmin', 'admin', 'teamleader', 'kam', 'employee'), getAllClients);
 
 router.post('/getClientsForTeamLeader', verifyAuthToken, getClientsForTeamLeader);
 

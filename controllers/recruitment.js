@@ -66,11 +66,15 @@ const getKamsWithRecruitment = async (req, res) => {
 // Create a new recruitment position
 const createRecruitmentPosition = async (req, res) => {
     try {
-        const { title, description, location, type, salary, status, priority, openings, skills, experience, clientId, teamLeaderId, deadline } = req.body;
+        const { title, description, location, type, salary, status, priority, openings, skills, experience, clientId, teamLeaderId, departmentTeamId, deadline } = req.body;
+        
+        if (!clientId || clientId === "") {
+            return res.status(400).json({ success: false, message: 'Client ID is required' });
+        }
 
         const position = await RecruitmentPosition.create({
             title, description, location, type, salary, status, priority, openings,
-            skills: skills || [], experience, clientId, teamLeaderId, deadline
+            skills: skills || [], experience, clientId, teamLeaderId, departmentTeamId, deadline
         });
 
         res.status(201).json({ success: true, message: 'Position created successfully', data: position });
@@ -91,6 +95,10 @@ const updateRecruitmentPosition = async (req, res) => {
             return res.status(404).json({ success: false, message: 'Position not found' });
         }
 
+        if (updates.clientId === "") {
+            delete updates.clientId; // Or handle as null if allowed
+        }
+        
         await position.update(updates);
         res.status(200).json({ success: true, message: 'Position updated successfully', data: position });
     } catch (error) {

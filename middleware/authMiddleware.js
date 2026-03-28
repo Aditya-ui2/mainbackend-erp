@@ -105,7 +105,7 @@ const authorize = (...roles) => {
             'admin': ['admin', 'administrator'],
             'kam': ['kam', 'key_account_manager', 'keyaccountmanager'],
             'teamleader': ['teamleader', 'team_leader', 'tl'],
-            'employee': ['employee', 'user', 'staff'],
+            'employee': ['employee', 'user', 'staff', 'department head', 'departmenthead'],
             'client': ['client', 'customer']
         };
 
