@@ -2,6 +2,7 @@ const express = require('express');
 const cron = require('node-cron');
 const { Task } = require('../models/sequelizeModels');
 const { Op } = require('sequelize');
+const { protect } = require('../middleware/authMiddleware');
 
 const {
     requestTask,
@@ -21,6 +22,9 @@ const {
 } = require('../controllers/task');
 
 const router = express.Router();
+
+// All task routes require authentication
+router.use(protect);
 
 // Route for a client to request a task
 router.post('/requestTask', requestTask); // for client
@@ -45,7 +49,7 @@ router.post('/getClientTasks', getClientTasks);
 
 router.post('/getTasksByAssignedUser', getTasksByAssignedUser);
 
-// Recurring Task functions-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+// Recurring Task functions
 
 router.get('/getAllRecurringTasks', getAllRecurringTasks);
 

@@ -6,7 +6,7 @@ const { SuperAdmin } = require('../models/sequelizeModels');
 const superAdminData = {
     name: 'Ashish Tondon',
     email: 'mabicons@gmail.com',
-    password: 'mabicons123',
+    password: process.env.SUPERADMIN_PASSWORD || 'ChangeMeImmediately!2026',
     companyName: 'Mabicons Technosoft Pvt. Ltd.',
 };
 

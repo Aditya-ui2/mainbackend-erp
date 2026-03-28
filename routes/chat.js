@@ -2,6 +2,10 @@ const express = require('express');
 const router = express.Router();
 const { Message } = require('../models/sequelizeModels');
 const { Op } = require('sequelize');
+const { protect } = require('../middleware/authMiddleware');
+
+// All chat routes require authentication
+router.use(protect);
 
 // Get chat history between two users
 router.get('/messages/:userId1/:userId2', async (req, res) => {

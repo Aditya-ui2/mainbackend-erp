@@ -2,6 +2,10 @@ const express = require('express');
 const router = express.Router();
 const resumeBankController = require('../controllers/resumeBank');
 const authMiddleware = require('../middleware/authMiddleware');
+const { protect } = require('../middleware/authMiddleware');
+
+// All resume bank routes require authentication
+router.use(protect);
 
 /**
  * @swagger

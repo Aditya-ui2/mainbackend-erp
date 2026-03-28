@@ -7,7 +7,11 @@ if (!JWT_SECRET) {
     process.exit(1);
 }
 
-const REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || JWT_SECRET + '_refresh';
+const REFRESH_SECRET = process.env.JWT_REFRESH_SECRET;
+if (!REFRESH_SECRET) {
+    console.error('FATAL: JWT_REFRESH_SECRET is not set in environment variables');
+    process.exit(1);
+}
 const ACCESS_EXPIRES = '1h';       // short-lived access token
 const REFRESH_EXPIRES = '7d';      // long-lived refresh token
 

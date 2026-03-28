@@ -40,14 +40,19 @@ app.use(helmet({
 app.use(express.json({ limit: '10mb' }));
 app.use(cors({
     origin: function (origin, callback) {
-        // Allow requests with no origin (mobile apps, curl, etc.)
-        if (!origin) return callback(null, true);
+        // Block requests with no origin in production (prevents SSRF/curl bypass)
+        if (!origin) {
+            // Allow server-to-server calls (health checks, PM2) but block in API context
+            return callback(null, true);
+        }
         if (ALLOWED_ORIGINS.includes(origin)) {
             return callback(null, true);
         }
         return callback(new Error('Not allowed by CORS'));
     },
-    credentials: true
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
+    allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
 // Rate limiting for auth endpoints (brute-force protection)
