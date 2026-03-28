@@ -18,6 +18,7 @@ const server = http.createServer(app); // Add this
 const ALLOWED_ORIGINS = [
     'http://localhost:5173',
     'http://localhost:3000',
+    'http://15.206.67.102',
     'http://15.206.67.102:3000',
     'https://erp.mabicons.com',
     'https://mabicons.vercel.app'
@@ -64,6 +65,52 @@ app.use('/employee/login', authLimiter);
 app.use('/teamLeader/login', authLimiter);
 app.use('/department/login', authLimiter);
 app.use('/auth/forgot-password', authLimiter);
+
+// Audit logging — log all sensitive operations
+const SENSITIVE_METHODS = ['POST', 'PUT', 'DELETE', 'PATCH'];
+app.use((req, res, next) => {
+    if (SENSITIVE_METHODS.includes(req.method)) {
+        const logEntry = {
+            timestamp: new Date().toISOString(),
+            method: req.method,
+            path: req.originalUrl,
+            ip: req.headers['x-real-ip'] || req.ip,
+            userId: req.user?.id || 'unauthenticated',
+            userRole: req.user?.role || 'unknown',
+            userAgent: req.headers['user-agent']?.substring(0, 100)
+        };
+        console.log('AUDIT:', JSON.stringify(logEntry));
+    }
+    next();
+});
+
+// Input sanitization — strip HTML/script tags from all string inputs
+const sanitizeInput = (obj) => {
+    if (typeof obj === 'string') {
+        return obj.replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+                  .replace(/<[^>]*>/g, '')
+                  .trim();
+    }
+    if (Array.isArray(obj)) return obj.map(sanitizeInput);
+    if (obj && typeof obj === 'object') {
+        const clean = {};
+        for (const [key, value] of Object.entries(obj)) {
+            clean[key] = sanitizeInput(value);
+        }
+        return clean;
+    }
+    return obj;
+};
+app.use((req, res, next) => {
+    if (req.body && typeof req.body === 'object') {
+        req.body = sanitizeInput(req.body);
+    }
+    if (req.query && typeof req.query === 'object') {
+        req.query = sanitizeInput(req.query);
+    }
+    next();
+});
+
 const dbConnect = require('./db/db')
 
 // Import routes
