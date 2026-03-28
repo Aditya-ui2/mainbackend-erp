@@ -1550,6 +1550,103 @@ const DeptChat = sequelize.define('DeptChat', {
     replyTo: { type: DataTypes.UUID },
 }, { tableName: 'DeptChats', timestamps: true });
 
+// ============== SHAREPOINT CANDIDATE MODEL ============== 
+const SharePointCandidate = sequelize.define('SharePointCandidate', {
+    id: { type: DataTypes.UUID, defaultValue: DataTypes.UUIDV4, primaryKey: true },
+    sharePointId: { type: DataTypes.STRING, allowNull: false, unique: true },
+    name: { type: DataTypes.STRING },
+    email: { type: DataTypes.STRING },
+    phone: { type: DataTypes.STRING },
+    position: { type: DataTypes.STRING },
+    client: { type: DataTypes.STRING },
+    stage: { type: DataTypes.STRING, defaultValue: 'Screening' },
+    status: { type: DataTypes.STRING, defaultValue: 'Active' },
+    assignedTo: { type: DataTypes.STRING },
+    notes: { type: DataTypes.TEXT },
+    lastSyncedAt: { type: DataTypes.DATE, defaultValue: DataTypes.NOW },
+    sharePointCreatedAt: { type: DataTypes.DATE },
+    sharePointModifiedAt: { type: DataTypes.DATE },
+}, {
+    tableName: 'sharepoint_candidates',
+    timestamps: true,
+    indexes: [
+        { fields: ['sharePointId'], unique: true },
+        { fields: ['client'] },
+        { fields: ['status'] }
+    ]
+});
+
+// ============== SHAREPOINT INTERVIEW MODEL ==============
+const SharePointInterview = sequelize.define('SharePointInterview', {
+    id: { type: DataTypes.UUID, defaultValue: DataTypes.UUIDV4, primaryKey: true },
+    sharePointId: { type: DataTypes.STRING, allowNull: false, unique: true },
+    candidateName: { type: DataTypes.STRING },
+    position: { type: DataTypes.STRING },
+    client: { type: DataTypes.STRING },
+    round: { type: DataTypes.STRING },
+    interviewType: { type: DataTypes.STRING },
+    interviewDate: { type: DataTypes.DATE },
+    interviewTime: { type: DataTypes.STRING },
+    interviewer: { type: DataTypes.STRING },
+    status: { type: DataTypes.STRING, defaultValue: 'Scheduled' },
+    meetLink: { type: DataTypes.STRING },
+    assignedTo: { type: DataTypes.STRING },
+    notes: { type: DataTypes.TEXT },
+    lastSyncedAt: { type: DataTypes.DATE, defaultValue: DataTypes.NOW },
+    sharePointCreatedAt: { type: DataTypes.DATE },
+}, {
+    tableName: 'sharepoint_interviews',
+    timestamps: true,
+    indexes: [
+        { fields: ['sharePointId'], unique: true },
+        { fields: ['client'] },
+        { fields: ['status'] }
+    ]
+});
+
+// ============== SHAREPOINT CLIENT MODEL ==============
+const SharePointClient = sequelize.define('SharePointClient', {
+    id: { type: DataTypes.UUID, defaultValue: DataTypes.UUIDV4, primaryKey: true },
+    sharePointId: { type: DataTypes.STRING, allowNull: false, unique: true },
+    name: { type: DataTypes.STRING },
+    industry: { type: DataTypes.STRING },
+    contactPerson: { type: DataTypes.STRING },
+    email: { type: DataTypes.STRING },
+    phone: { type: DataTypes.STRING },
+    location: { type: DataTypes.STRING },
+    status: { type: DataTypes.STRING, defaultValue: 'Active' },
+    assignedKAM: { type: DataTypes.STRING },
+    openPositions: { type: DataTypes.INTEGER, defaultValue: 0 },
+    lastSyncedAt: { type: DataTypes.DATE, defaultValue: DataTypes.NOW },
+    sharePointCreatedAt: { type: DataTypes.DATE },
+}, {
+    tableName: 'sharepoint_clients',
+    timestamps: true,
+    indexes: [
+        { fields: ['sharePointId'], unique: true },
+        { fields: ['status'] }
+    ]
+});
+
+// ============== SHAREPOINT SYNC LOG ==============
+const SharePointSyncLog = sequelize.define('SharePointSyncLog', {
+    id: { type: DataTypes.UUID, defaultValue: DataTypes.UUIDV4, primaryKey: true },
+    syncType: { type: DataTypes.STRING, allowNull: false }, // 'candidates', 'interviews', 'clients', 'resumes', 'all'
+    status: { type: DataTypes.ENUM('success', 'partial', 'failed'), defaultValue: 'success' },
+    totalFetched: { type: DataTypes.INTEGER, defaultValue: 0 },
+    created: { type: DataTypes.INTEGER, defaultValue: 0 },
+    updated: { type: DataTypes.INTEGER, defaultValue: 0 },
+    errors: { type: DataTypes.INTEGER, defaultValue: 0 },
+    errorDetails: { type: DataTypes.JSONB, defaultValue: [] },
+    syncedById: { type: DataTypes.UUID },
+    syncedByName: { type: DataTypes.STRING },
+    syncedByRole: { type: DataTypes.STRING },
+    durationMs: { type: DataTypes.INTEGER },
+}, {
+    tableName: 'sharepoint_sync_logs',
+    timestamps: true,
+});
+
 module.exports = {
     sequelize,
     SuperAdmin,
@@ -1580,4 +1677,8 @@ module.exports = {
     Training,
     Payslip,
     DeptChat,
+    SharePointCandidate,
+    SharePointInterview,
+    SharePointClient,
+    SharePointSyncLog,
 };

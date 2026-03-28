@@ -15,6 +15,10 @@ const {
   updateCandidate,
   getLists,
   getListItems,
+  getSavedCandidates,
+  getSavedInterviews,
+  getSavedClients,
+  getSyncLogs,
 } = require('../controllers/sharepoint');
 const { protect, authorize } = require('../middleware/authMiddleware');
 
@@ -215,5 +219,88 @@ router.post('/sync/all', syncLimiter, authorize('superadmin', 'admin'), syncAll)
  *         description: Candidate updated in SharePoint
  */
 router.put('/candidates/:sharePointId', authorize('superadmin', 'admin', 'kam'), updateCandidate);
+
+// ═══════════════════════════════════════════
+// LOCAL DATABASE ENDPOINTS (saved SharePoint data)
+// ═══════════════════════════════════════════
+
+/**
+ * @swagger
+ * /sharepoint/data/candidates:
+ *   get:
+ *     summary: Get saved candidates from local database
+ *     tags: [SharePoint]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: client
+ *         schema:
+ *           type: string
+ *       - in: query
+ *         name: status
+ *         schema:
+ *           type: string
+ *       - in: query
+ *         name: search
+ *         schema:
+ *           type: string
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           default: 1
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 50
+ *     responses:
+ *       200:
+ *         description: Saved candidates with pagination
+ */
+router.get('/data/candidates', authorize('superadmin', 'admin', 'kam', 'employee'), getSavedCandidates);
+
+/**
+ * @swagger
+ * /sharepoint/data/interviews:
+ *   get:
+ *     summary: Get saved interviews from local database
+ *     tags: [SharePoint]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Saved interviews with pagination
+ */
+router.get('/data/interviews', authorize('superadmin', 'admin', 'kam', 'employee'), getSavedInterviews);
+
+/**
+ * @swagger
+ * /sharepoint/data/clients:
+ *   get:
+ *     summary: Get saved clients from local database
+ *     tags: [SharePoint]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Saved SharePoint clients
+ */
+router.get('/data/clients', authorize('superadmin', 'admin', 'kam'), getSavedClients);
+
+/**
+ * @swagger
+ * /sharepoint/sync-logs:
+ *   get:
+ *     summary: Get sync history logs
+ *     tags: [SharePoint]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: List of sync logs
+ */
+router.get('/sync-logs', authorize('superadmin', 'admin'), getSyncLogs);
 
 module.exports = router;
