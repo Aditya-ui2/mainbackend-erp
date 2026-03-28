@@ -1,10 +1,18 @@
 const jwt = require('jsonwebtoken');
-const JWT_SECRET = 'Aryan';  // Ensure this environment variable is set
+require('dotenv').config();
+
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) {
+    console.error('FATAL: JWT_SECRET is not set in environment variables');
+    process.exit(1);
+}
+
+const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d';
 
 // Function to generate a JWT token
 const generateToken = (payload) => {
     try {
-        return jwt.sign(payload, JWT_SECRET);
+        return jwt.sign(payload, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
     } catch (error) {
         console.error("Error generating token:", error);
         throw new Error('Error generating token');
