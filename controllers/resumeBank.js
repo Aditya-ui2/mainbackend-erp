@@ -378,7 +378,7 @@ const assignToPosition = async (req, res) => {
 };
 
 /**
- * Get download URL for a resume
+ * Get download URL for a resume (proxied through backend for security)
  * GET /api/resumebank/:id/download
  */
 const getDownloadUrl = async (req, res) => {
@@ -389,10 +389,20 @@ const getDownloadUrl = async (req, res) => {
             return res.status(404).json({ success: false, message: 'Resume not found' });
         }
 
+        // Audit log
+        console.log(JSON.stringify({
+            type: 'RESUME_DOWNLOAD',
+            resumeId: resume.id,
+            fileName: resume.fileName,
+            userId: req.user?.id,
+            userRole: req.user?.role,
+            timestamp: new Date().toISOString()
+        }));
+
         let downloadUrl;
 
         if (resume.driveId === 's3') {
-            // S3 pre-signed URL
+            // S3 pre-signed URL (short-lived, auto-expires)
             downloadUrl = await s3Service.getDownloadUrl(resume.s3Key || resume.folderPath + resume.fileName);
         } else {
             // SharePoint — get fresh download URL via Graph API
@@ -400,14 +410,19 @@ const getDownloadUrl = async (req, res) => {
                 const siteId = await sharePointService.getSiteId();
                 downloadUrl = await sharePointService.getFileDownloadUrl(siteId, resume.driveId, resume.sharePointId);
             } catch (spErr) {
-                // Fallback to stored webUrl if Graph API fails
-                downloadUrl = resume.webUrl || resume.downloadUrl;
+                // Fallback to stored webUrl (authenticated, not raw download)
+                downloadUrl = resume.webUrl;
             }
         }
         
+        if (!downloadUrl) {
+            return res.status(404).json({ success: false, message: 'Download URL not available' });
+        }
+
         res.json({ success: true, downloadUrl, fileName: resume.fileName });
     } catch (error) {
-        res.status(500).json({ success: false, message: error.message });
+        console.error('Resume download failed:', error.message);
+        res.status(500).json({ success: false, message: 'Failed to get download URL' });
     }
 };
 

@@ -5,6 +5,7 @@
 
 const express = require('express');
 const router = express.Router();
+const rateLimit = require('express-rate-limit');
 const {
   testConnection,
   syncCandidates,
@@ -16,6 +17,13 @@ const {
   getListItems,
 } = require('../controllers/sharepoint');
 const { protect, authorize } = require('../middleware/authMiddleware');
+
+// Rate limit for SharePoint sync operations (heavy API calls)
+const syncLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 10, // max 10 sync requests per 15 min
+  message: { success: false, message: 'Too many sync requests, please try again later' }
+});
 
 /**
  * @swagger
@@ -52,7 +60,7 @@ router.use(protect);
  *       500:
  *         description: Connection failed
  */
-router.get('/test', authorize('admin', 'kam'), testConnection);
+router.get('/test', authorize('superadmin', 'admin', 'kam'), testConnection);
 
 /**
  * @swagger
@@ -66,7 +74,7 @@ router.get('/test', authorize('admin', 'kam'), testConnection);
  *       200:
  *         description: List of SharePoint lists
  */
-router.get('/lists', authorize('admin', 'kam'), getLists);
+router.get('/lists', authorize('superadmin', 'admin', 'kam'), getLists);
 
 /**
  * @swagger
@@ -86,7 +94,7 @@ router.get('/lists', authorize('admin', 'kam'), getLists);
  *       200:
  *         description: List items
  */
-router.get('/lists/:listId/items', authorize('admin', 'kam'), getListItems);
+router.get('/lists/:listId/items', authorize('superadmin', 'admin', 'kam'), getListItems);
 
 /**
  * @swagger
@@ -106,7 +114,7 @@ router.get('/lists/:listId/items', authorize('admin', 'kam'), getListItems);
  *       200:
  *         description: Candidates synced successfully
  */
-router.get('/sync/candidates', authorize('admin', 'kam'), syncCandidates);
+router.get('/sync/candidates', syncLimiter, authorize('superadmin', 'admin', 'kam'), syncCandidates);
 
 /**
  * @swagger
@@ -126,7 +134,7 @@ router.get('/sync/candidates', authorize('admin', 'kam'), syncCandidates);
  *       200:
  *         description: Interviews synced successfully
  */
-router.get('/sync/interviews', authorize('admin', 'kam'), syncInterviews);
+router.get('/sync/interviews', syncLimiter, authorize('superadmin', 'admin', 'kam'), syncInterviews);
 
 /**
  * @swagger
@@ -146,7 +154,7 @@ router.get('/sync/interviews', authorize('admin', 'kam'), syncInterviews);
  *       200:
  *         description: Clients synced successfully
  */
-router.get('/sync/clients', authorize('admin', 'kam'), syncClients);
+router.get('/sync/clients', syncLimiter, authorize('superadmin', 'admin', 'kam'), syncClients);
 
 /**
  * @swagger
@@ -171,7 +179,7 @@ router.get('/sync/clients', authorize('admin', 'kam'), syncClients);
  *                 clients:
  *                   type: object
  */
-router.post('/sync/all', authorize('admin', 'kam'), syncAll);
+router.post('/sync/all', syncLimiter, authorize('superadmin', 'admin'), syncAll);
 
 /**
  * @swagger
@@ -206,6 +214,6 @@ router.post('/sync/all', authorize('admin', 'kam'), syncAll);
  *       200:
  *         description: Candidate updated in SharePoint
  */
-router.put('/candidates/:sharePointId', authorize('admin', 'kam', 'employee'), updateCandidate);
+router.put('/candidates/:sharePointId', authorize('superadmin', 'admin', 'kam'), updateCandidate);
 
 module.exports = router;

@@ -5,6 +5,13 @@
 
 const axios = require('axios');
 
+// Max file size for resume downloads (25 MB)
+const MAX_FILE_SIZE = 25 * 1024 * 1024;
+// Allowed file extensions
+const ALLOWED_EXTENSIONS = ['pdf', 'doc', 'docx'];
+// Dangerous file extensions that should never be processed
+const BLOCKED_EXTENSIONS = ['exe', 'bat', 'cmd', 'ps1', 'vbs', 'js', 'msi', 'scr', 'com', 'pif', 'hta', 'cpl', 'inf', 'reg'];
+
 class SharePointService {
   constructor() {
     this.tenantId = process.env.SHAREPOINT_TENANT_ID;
@@ -351,7 +358,11 @@ class SharePointService {
         } else if (item.file) {
           // It's a file - check if it's a resume (PDF, DOC, DOCX)
           const ext = item.name.split('.').pop().toLowerCase();
-          if (['pdf', 'doc', 'docx'].includes(ext)) {
+          // Block dangerous extensions
+          if (BLOCKED_EXTENSIONS.includes(ext)) continue;
+          if (ALLOWED_EXTENSIONS.includes(ext)) {
+            // Skip oversized files
+            if (item.size > MAX_FILE_SIZE) continue;
             allFiles.push({
               sharePointId: item.id,
               driveId: driveId,
@@ -359,8 +370,8 @@ class SharePointService {
               roleType: roleType || this.extractRoleFromPath(folderPath),
               fileType: ext,
               size: item.size,
+              // Do NOT expose downloadUrl — downloads go through backend proxy
               webUrl: item.webUrl,
-              downloadUrl: item['@microsoft.graph.downloadUrl'],
               createdAt: item.createdDateTime,
               modifiedAt: item.lastModifiedDateTime,
               createdBy: item.createdBy?.user?.displayName,
@@ -459,8 +470,14 @@ class SharePointService {
     const token = await this.getAccessToken();
     
     try {
+      // Sanitize query: remove special chars that could manipulate the OData query
+      const sanitizedQuery = query.replace(/['";\\<>{}()]/g, '').substring(0, 100);
+      if (!sanitizedQuery || sanitizedQuery.length < 2) {
+        throw new Error('Search query must be at least 2 characters');
+      }
+
       const response = await axios.get(
-        `https://graph.microsoft.com/v1.0/sites/${siteId}/drives/${driveId}/root/search(q='${encodeURIComponent(query)}')`,
+        `https://graph.microsoft.com/v1.0/sites/${siteId}/drives/${driveId}/root/search(q='${encodeURIComponent(sanitizedQuery)}')`,
         { headers: { Authorization: `Bearer ${token}` } }
       );
       
@@ -470,6 +487,11 @@ class SharePointService {
           const ext = item.name?.split('.').pop()?.toLowerCase();
           return ['pdf', 'doc', 'docx'].includes(ext);
         })
+        .filter(item => {
+          // Block oversized and dangerous files
+          const ext2 = item.name?.split('.').pop()?.toLowerCase();
+          return !BLOCKED_EXTENSIONS.includes(ext2) && item.size <= MAX_FILE_SIZE;
+        })
         .map(item => ({
           sharePointId: item.id,
           driveId: driveId,
@@ -477,8 +499,8 @@ class SharePointService {
           roleType: this.extractRoleFromPath(item.parentReference?.path),
           fileType: item.name.split('.').pop().toLowerCase(),
           size: item.size,
+          // Do NOT expose downloadUrl — downloads go through backend proxy
           webUrl: item.webUrl,
-          downloadUrl: item['@microsoft.graph.downloadUrl'],
           createdAt: item.createdDateTime,
           modifiedAt: item.lastModifiedDateTime,
           path: item.parentReference?.path
@@ -490,7 +512,7 @@ class SharePointService {
   }
 
   /**
-   * Get file download URL
+   * Get file download URL (internal use only — never expose raw URL to client)
    */
   async getFileDownloadUrl(siteId, driveId, fileId) {
     const token = await this.getAccessToken();
@@ -500,11 +522,36 @@ class SharePointService {
         `https://graph.microsoft.com/v1.0/sites/${siteId}/drives/${driveId}/items/${fileId}`,
         { headers: { Authorization: `Bearer ${token}` } }
       );
+
+      // Validate file before returning URL
+      const fileName = response.data.name || '';
+      const ext = fileName.split('.').pop().toLowerCase();
+      if (BLOCKED_EXTENSIONS.includes(ext)) {
+        throw new Error('This file type is blocked for security reasons');
+      }
+      if (response.data.size > MAX_FILE_SIZE) {
+        throw new Error('File exceeds maximum allowed size');
+      }
+
       return response.data['@microsoft.graph.downloadUrl'];
     } catch (error) {
       console.error('Get Download URL Error:', error.response?.data || error.message);
       throw error;
     }
+  }
+
+  /**
+   * Proxy file download — streams content through backend instead of exposing raw URL
+   */
+  async proxyFileDownload(siteId, driveId, fileId) {
+    const downloadUrl = await this.getFileDownloadUrl(siteId, driveId, fileId);
+    
+    const response = await axios.get(downloadUrl, {
+      responseType: 'stream',
+      maxContentLength: MAX_FILE_SIZE,
+    });
+
+    return response;
   }
 }
 

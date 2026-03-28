@@ -18,6 +18,23 @@ const getSiteId = async () => {
   return cachedSiteId;
 };
 
+/** Safe error response — never expose internal details */
+const safeError = (res, message, statusCode = 500) => {
+  return res.status(statusCode).json({ success: false, message });
+};
+
+/** Audit log helper */
+const auditLog = (action, user, details = {}) => {
+  console.log(JSON.stringify({
+    type: 'SHAREPOINT_AUDIT',
+    action,
+    userId: user?.id,
+    userRole: user?.role,
+    timestamp: new Date().toISOString(),
+    ...details
+  }));
+};
+
 /**
  * @desc    Test SharePoint connection
  * @route   GET /api/sharepoint/test
@@ -27,6 +44,7 @@ exports.testConnection = async (req, res) => {
   try {
     const siteId = await getSiteId();
     const lists = await sharePointService.getLists(siteId);
+    auditLog('TEST_CONNECTION', req.user, { siteId });
     
     res.status(200).json({
       success: true,
@@ -37,11 +55,8 @@ exports.testConnection = async (req, res) => {
       }
     });
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: 'SharePoint connection failed',
-      error: error.message
-    });
+    console.error('SharePoint test connection failed:', error.message);
+    safeError(res, 'SharePoint connection failed');
   }
 };
 
@@ -56,9 +71,7 @@ exports.syncCandidates = async (req, res) => {
     const listName = req.query.listName || 'Candidates';
     
     const candidates = await sharePointService.syncCandidates(siteId, listName);
-    
-    // TODO: Save to local database
-    // await Candidate.bulkCreate(candidates, { updateOnDuplicate: ['stage', 'status', 'assignedTo'] });
+    auditLog('SYNC_CANDIDATES', req.user, { listName, count: candidates.length });
     
     res.status(200).json({
       success: true,
@@ -66,11 +79,8 @@ exports.syncCandidates = async (req, res) => {
       data: candidates
     });
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: 'Failed to sync candidates',
-      error: error.message
-    });
+    console.error('Sync candidates failed:', error.message);
+    safeError(res, 'Failed to sync candidates');
   }
 };
 
@@ -85,6 +95,7 @@ exports.syncInterviews = async (req, res) => {
     const listName = req.query.listName || 'Interviews';
     
     const interviews = await sharePointService.syncInterviews(siteId, listName);
+    auditLog('SYNC_INTERVIEWS', req.user, { listName, count: interviews.length });
     
     res.status(200).json({
       success: true,
@@ -92,11 +103,8 @@ exports.syncInterviews = async (req, res) => {
       data: interviews
     });
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: 'Failed to sync interviews',
-      error: error.message
-    });
+    console.error('Sync interviews failed:', error.message);
+    safeError(res, 'Failed to sync interviews');
   }
 };
 
@@ -111,6 +119,7 @@ exports.syncClients = async (req, res) => {
     const listName = req.query.listName || 'Clients';
     
     const clients = await sharePointService.syncClients(siteId, listName);
+    auditLog('SYNC_CLIENTS', req.user, { listName, count: clients.length });
     
     res.status(200).json({
       success: true,
@@ -118,11 +127,8 @@ exports.syncClients = async (req, res) => {
       data: clients
     });
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: 'Failed to sync clients',
-      error: error.message
-    });
+    console.error('Sync clients failed:', error.message);
+    safeError(res, 'Failed to sync clients');
   }
 };
 
@@ -140,6 +146,12 @@ exports.syncAll = async (req, res) => {
       sharePointService.syncInterviews(siteId, 'Interviews').catch(() => []),
       sharePointService.syncClients(siteId, 'Clients').catch(() => []),
     ]);
+
+    auditLog('SYNC_ALL', req.user, {
+      candidates: candidates.length,
+      interviews: interviews.length,
+      clients: clients.length
+    });
     
     res.status(200).json({
       success: true,
@@ -151,11 +163,8 @@ exports.syncAll = async (req, res) => {
       }
     });
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: 'Failed to sync all data',
-      error: error.message
-    });
+    console.error('Sync all failed:', error.message);
+    safeError(res, 'Failed to sync all data');
   }
 };
 
@@ -167,7 +176,14 @@ exports.syncAll = async (req, res) => {
 exports.updateCandidate = async (req, res) => {
   try {
     const { sharePointId } = req.params;
-    const updateData = req.body;
+    // Whitelist allowed update fields
+    const { stage, status, assignedTo, notes } = req.body;
+    const updateData = {};
+    if (stage) updateData.stage = stage;
+    if (status) updateData.status = status;
+    if (assignedTo) updateData.assignedTo = assignedTo;
+    if (notes) updateData.notes = notes;
+
     const siteId = await getSiteId();
     
     const result = await sharePointService.updateCandidateInSharePoint(
@@ -176,6 +192,8 @@ exports.updateCandidate = async (req, res) => {
       sharePointId,
       updateData
     );
+
+    auditLog('UPDATE_CANDIDATE', req.user, { sharePointId, fields: Object.keys(updateData) });
     
     res.status(200).json({
       success: true,
@@ -183,11 +201,8 @@ exports.updateCandidate = async (req, res) => {
       data: result
     });
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: 'Failed to update candidate in SharePoint',
-      error: error.message
-    });
+    console.error('Update candidate failed:', error.message);
+    safeError(res, 'Failed to update candidate in SharePoint');
   }
 };
 
@@ -200,6 +215,7 @@ exports.getLists = async (req, res) => {
   try {
     const siteId = await getSiteId();
     const lists = await sharePointService.getLists(siteId);
+    auditLog('GET_LISTS', req.user);
     
     res.status(200).json({
       success: true,
@@ -212,11 +228,8 @@ exports.getLists = async (req, res) => {
       }))
     });
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: 'Failed to get SharePoint lists',
-      error: error.message
-    });
+    console.error('Get lists failed:', error.message);
+    safeError(res, 'Failed to get SharePoint lists');
   }
 };
 
@@ -231,6 +244,7 @@ exports.getListItems = async (req, res) => {
     const siteId = await getSiteId();
     
     const items = await sharePointService.getListItems(siteId, listId);
+    auditLog('GET_LIST_ITEMS', req.user, { listId, count: items.length });
     
     res.status(200).json({
       success: true,
@@ -238,10 +252,7 @@ exports.getListItems = async (req, res) => {
       data: items
     });
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: 'Failed to get list items',
-      error: error.message
-    });
+    console.error('Get list items failed:', error.message);
+    safeError(res, 'Failed to get list items');
   }
 };
