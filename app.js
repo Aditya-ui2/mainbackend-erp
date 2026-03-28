@@ -33,7 +33,16 @@ const io = socketIO(server, {
 const PORT = 3000;
 
 // Security middleware
-app.use(helmet());
+app.use(helmet({
+    contentSecurityPolicy: {
+        directives: {
+            defaultSrc: ["'self'"],
+            scriptSrc: ["'self'", "'unsafe-inline'", "https://cdnjs.cloudflare.com"],
+            styleSrc: ["'self'", "'unsafe-inline'", "https://cdnjs.cloudflare.com"],
+            imgSrc: ["'self'", "data:", "https://validator.swagger.io"],
+        }
+    }
+}));
 app.use(express.json({ limit: '10mb' }));
 app.use(cors({
     origin: function (origin, callback) {
