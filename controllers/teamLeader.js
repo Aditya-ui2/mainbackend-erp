@@ -3,7 +3,7 @@
 const { TeamLeader, Task, Employee, Client, Admin, sequelize } = require('../models/sequelizeModels');
 const { Op } = require('sequelize');
 const { hashPassword, comparePasswords } = require('../utils/bcryptUtils');
-const { generateToken } = require('../utils/jwtUtils');
+const { generateToken, generateRefreshToken } = require('../utils/jwtUtils');
 const { getOrCreateFolder, uploadFileToDrive, getFileLink, deleteFile } = require('../utils/googleDriveServices');
 const formidable = require("formidable");
 const fs = require("fs/promises");
@@ -107,11 +107,14 @@ const loginTeamLeader = async (req, res) => {
             return res.status(401).json({ message: 'Invalid credentials' });
         }
 
-        const token = generateToken({ id: teamLeader.id, email: teamLeader.email, role: 'TeamLeader', department: teamLeader.department || 'Both' });
+        const payload = { id: teamLeader.id, email: teamLeader.email, role: 'TeamLeader', department: teamLeader.department || 'Both' };
+        const token = generateToken(payload);
+        const refreshToken = generateRefreshToken(payload);
 
         res.status(200).json({
             message: 'Login successful',
             token,
+            refreshToken,
             teamLeader: {
                 id: teamLeader.id,
                 name: teamLeader.name,

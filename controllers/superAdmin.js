@@ -3,7 +3,7 @@
 const { SuperAdmin } = require('../models/sequelizeModels');
 const { comparePasswords, hashPassword } = require('../utils/bcryptUtils');
 const { getOrCreateFolder, uploadFileToDrive, getFileLink, deleteFile } = require('../utils/googleDriveServices');
-const { generateToken } = require('../utils/jwtUtils');
+const { generateToken, generateRefreshToken } = require('../utils/jwtUtils');
 const formidable = require("formidable");
 const fs = require("fs/promises");
 
@@ -29,12 +29,15 @@ const loginSuperAdmin = async (req, res) => {
             return res.status(401).json({ message: 'Invalid credentials' });
         }
 
-        // Generate JWT token
-        const token = generateToken({ id: superAdmin.id, email: superAdmin.email, role: 'SuperAdmin' });
+        // Generate JWT tokens
+        const payload = { id: superAdmin.id, email: superAdmin.email, role: 'SuperAdmin' };
+        const token = generateToken(payload);
+        const refreshToken = generateRefreshToken(payload);
 
         res.status(200).json({
             message: 'Login successful',
             token,
+            refreshToken,
             superAdmin: {
                 id: superAdmin.id,
                 name: superAdmin.name,

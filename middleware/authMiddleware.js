@@ -126,8 +126,40 @@ const authorize = (...roles) => {
     };
 };
 
+/**
+ * @desc    Client data isolation — clients can only access their own data
+ *          Checks req.params.clientId or req.body.clientId against req.user.id
+ *          Admins/SuperAdmins/TeamLeaders bypass this check
+ */
+const clientIsolation = (req, res, next) => {
+    if (!req.user) {
+        return res.status(401).json({ success: false, message: 'Not authorized' });
+    }
+
+    const userRole = (req.user.role || req.user.userType || '').toLowerCase();
+
+    // Staff roles can access any client data
+    if (['superadmin', 'admin', 'teamleader', 'kam', 'employee'].includes(userRole)) {
+        return next();
+    }
+
+    // For clients — ensure they only access their own data
+    if (userRole === 'client') {
+        const requestedClientId = req.params.clientId || req.body.clientId || req.query.clientId;
+        if (requestedClientId && requestedClientId !== req.user.id) {
+            return res.status(403).json({ 
+                success: false, 
+                message: 'Access denied. You can only access your own data.' 
+            });
+        }
+    }
+
+    next();
+};
+
 // Export both styles for compatibility
 module.exports = verifyAuthToken;
 module.exports.protect = protect;
 module.exports.authorize = authorize;
 module.exports.verifyAuthToken = verifyAuthToken;
+module.exports.clientIsolation = clientIsolation;

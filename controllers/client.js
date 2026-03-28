@@ -2,7 +2,7 @@ const { Client, TeamLeader, Task, RequestTask, RecurringTask, WorkAgreement, Rec
 const { Op, fn, col } = require('sequelize');
 const { hashPassword, comparePasswords } = require('../utils/bcryptUtils');
 const { drive, getOrCreateFolder, updateFilePermissions } = require('../utils/googleDriveServices');
-const { generateToken } = require('../utils/jwtUtils');
+const { generateToken, generateRefreshToken } = require('../utils/jwtUtils');
 const fs = require("fs/promises");
 
 const busboy = require('busboy');
@@ -111,12 +111,15 @@ const loginClient = async (req, res) => {
             return res.status(401).json({ message: 'Invalid credentials' });
         }
 
-        // Generate a JWT token
-        const token = generateToken({ id: client.id, email: client.email, role: 'Client' });
+        // Generate JWT tokens
+        const payload = { id: client.id, email: client.email, role: 'Client' };
+        const token = generateToken(payload);
+        const refreshToken = generateRefreshToken(payload);
 
         res.status(200).json({
             message: 'Login successful',
             token,
+            refreshToken,
             client: {
                 id: client.id,
                 name: client.name,

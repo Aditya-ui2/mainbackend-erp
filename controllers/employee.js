@@ -3,7 +3,7 @@ const { Employee, TeamLeader, Task, Client, sequelize } = require('../models/seq
 const { Op } = require('sequelize');
 const { hashPassword, comparePasswords } = require('../utils/bcryptUtils');
 const sendEmail = require('../utils/emailService');
-const { generateToken } = require('../utils/jwtUtils');
+const { generateToken, generateRefreshToken } = require('../utils/jwtUtils');
 
 
 // Employee Creation with Email
@@ -103,11 +103,14 @@ const loginEmployee = async (req, res) => {
             return res.status(401).json({ message: 'Invalid credentials' });
         }
 
-        const token = generateToken({ id: employee.id, email: employee.email, role: 'Employee' });
+        const payload = { id: employee.id, email: employee.email, role: 'Employee' };
+        const token = generateToken(payload);
+        const refreshToken = generateRefreshToken(payload);
 
         res.status(200).json({
             message: 'Login successful',
             token,
+            refreshToken,
             employee: {
                 id: employee.id,
                 name: employee.name,

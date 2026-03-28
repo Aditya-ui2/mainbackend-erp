@@ -1,7 +1,7 @@
 // Use Sequelize models for all operations (PostgreSQL)
 const { DepartmentTeam, TeamLeader, DepartmentTask, ActivityLog } = require('../models/sequelizeModels');
 const { hashPassword, comparePasswords } = require('../utils/bcryptUtils');
-const { generateToken } = require('../utils/jwtUtils');
+const { generateToken, generateRefreshToken } = require('../utils/jwtUtils');
 const { Op } = require('sequelize');
 const { addNotification } = require('./notification');
 
@@ -491,10 +491,16 @@ const loginDepartmentTeam = async (req, res) => {
             userType: 'departmentTeam'
         });
 
+        const refreshToken = generateRefreshToken({
+            id: member.id,
+            role: member.role
+        });
+
         res.status(200).json({
             success: true,
             message: 'Login successful',
             token,
+            refreshToken,
             user: {
                 id: member.id,
                 name: member.name,

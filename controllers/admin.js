@@ -3,7 +3,7 @@
 const { Admin, TeamLeader, Employee } = require('../models/sequelizeModels');
 const { Op } = require('sequelize');
 const { hashPassword, comparePasswords } = require('../utils/bcryptUtils');
-const { generateToken } = require('../utils/jwtUtils');
+const { generateToken, generateRefreshToken } = require('../utils/jwtUtils');
 const crypto = require('crypto');
 const sendEmail = require('../utils/emailService');
 
@@ -136,12 +136,15 @@ const loginAdmin = async (req, res) => {
             return res.status(401).json({ message: 'Invalid credentials' });
         }
 
-        // Generate a JWT token
-        const token = generateToken({ id: admin.id, email: admin.email, role: 'Admin' });
+        // Generate JWT tokens
+        const payload = { id: admin.id, email: admin.email, role: 'Admin' };
+        const token = generateToken(payload);
+        const refreshToken = generateRefreshToken(payload);
 
         res.status(200).json({
             message: 'Login successful',
             token,
+            refreshToken,
             admin: {
                 id: admin.id,
                 name: admin.name,
