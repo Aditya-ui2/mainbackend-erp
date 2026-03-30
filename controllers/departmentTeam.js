@@ -14,8 +14,19 @@ const getTeamMembers = async (req, res) => {
         const managerId = req.user?.id;
 
         const where = {};
-        if (department) where.department = department;
-        if (managerId) where.managerId = managerId;
+        if (department) {
+            // Map short names to full ENUM values for DB safety
+            const deptMap = {
+                'recruitment': 'HR Recruitment',
+                'operations': 'HR Operations'
+            };
+            where.department = deptMap[department] || department;
+        }
+        
+        // If not a Head/SuperAdmin, only show direct reports
+        if (req.user?.role !== 'Department Head' && req.user?.role !== 'SuperAdmin' && managerId) {
+            where.managerId = managerId;
+        }
 
         const members = await DepartmentTeam.findAll({
             where,
@@ -59,15 +70,24 @@ const getTeamMember = async (req, res) => {
 // Add new team member
 const addTeamMember = async (req, res) => {
     try {
-        const { name, email, password, phone, role, department, skills } = req.body;
-        const managerId = req.user?.id;
+        const { name, email, password, phone, role, department, skills, supervisorId } = req.body;
+        // Use provided supervisorId if present, otherwise use logged-in user's ID
+        const managerId = supervisorId || req.user?.id;
+
+        console.log('Adding team member with payload:', { name, email, role, department, managerId });
 
         if (!password) {
             return res.status(400).json({ success: false, message: 'Password is required' });
         }
 
-        const existing = await DepartmentTeam.findOne({ where: { email: email.toLowerCase() } });
+        if (!name || !email) {
+            return res.status(400).json({ success: false, message: 'Name and Email are required' });
+        }
+
+        const emailLower = email.toLowerCase().trim();
+        const existing = await DepartmentTeam.findOne({ where: { email: emailLower } });
         if (existing) {
+            console.log('Duplicate email found:', emailLower);
             return res.status(400).json({ success: false, message: 'Email already exists' });
         }
 
@@ -75,19 +95,25 @@ const addTeamMember = async (req, res) => {
 
         const member = await DepartmentTeam.create({
             name,
-            email: email.toLowerCase(),
+            email: emailLower,
             password: hashedPassword,
             phone,
             role,
-            department,
+            department: department || 'HR Recruitment',
             managerId: managerId,
             skills: skills || [],
         });
 
-        res.status(201).json({ success: true, member, message: 'Team member added successfully' });
+        console.log('✅ Team member created:', member.id);
+        res.status(201).json({ success: true, data: member, message: 'Team member added successfully' });
     } catch (error) {
-        console.error('Error adding team member:', error);
-        res.status(500).json({ success: false, message: 'Failed to add team member' });
+        console.error('❌ CRITICAL ERROR ADDING TEAM MEMBER:', error);
+        res.status(400).json({ 
+            success: false, 
+            message: 'Failed to add team member', 
+            error: error.message,
+            details: error.errors?.map(e => e.message) || [error.name]
+        });
     }
 };
 
@@ -216,7 +242,7 @@ const getDepartmentTasks = async (req, res) => {
 // Create department task
 const createDepartmentTask = async (req, res) => {
     try {
-        const { title, description, department, assignedTo, priority, dueDate } = req.body;
+        const { title, description, department, assignedTo, priority, dueDate, positionId, candidateId } = req.body;
         const assignedBy = req.user?.id;
 
         // Get assignee name (DepartmentTeam is Sequelize/PostgreSQL)
@@ -235,6 +261,8 @@ const createDepartmentTask = async (req, res) => {
             assignedToName: assignee.name,
             priority,
             dueDate,
+            positionId,
+            candidateId,
         });
 
         // Update assignee's task count (Sequelize)
@@ -256,7 +284,12 @@ const createDepartmentTask = async (req, res) => {
         res.status(201).json({ success: true, task, message: 'Task assigned successfully' });
     } catch (error) {
         console.error('Error creating department task:', error);
-        res.status(500).json({ success: false, message: 'Failed to create task' });
+        res.status(500).json({ 
+            success: false, 
+            message: 'Failed to create task', 
+            error: error.message,
+            details: error.errors?.map(e => e.message) 
+        });
     }
 };
 

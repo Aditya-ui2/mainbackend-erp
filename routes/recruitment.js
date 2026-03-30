@@ -188,7 +188,7 @@ router.put('/positions/:id', verifyAuthToken, updateRecruitmentPosition);
  *       201:
  *         description: Candidate added
  */
-router.post('/candidates', verifyAuthToken, addCandidate);
+router.post('/candidates', verifyAuthToken, upload.single('resume'), addCandidate);
 
 /**
  * @swagger

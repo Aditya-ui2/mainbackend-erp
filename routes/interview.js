@@ -7,9 +7,11 @@ const {
     getInterviewById,
     getInterviewByToken,
     updateInterviewStatus,
+    updateInterview,
     submitInterviewFeedback,
     getInterviewFeedbackForm,
     cancelInterview,
+    deleteInterview,
     sendInterviewReminder
 } = require('../controllers/interview_sequelize');
 
@@ -204,6 +206,7 @@ router.get('/:id', verifyAuthToken, getInterviewById);
  *         description: Interview status updated
  */
 router.put('/:id/status', verifyAuthToken, updateInterviewStatus);
+router.put('/:id', verifyAuthToken, updateInterview);
 
 /**
  * @swagger
@@ -320,9 +323,9 @@ router.post('/:id/remind', verifyAuthToken, sendInterviewReminder);
 
 /**
  * @swagger
- * /interview/{id}:
+ * /interview/{id}/hard:
  *   delete:
- *     summary: Cancel an interview
+ *     summary: Delete an interview permanently
  *     tags: [Interview]
  *     security:
  *       - bearerAuth: []
@@ -332,18 +335,12 @@ router.post('/:id/remind', verifyAuthToken, sendInterviewReminder);
  *         required: true
  *         schema:
  *           type: string
- *     requestBody:
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             properties:
- *               reason:
- *                 type: string
  *     responses:
  *       200:
- *         description: Interview cancelled
+ *         description: Interview deleted permanently
  */
+router.delete('/:id/hard', verifyAuthToken, deleteInterview);
+
 router.delete('/:id', verifyAuthToken, cancelInterview);
 
 module.exports = router;

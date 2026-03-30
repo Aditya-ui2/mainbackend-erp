@@ -102,10 +102,10 @@ const authorize = (...roles) => {
         // Role mapping for flexibility
         const roleMapping = {
             'superadmin': ['superadmin', 'super_admin'],
-            'admin': ['admin', 'administrator'],
+            'admin': ['admin', 'administrator', 'hrrecruitment', 'hroperations', 'department head', 'departmenthead'],
             'kam': ['kam', 'key_account_manager', 'keyaccountmanager'],
             'teamleader': ['teamleader', 'team_leader', 'tl'],
-            'employee': ['employee', 'user', 'staff', 'department head', 'departmenthead'],
+            'employee': ['employee', 'user', 'staff'],
             'client': ['client', 'customer']
         };
 

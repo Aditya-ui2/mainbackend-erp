@@ -644,14 +644,14 @@ const RecruitmentPosition = sequelize.define('RecruitmentPosition', {
             key: 'id'
         }
     },
-    departmentTeamId: {
-        type: DataTypes.UUID,
-        allowNull: true,
-        references: {
-            model: 'department_teams',
-            key: 'id'
-        }
-    },
+        departmentTeamId: {
+            type: DataTypes.UUID,
+            allowNull: true,
+            references: {
+                model: 'department_teams',
+                key: 'id'
+            }
+        },
     postedDate: {
         type: DataTypes.DATE,
         defaultValue: DataTypes.NOW
@@ -686,7 +686,7 @@ const Candidate = sequelize.define('Candidate', {
     },
     positionId: {
         type: DataTypes.UUID,
-        allowNull: false,
+        allowNull: true,
         references: {
             model: 'recruitment_positions',
             key: 'id'
@@ -694,7 +694,7 @@ const Candidate = sequelize.define('Candidate', {
     },
     clientId: {
         type: DataTypes.UUID,
-        allowNull: false,
+        allowNull: true,
         references: {
             model: 'clients',
             key: 'id'
@@ -1137,10 +1137,7 @@ DepartmentTeam.init({
     },
     managerId: {
         type: DataTypes.UUID,
-        references: {
-            model: 'team_leaders',
-            key: 'id'
-        }
+        allowNull: true
     },
     status: {
         type: DataTypes.ENUM('Active', 'Inactive', 'On Leave'),
@@ -1374,6 +1371,22 @@ DepartmentTask.init({
     comments: {
         type: DataTypes.JSONB,
         defaultValue: []
+    },
+    positionId: {
+        type: DataTypes.UUID,
+        allowNull: true,
+        references: {
+            model: 'recruitment_positions',
+            key: 'id'
+        }
+    },
+    candidateId: {
+        type: DataTypes.UUID,
+        allowNull: true,
+        references: {
+            model: 'candidates',
+            key: 'id'
+        }
     }
 }, {
     sequelize,
@@ -1381,6 +1394,14 @@ DepartmentTask.init({
     tableName: 'DepartmentTasks',
     timestamps: true
 });
+
+// RecruitmentPosition -> DepartmentTask (One to Many)
+RecruitmentPosition.hasMany(DepartmentTask, { foreignKey: 'positionId', as: 'tasks' });
+DepartmentTask.belongsTo(RecruitmentPosition, { foreignKey: 'positionId', as: 'position' });
+
+// Candidate -> DepartmentTask (One to Many)
+Candidate.hasMany(DepartmentTask, { foreignKey: 'candidateId', as: 'tasks' });
+DepartmentTask.belongsTo(Candidate, { foreignKey: 'candidateId', as: 'candidate' });
 
 // ============== ACTIVITY LOG MODEL ==============
 class ActivityLog extends Model {}

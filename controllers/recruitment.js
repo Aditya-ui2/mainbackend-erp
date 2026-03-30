@@ -1,49 +1,64 @@
 const { Op, fn, col, literal } = require('sequelize');
-const { TeamLeader, Client, RecruitmentPosition, Candidate, Interview } = require('../models/sequelizeModels');
+const { TeamLeader, Client, RecruitmentPosition, Candidate, Interview, DepartmentTask, ResumeBank, DepartmentTeam } = require('../models/sequelizeModels');
+const fs = require('fs');
+const path = require('path');
 
-// Get all KAMs (TeamLeaders) with their clients and recruitment positions
+// Get all KAMs (DepartmentTeam members) with their recruitment positions and stats
 const getKamsWithRecruitment = async (req, res) => {
     try {
-        const kams = await TeamLeader.findAll({
-            attributes: ['id', 'name', 'email', 'phone'],
+        // Fetch all members of the HR Recruitment department
+        const kams = await DepartmentTeam.findAll({
+            where: { department: 'HR Recruitment' },
+            attributes: ['id', 'name', 'email', 'phone', 'role', 'status'],
         });
 
-        const clients = await Client.findAll({
-            attributes: ['id', 'name', 'companyName', 'email', 'contactNumber', 'teamLeaderId'],
-        });
+        const kamsWithStats = await Promise.all(kams.map(async (kam) => {
+            // Count active positions assigned to this KAM
+            const activePositions = await RecruitmentPosition.count({
+                where: { 
+                    [Op.or]: [
+                        { departmentTeamId: kam.id },
+                        { teamLeaderId: kam.id } // Fallback for data migration
+                    ],
+                    status: 'Open' 
+                }
+            });
 
-        const kamsWithPositions = await Promise.all(kams.map(async (kam) => {
-            const kamClients = clients.filter(c => c.teamLeaderId === kam.id);
-            const clientsWithPositions = await Promise.all(kamClients.map(async (client) => {
-                const positions = await RecruitmentPosition.findAll({
-                    where: { clientId: client.id },
-                    attributes: ['id', 'title', 'location', 'status', 'openings', 'filled', 'priority', 'deadline'],
-                    order: [['createdAt', 'DESC']],
-                });
+            // Count candidates in these positions or uploaded by this KAM
+            // This is indexed by position. For direct uploads, we'd need a field on Candidate.
+            // Let's count candidates in the positions they manage.
+            const managedPositionIds = await RecruitmentPosition.findAll({
+                where: { 
+                    [Op.or]: [{ departmentTeamId: kam.id }, { teamLeaderId: kam.id }] 
+                },
+                attributes: ['id']
+            }).then(pos => pos.map(p => p.id));
 
-                const positionsWithStats = await Promise.all(positions.map(async (position) => {
-                    const sharedCVs = await Candidate.count({
-                        where: { positionId: position.id, status: { [Op.in]: ['Shared', 'Shortlisted', 'Interview', 'Selected'] } }
-                    });
-                    const shortlisted = await Candidate.count({
-                        where: { positionId: position.id, status: { [Op.in]: ['Shortlisted', 'Interview', 'Selected'] } }
-                    });
-                    return { ...position.toJSON(), sharedCVs, shortlisted };
-                }));
+            const totalCandidates = await Candidate.count({
+                where: { positionId: { [Op.in]: managedPositionIds } }
+            });
 
-                return {
-                    id: client.id,
-                    name: client.companyName || client.name,
-                    email: client.email,
-                    phone: client.contactNumber,
-                    industry: 'Business',
-                    logo: (client.companyName || client.name).substring(0, 2).toUpperCase(),
-                    positions: positionsWithStats.map(p => ({
-                        id: p.id, title: p.title, location: p.location, status: p.status,
-                        openings: p.openings, filled: p.filled, priority: p.priority, deadline: p.deadline,
-                        sharedCVs: p.sharedCVs, shortlisted: p.shortlisted
-                    }))
-                };
+            const interviews = await Interview.count({
+                where: { positionId: { [Op.in]: managedPositionIds }, status: 'Scheduled' }
+            });
+
+            const hires = await Candidate.count({
+                where: { positionId: { [Op.in]: managedPositionIds }, stage: 'Joined' }
+            });
+
+            // Fetch recent activity
+            const recentActivityCandidate = await Candidate.findAll({
+                where: { positionId: { [Op.in]: managedPositionIds } },
+                include: [{ model: RecruitmentPosition, as: 'position', attributes: ['title'] }],
+                order: [['updatedAt', 'DESC']],
+                limit: 2
+            });
+
+            const activities = recentActivityCandidate.map(c => ({
+                action: c.status,
+                candidate: c.name,
+                position: c.position?.title,
+                time: c.updatedAt
             }));
 
             return {
@@ -51,12 +66,21 @@ const getKamsWithRecruitment = async (req, res) => {
                 name: kam.name,
                 email: kam.email,
                 phone: kam.phone,
+                role: kam.role,
+                status: kam.status,
                 avatar: kam.name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase(),
-                clients: clientsWithPositions
+                stats: {
+                    activePositions: activePositions,
+                    candidatesPipeline: totalCandidates,
+                    interviewsScheduled: interviews,
+                    thisWeekHires: hires,
+                    offersExtended: 0 // Placeholder
+                },
+                recentActivity: activities.length > 0 ? activities : [{ action: 'No recent activity', candidate: '', time: 'N/A' }]
             };
         }));
 
-        res.status(200).json({ success: true, data: kamsWithPositions });
+        res.status(200).json({ success: true, data: kamsWithStats });
     } catch (error) {
         console.error('Error fetching KAMs with recruitment:', error);
         res.status(500).json({ success: false, message: 'Failed to fetch KAM data', error: error.message });
@@ -110,16 +134,81 @@ const updateRecruitmentPosition = async (req, res) => {
 // Add a candidate
 const addCandidate = async (req, res) => {
     try {
-        const { name, email, phone, positionId, clientId, cvUrl, cvFileName, skills, experience, currentSalary, expectedSalary, notes, location, noticePeriod, stage, pipelineStatus, rating, source } = req.body;
+        const { name, email, phone, positionId, clientId, skills, experience, currentSalary, expectedSalary, notes, location, noticePeriod, stage, pipelineStatus, rating, source } = req.body;
+        
+        let cvUrl = req.body.cvUrl || null;
+        let cvFileName = req.body.cvFileName || null;
+
+        // Handle File Upload from Multer
+        if (req.file) {
+            const uploadDir = path.join(__dirname, '..', 'uploads', 'resumes');
+            if (!fs.existsSync(uploadDir)) {
+                fs.mkdirSync(uploadDir, { recursive: true });
+            }
+
+            const fileName = `${Date.now()}-${req.file.originalname}`;
+            const filePath = path.join(uploadDir, fileName);
+            
+            fs.writeFileSync(filePath, req.file.buffer);
+            
+            cvUrl = `/uploads/resumes/${fileName}`;
+            cvFileName = req.file.originalname;
+
+            // Also add to Resume Bank
+            try {
+                const ext = cvFileName.split('.').pop().toLowerCase();
+                const allowedTypes = ['pdf', 'doc', 'docx'];
+                const fileType = allowedTypes.includes(ext) ? ext : 'pdf'; // Fallback to pdf for ENUM safety
+
+                console.log('Attempting to sync with Resume Bank:', {
+                    candidateName: name,
+                    roleType: req.body.roleType || 'Uncategorized',
+                    fileType: fileType
+                });
+
+                const bankEntry = await ResumeBank.create({
+                    sharePointId: `local-${Date.now()}-${Math.random().toString(36).substring(7)}`,
+                    driveId: 'local',
+                    fileName: cvFileName,
+                    fileType: fileType,
+                    fileSize: req.file.size,
+                    roleType: req.body.roleType || 'Uncategorized',
+                    candidateName: name || 'New Candidate',
+                    email: email,
+                    phone: phone,
+                    experience: experience,
+                    skills: Array.isArray(skills) ? skills : (skills ? skills.split(',').map(s => s.trim()) : []),
+                    currentLocation: location,
+                    noticePeriod: noticePeriod,
+                    currentSalary: currentSalary,
+                    expectedSalary: expectedSalary,
+                    webUrl: cvUrl
+                });
+                console.log('Successfully synced with Resume Bank, ID:', bankEntry.id);
+            } catch (bankErr) {
+                console.error('Failed to sync with Resume Bank Error details:', bankErr);
+                fs.appendFileSync(path.join(__dirname, '..', 'resume_bank_sync_debug.log'), `[${new Date().toISOString()}] Error syncing candidate ${name}: ${bankErr.message}\n${bankErr.stack}\n---\n`);
+                // Non-blocking error, we still want to create the candidate
+            }
+        }
 
         const candidate = await Candidate.create({
-            name, email, phone, positionId, clientId, cvUrl, cvFileName,
-            skills: skills || [], experience, currentSalary, expectedSalary, notes, location, noticePeriod,
+            name, email, phone, 
+            positionId: positionId || null, 
+            clientId: clientId || null, 
+            cvUrl, cvFileName,
+            skills: Array.isArray(skills) ? skills : (skills ? skills.split(',').map(s => s.trim()) : []),
+            experience, currentSalary, expectedSalary, notes, location, noticePeriod,
             stage: stage || 'Screening', pipelineStatus: pipelineStatus || 'pending',
             rating: rating || 0, source, status: 'Submitted'
         });
 
-        res.status(201).json({ success: true, message: 'Candidate added successfully', data: candidate });
+        res.status(201).json({ 
+            success: true, 
+            message: 'Candidate added successfully', 
+            data: candidate,
+            resumeBankSync: !!cvUrl // true if a resume was processed
+        });
     } catch (error) {
         console.error('Error adding candidate:', error);
         res.status(500).json({ success: false, message: 'Failed to add candidate', error: error.message });
@@ -284,7 +373,10 @@ const getAllPositions = async (req, res) => {
 
         const positions = await RecruitmentPosition.findAll({
             where,
-            include: [{ model: Client, as: 'client', attributes: ['name', 'companyName'] }],
+            include: [
+                { model: Client, as: 'client', attributes: ['name', 'companyName'] },
+                { model: DepartmentTask, as: 'tasks' }
+            ],
             order,
         });
 
@@ -516,6 +608,263 @@ const getClientRecruitmentProgress = async (req, res) => {
     }
 };
 
+// ==================== NEW FUNCTIONS FOR FRONTEND COMPATIBILITY ====================
+
+// Get recruitment requests (for team leader view)
+const getRequests = async (req, res) => {
+    try {
+        const positions = await RecruitmentPosition.findAll({
+            include: [{ model: Client, as: 'client', attributes: ['name', 'companyName'] }],
+            order: [['createdAt', 'DESC']],
+        });
+        res.status(200).json({ success: true, data: positions });
+    } catch (error) {
+        console.error('Error fetching requests:', error);
+        res.status(500).json({ success: false, message: 'Failed to fetch requests', error: error.message });
+    }
+};
+
+// Create recruitment request (alternative format)
+const createRequest = async (req, res) => {
+    try {
+        const { title, description, location, type, salary, status, priority, openings, skills, experience, clientId, teamLeaderId, departmentTeamId, deadline } = req.body;
+
+        if (!clientId) {
+            return res.status(400).json({ success: false, message: 'Client ID is required' });
+        }
+
+        const position = await RecruitmentPosition.create({
+            title, description, location, type, salary,
+            status: status || 'Open', priority: priority || 'Medium',
+            openings: openings || 1, skills: skills || [],
+            experience, clientId, teamLeaderId, departmentTeamId, deadline
+        });
+
+        res.status(201).json({ success: true, message: 'Request created successfully', data: position });
+    } catch (error) {
+        console.error('Error creating request:', error);
+        res.status(500).json({ success: false, message: 'Failed to create request', error: error.message });
+    }
+};
+
+// Upload resumes (multer handles the files)
+const uploadResumes = async (req, res) => {
+    try {
+        const files = req.files;
+        const { positionId, clientId } = req.body;
+
+        if (!files || files.length === 0) {
+            return res.status(400).json({ success: false, message: 'No files uploaded' });
+        }
+
+        const candidates = [];
+        for (const file of files) {
+            const candidate = await Candidate.create({
+                name: file.originalname.replace(/\.(pdf|doc|docx)$/i, ''),
+                positionId: positionId || null,
+                clientId: clientId || null,
+                cvFileName: file.originalname,
+                status: 'Submitted',
+                stage: 'Screening',
+                pipelineStatus: 'pending',
+            });
+            candidates.push(candidate);
+
+            // Also add to Resume Bank for multi-upload
+            try {
+                const ext = file.originalname.split('.').pop().toLowerCase();
+                const allowedTypes = ['pdf', 'doc', 'docx'];
+                const fileType = allowedTypes.includes(ext) ? ext : 'pdf';
+
+                await ResumeBank.create({
+                    sharePointId: `local-${Date.now()}-${Math.random().toString(36).substring(7)}`,
+                    driveId: 'local',
+                    fileName: file.originalname,
+                    fileType: fileType,
+                    fileSize: file.size,
+                    roleType: 'Uncategorized', // Default for bulk upload
+                    candidateName: candidate.name,
+                    webUrl: `/uploads/resumes/${file.filename || file.originalname}` // Fallback path
+                });
+                console.log('Successfully synced bulk upload with Resume Bank:', candidate.name);
+            } catch (bankErr) {
+                console.error('Failed to sync bulk upload with Resume Bank Error details:', bankErr);
+            }
+        }
+
+        res.status(201).json({ success: true, message: `${candidates.length} resume(s) uploaded`, data: candidates });
+    } catch (error) {
+        console.error('Error uploading resumes:', error);
+        res.status(500).json({ success: false, message: 'Failed to upload resumes', error: error.message });
+    }
+};
+
+// Accept / shortlist candidate (simple)
+const acceptCandidateSimple = async (req, res) => {
+    try {
+        const { candidateId } = req.body;
+        const candidate = await Candidate.findByPk(candidateId);
+        if (!candidate) return res.status(404).json({ success: false, message: 'Candidate not found' });
+
+        await candidate.update({ status: 'Shortlisted', shortlistedAt: new Date(), stage: 'Shortlisted' });
+        res.status(200).json({ success: true, message: 'Candidate accepted/shortlisted', data: candidate });
+    } catch (error) {
+        console.error('Error accepting candidate:', error);
+        res.status(500).json({ success: false, message: 'Failed to accept candidate', error: error.message });
+    }
+};
+
+// Reject candidate (simple)
+const rejectCandidateSimple = async (req, res) => {
+    try {
+        const { candidateId, reason } = req.body;
+        const candidate = await Candidate.findByPk(candidateId);
+        if (!candidate) return res.status(404).json({ success: false, message: 'Candidate not found' });
+
+        await candidate.update({ status: 'Rejected', stage: 'Rejected', rejectionReason: reason || '' });
+        res.status(200).json({ success: true, message: 'Candidate rejected', data: candidate });
+    } catch (error) {
+        console.error('Error rejecting candidate:', error);
+        res.status(500).json({ success: false, message: 'Failed to reject candidate', error: error.message });
+    }
+};
+
+// Get shortlisted candidates
+const getShortlistedCandidates = async (req, res) => {
+    try {
+        const { positionId, clientId } = req.body;
+        const where = { status: { [Op.in]: ['Shortlisted', 'Interview', 'Selected'] } };
+        if (positionId) where.positionId = positionId;
+        if (clientId) where.clientId = clientId;
+
+        const candidates = await Candidate.findAll({
+            where,
+            include: [{ model: RecruitmentPosition, as: 'position', attributes: ['title'] }],
+            order: [['createdAt', 'DESC']],
+        });
+        res.status(200).json({ success: true, data: candidates });
+    } catch (error) {
+        console.error('Error fetching shortlisted:', error);
+        res.status(500).json({ success: false, message: 'Failed to fetch shortlisted candidates', error: error.message });
+    }
+};
+
+// Get client requests (simple)
+const getClientRequestsSimple = async (req, res) => {
+    try {
+        const { clientId } = req.query;
+        const where = {};
+        if (clientId) where.clientId = clientId;
+
+        const positions = await RecruitmentPosition.findAll({
+            where,
+            include: [{ model: Client, as: 'client', attributes: ['name', 'companyName'] }],
+            order: [['createdAt', 'DESC']],
+        });
+        res.status(200).json({ success: true, data: positions });
+    } catch (error) {
+        console.error('Error fetching client requests:', error);
+        res.status(500).json({ success: false, message: 'Failed to fetch client requests', error: error.message });
+    }
+};
+
+// Get single request details
+const getRequestDetails = async (req, res) => {
+    try {
+        const { requestId } = req.params;
+        const position = await RecruitmentPosition.findByPk(requestId, {
+            include: [
+                { model: Client, as: 'client', attributes: ['name', 'companyName'] },
+            ],
+        });
+        if (!position) return res.status(404).json({ success: false, message: 'Request not found' });
+
+        const candidates = await Candidate.findAll({ where: { positionId: requestId }, order: [['createdAt', 'DESC']] });
+        res.status(200).json({ success: true, data: { ...position.toJSON(), candidates } });
+    } catch (error) {
+        console.error('Error fetching request details:', error);
+        res.status(500).json({ success: false, message: 'Failed to fetch request details', error: error.message });
+    }
+};
+
+// Get recruitment status (simple)
+const getRecruitmentStatusSimple = async (req, res) => {
+    try {
+        const { positionId } = req.body;
+        const where = {};
+        if (positionId) where.positionId = positionId;
+
+        const candidates = await Candidate.findAll({
+            where,
+            attributes: ['status', [fn('COUNT', col('id')), 'count']],
+            group: ['status'],
+            raw: true,
+        });
+
+        const statusMap = {};
+        candidates.forEach(c => { statusMap[c.status] = parseInt(c.count); });
+        res.status(200).json({ success: true, data: statusMap });
+    } catch (error) {
+        console.error('Error fetching status:', error);
+        res.status(500).json({ success: false, message: 'Failed to fetch status', error: error.message });
+    }
+};
+
+// Schedule interview for a recruit
+const scheduleInterviewForRecruit = async (req, res) => {
+    try {
+        const { candidateId, positionId, interviewDate, startTime, interviewType, interviewerName, meetLink, notes } = req.body;
+
+        const interview = await Interview.create({
+            candidateId, positionId, interviewDate, startTime,
+            interviewType: interviewType || 'Video', interviewerName,
+            meetLink, notes, status: 'Scheduled',
+        });
+
+        if (candidateId) {
+            await Candidate.update({ status: 'Interview', stage: 'Client Interview' }, { where: { id: candidateId } });
+        }
+
+        res.status(201).json({ success: true, message: 'Interview scheduled', data: interview });
+    } catch (error) {
+        console.error('Error scheduling interview:', error);
+        res.status(500).json({ success: false, message: 'Failed to schedule interview', error: error.message });
+    }
+};
+
+// Close recruitment request
+const closeRequest = async (req, res) => {
+    try {
+        const { requestId, reason } = req.body;
+        const position = await RecruitmentPosition.findByPk(requestId);
+        if (!position) return res.status(404).json({ success: false, message: 'Request not found' });
+
+        await position.update({ status: 'Closed' });
+        res.status(200).json({ success: true, message: 'Request closed', data: position });
+    } catch (error) {
+        console.error('Error closing request:', error);
+        res.status(500).json({ success: false, message: 'Failed to close request', error: error.message });
+    }
+};
+
+// Generate Meet link for interview
+const generateMeetLinkForInterview = async (req, res) => {
+    try {
+        const { interviewId, candidateId } = req.body;
+        // Generate a basic meet link (Google Meet links require OAuth; placeholder for now)
+        const meetLink = `https://meet.google.com/${Math.random().toString(36).substring(2, 11)}`;
+
+        if (interviewId) {
+            await Interview.update({ meetLink }, { where: { id: interviewId } });
+        }
+
+        res.status(200).json({ success: true, meetLink });
+    } catch (error) {
+        console.error('Error generating meet link:', error);
+        res.status(500).json({ success: false, message: 'Failed to generate meet link', error: error.message });
+    }
+};
+
 module.exports = {
     getKamsWithRecruitment,
     createRecruitmentPosition,
@@ -527,5 +876,18 @@ module.exports = {
     updateCandidateStatus,
     getCandidatesByPosition,
     getRecruitmentStats,
-    getClientRecruitmentProgress
+    getClientRecruitmentProgress,
+    // New functions
+    getRequests,
+    uploadResumes,
+    acceptCandidateSimple,
+    rejectCandidateSimple,
+    getShortlistedCandidates,
+    getClientRequestsSimple,
+    getRequestDetails,
+    getRecruitmentStatusSimple,
+    scheduleInterviewForRecruit,
+    closeRequest,
+    generateMeetLinkForInterview,
+    createRequest,
 };

@@ -2,6 +2,7 @@ const { Op } = require('sequelize');
 const crypto = require('crypto');
 
 const {
+    sequelize,
     Interview,
     Candidate,
     RecruitmentPosition,
@@ -11,6 +12,83 @@ const {
 } = require('../models/sequelizeModels');
 
 const sendEmail = require('../utils/emailService');
+
+// ============ HELPER: resolveInterviewIds ============
+const resolveInterviewIds = async (data) => {
+    let { candidateId, positionId, clientId, candidateEmail, candidateName, positionTitle, clientName } = data;
+
+    // 1. Resolve or Create Client
+    if (!clientId && clientName) {
+        const foundClient = await Client.findOne({
+            where: {
+                [Op.or]: [
+                    { companyName: { [Op.iLike]: clientName.trim() } },
+                    { name: { [Op.iLike]: clientName.trim() } }
+                ]
+            }
+        });
+        if (foundClient) {
+            clientId = foundClient.id;
+        } else {
+            const newClient = await Client.create({
+                name: clientName.trim(),
+                companyName: clientName.trim(),
+                email: `client_${Date.now()}@placeholder.com`,
+                password: crypto.randomBytes(8).toString('hex')
+            });
+            clientId = newClient.id;
+        }
+    }
+
+    // 2. Resolve or Create Position
+    if (!positionId && positionTitle) {
+        const foundPosition = await RecruitmentPosition.findOne({
+            where: {
+                title: { [Op.iLike]: positionTitle.trim() },
+                clientId: clientId || null
+            }
+        });
+        if (foundPosition) {
+            positionId = foundPosition.id;
+            if (!clientId) clientId = foundPosition.clientId;
+        } else if (clientId) {
+            const newPosition = await RecruitmentPosition.create({
+                title: positionTitle.trim(),
+                clientId: clientId,
+                location: 'Remote',
+                status: 'Open'
+            });
+            positionId = newPosition.id;
+        }
+    }
+
+    // 3. Resolve or Create Candidate
+    if (!candidateId && (candidateEmail || candidateName)) {
+        const orConditions = [];
+        if (candidateEmail) orConditions.push({ email: { [Op.iLike]: candidateEmail.trim() } });
+        if (candidateName) orConditions.push({ name: { [Op.iLike]: candidateName.trim() } });
+
+        const foundCandidate = await Candidate.findOne({ where: { [Op.or]: orConditions } });
+
+        if (foundCandidate) {
+            candidateId = foundCandidate.id;
+            if (!positionId) positionId = foundCandidate.positionId;
+            if (!clientId) clientId = foundCandidate.clientId;
+        } else if (positionId && clientId) {
+            const newCandidate = await Candidate.create({
+                name: candidateName || 'New Candidate',
+                email: candidateEmail || `cand_${Date.now()}@placeholder.com`,
+                positionId: positionId,
+                clientId: clientId,
+                status: 'Interview',
+                stage: 'Technical Round'
+            });
+            candidateId = newCandidate.id;
+        }
+    }
+
+    return { candidateId, positionId, clientId };
+};
 
 const generateMeetingLink = (token) => {
     const baseUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
@@ -61,9 +139,6 @@ const sendInterviewInvitation = async (interview, candidate, position) => {
 const scheduleInterview = async (req, res) => {
     try {
         const {
-            candidateId,
-            positionId,
-            clientId,
             interviewType,
             interviewDate,
             startTime,
@@ -77,8 +152,24 @@ const scheduleInterview = async (req, res) => {
             notes
         } = req.body;
 
+        // --- FULLY RESILIENT ID RESOLUTION / AUTO-CREATION ---
+        const resolvedIds = await resolveInterviewIds(req.body);
+        const { candidateId, positionId, clientId } = resolvedIds;
+
         if (!candidateId || !positionId || !clientId || !interviewType || !interviewDate || !startTime) {
-            return res.status(400).json({ success: false, message: 'Missing required fields' });
+            return res.status(400).json({ 
+                success: false, 
+                message: 'Missing required fields. Even auto-creation failed.',
+                missingFields: {
+                    candidate: !candidateId,
+                    position: !positionId,
+                    client: !clientId,
+                    type: !interviewType,
+                    date: !interviewDate,
+                    time: !startTime
+                },
+                debug: { candidateId, positionId, clientId, candidateEmail, candidateName, positionTitle, clientName }
+            });
         }
 
         const candidate = await Candidate.findByPk(candidateId);
@@ -325,6 +416,62 @@ const updateInterviewStatus = async (req, res) => {
     }
 };
 
+const updateInterview = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const {
+            interviewType,
+            interviewDate,
+            startTime,
+            duration,
+            meetingType,
+            interviewerName,
+            interviewerEmail,
+            interviewerRole,
+            notes
+        } = req.body;
+
+        const interview = await Interview.findByPk(id);
+        if (!interview) return res.status(404).json({ success: false, message: 'Interview not found' });
+
+        const resolvedIds = await resolveInterviewIds(req.body);
+        const { candidateId, positionId, clientId } = resolvedIds;
+
+        // Update fields if provided
+        if (candidateId) interview.candidateId = candidateId;
+        if (positionId) interview.positionId = positionId;
+        if (clientId) interview.clientId = clientId;
+        if (interviewType) interview.interviewType = interviewType;
+        if (interviewDate) interview.interviewDate = new Date(interviewDate);
+        if (startTime) interview.startTime = startTime;
+        if (duration) interview.duration = duration;
+        if (meetingType) interview.meetingType = meetingType;
+        if (interviewerName) interview.interviewerName = interviewerName;
+        if (interviewerEmail) interview.interviewerEmail = interviewerEmail;
+        if (interviewerRole) interview.interviewerRole = interviewerRole;
+        if (notes !== undefined) interview.notes = notes;
+
+        await interview.save();
+
+        const populated = await Interview.findByPk(interview.id, {
+            include: [
+                { model: Candidate, as: 'candidate' },
+                { model: RecruitmentPosition, as: 'position' },
+                { model: Client, as: 'client' }
+            ]
+        });
+
+        return res.status(200).json({
+            success: true,
+            message: 'Interview updated successfully',
+            data: populated
+        });
+    } catch (error) {
+        console.error('Error updating interview:', error);
+        return res.status(500).json({ success: false, message: 'Failed to update interview', error: error.message });
+    }
+};
+
 const submitInterviewFeedback = async (req, res) => {
     try {
         const { id } = req.params;
@@ -450,6 +597,21 @@ const cancelInterview = async (req, res) => {
     }
 };
 
+const deleteInterview = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const interview = await Interview.findByPk(id);
+        if (!interview) return res.status(404).json({ success: false, message: 'Interview not found' });
+
+        await interview.destroy();
+
+        return res.status(200).json({ success: true, message: 'Interview deleted permanently' });
+    } catch (error) {
+        console.error('Error deleting interview:', error);
+        return res.status(500).json({ success: false, message: 'Failed to delete interview', error: error.message });
+    }
+};
+
 const sendInterviewReminder = async (req, res) => {
     try {
         const { id } = req.params;
@@ -534,9 +696,11 @@ module.exports = {
     getInterviewById,
     getInterviewByToken,
     updateInterviewStatus,
+    updateInterview,
     submitInterviewFeedback,
     getInterviewFeedbackForm,
     cancelInterview,
+    deleteInterview,
     sendInterviewReminder
 };
 

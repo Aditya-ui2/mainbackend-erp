@@ -1,4 +1,5 @@
 const express = require('express');
+const path = require('path');
 const app = express();
 const cors = require("cors");
 const dotenv = require('dotenv');
@@ -17,6 +18,8 @@ const server = http.createServer(app); // Add this
 // Initialize Socket.IO
 const ALLOWED_ORIGINS = [
     'http://localhost:5173',
+    'http://localhost:5174',
+    'http://localhost:5175',
     'http://localhost:3000',
     'http://15.206.67.102',
     'http://15.206.67.102:3000',
@@ -54,6 +57,9 @@ app.use(cors({
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
     allowedHeaders: ['Content-Type', 'Authorization']
 }));
+
+// Static files
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // Rate limiting for auth endpoints (brute-force protection)
 const authLimiter = rateLimit({

@@ -10,6 +10,14 @@ const { Op } = require('sequelize');
  */
 const syncResumes = async (req, res) => {
     try {
+        // Check if AWS credentials are configured
+        if (!s3Service.hasCredentials()) {
+            return res.status(400).json({ 
+                success: false, 
+                message: 'AWS credentials not configured in .env file. Please add AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY.' 
+            });
+        }
+
         const { roleType, fullSync = false } = req.body;
         
         let result;
@@ -168,9 +176,22 @@ const getRoleTypes = async (req, res) => {
             order: [[sequelize.literal('count'), 'DESC']]
         });
         
+        let roles = roleCounts.map(r => ({ name: r.roleType, count: parseInt(r.get('count')) }));
+
+        // If no roles in DB, provide default common roles for the dropdown
+        if (roles.length === 0) {
+            const defaultRoles = [
+                'Software Engineer', 'Frontend Developer', 'Backend Developer', 
+                'Full Stack Developer', 'HR Manager', 'Sales Executive', 
+                'Marketing Manager', 'Data Analyst', 'Project Manager',
+                'Business Development', 'Customer Support', 'Operations'
+            ];
+            roles = defaultRoles.map(name => ({ name, count: 0 }));
+        }
+        
         res.json({
             success: true,
-            roles: roleCounts.map(r => ({ name: r.roleType, count: parseInt(r.get('count')) }))
+            roles: roles
         });
     } catch (error) {
         res.status(500).json({ success: false, message: error.message });
