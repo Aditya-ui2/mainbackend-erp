@@ -1,6 +1,23 @@
 const express = require('express');
 const router = express.Router();
 const verifyAuthToken = require('../middleware/authMiddleware');
+const multer = require('multer');
+
+// Configure multer for file uploads
+const storage = multer.memoryStorage();
+const upload = multer({
+    storage,
+    limits: { fileSize: 10 * 1024 * 1024 }, // 10MB limit
+    fileFilter: (req, file, cb) => {
+        const allowedTypes = ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'];
+        if (allowedTypes.includes(file.mimetype)) {
+            cb(null, true);
+        } else {
+            cb(new Error('Only PDF and DOC files are allowed'), false);
+        }
+    }
+});
+
 const {
     getKamsWithRecruitment,
     createRecruitmentPosition,
@@ -12,7 +29,20 @@ const {
     updateCandidateStatus,
     getCandidatesByPosition,
     getRecruitmentStats,
-    getClientRecruitmentProgress
+    getClientRecruitmentProgress,
+    // New functions for frontend compatibility
+    getRequests,
+    uploadResumes,
+    acceptCandidateSimple,
+    rejectCandidateSimple,
+    getShortlistedCandidates,
+    getClientRequestsSimple,
+    getRequestDetails,
+    getRecruitmentStatusSimple,
+    scheduleInterviewForRecruit,
+    closeRequest,
+    generateMeetLinkForInterview,
+    createRequest
 } = require('../controllers/recruitment');
 
 /**
@@ -246,5 +276,46 @@ router.get('/candidates', verifyAuthToken, getAllCandidates);
 
 // Client-facing: Get recruitment progress for a specific client
 router.get('/client-progress/:clientId', verifyAuthToken, getClientRecruitmentProgress);
+
+// ==================== NEW ROUTES FOR FRONTEND COMPATIBILITY ====================
+
+// Get recruitment requests for a team leader
+router.get('/getRequests', verifyAuthToken, getRequests);
+
+// Get requests for client (simple version)
+router.get('/getRequests-client', verifyAuthToken, getClientRequestsSimple);
+
+// Get single request details
+router.get('/request/:requestId', verifyAuthToken, getRequestDetails);
+
+// Create recruitment request (alternative format)
+router.post('/request', verifyAuthToken, createRequest);
+
+// Create client request (alias)
+router.post('/create-request', verifyAuthToken, createRequest);
+
+// Upload resumes
+router.post('/upload-resumes', verifyAuthToken, upload.array('resume', 20), uploadResumes);
+
+// Accept candidate (shortlist)
+router.post('/accept', verifyAuthToken, acceptCandidateSimple);
+
+// Reject candidate
+router.post('/reject', verifyAuthToken, rejectCandidateSimple);
+
+// Get shortlisted candidates
+router.post('/shortlisted', verifyAuthToken, getShortlistedCandidates);
+
+// Get recruitment status
+router.post('/status', verifyAuthToken, getRecruitmentStatusSimple);
+
+// Schedule interview
+router.post('/schedule-interview', verifyAuthToken, scheduleInterviewForRecruit);
+
+// Close recruitment request
+router.post('/close-request', verifyAuthToken, closeRequest);
+
+// Generate meet link
+router.post('/meet-link', verifyAuthToken, generateMeetLinkForInterview);
 
 module.exports = router;
