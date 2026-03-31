@@ -648,10 +648,26 @@ const RecruitmentPosition = sequelize.define('RecruitmentPosition', {
             type: DataTypes.UUID,
             allowNull: true,
             references: {
-                model: 'department_teams',
+                model: 'DepartmentTeams',
                 key: 'id'
             }
         },
+    postedByUserId: {
+        type: DataTypes.UUID,
+        allowNull: true
+    },
+    postedByUserType: {
+        type: DataTypes.STRING,
+        allowNull: true
+    },
+    postedByName: {
+        type: DataTypes.STRING,
+        allowNull: true
+    },
+    postedByEmail: {
+        type: DataTypes.STRING,
+        allowNull: true
+    },
     postedDate: {
         type: DataTypes.DATE,
         defaultValue: DataTypes.NOW
@@ -772,11 +788,36 @@ const Candidate = sequelize.define('Candidate', {
         type: DataTypes.STRING,
         allowNull: true
     },
+    offeredCTC: {
+        type: DataTypes.STRING,
+        allowNull: true
+    },
+    offerDate: {
+        type: DataTypes.DATEONLY,
+        allowNull: true
+    },
+    offerExpiryDate: {
+        type: DataTypes.DATEONLY,
+        allowNull: true
+    },
+    joiningDate: {
+        type: DataTypes.DATEONLY,
+        allowNull: true
+    },
+    negotiationNotes: {
+        type: DataTypes.TEXT,
+        allowNull: true
+    },
+    offerStatus: {
+        type: DataTypes.STRING,
+        allowNull: true,
+        defaultValue: 'Draft'
+    },
     addedById: {
         type: DataTypes.UUID,
         allowNull: true,
         references: {
-            model: 'department_teams',
+            model: 'DepartmentTeams',
             key: 'id'
         },
         comment: 'The user who added/sourced this candidate'
@@ -870,7 +911,7 @@ const Interview = sequelize.define('Interview', {
         type: DataTypes.UUID,
         allowNull: true,
         references: {
-            model: 'department_teams',
+            model: 'DepartmentTeams',
             key: 'id'
         }
     },
@@ -1198,9 +1239,13 @@ DepartmentTeam.init({
     timestamps: true
 });
 
-// DepartmentTeam -> TeamLeader (Manager relationship)
-TeamLeader.hasMany(DepartmentTeam, { foreignKey: 'managerId', as: 'teamMembers' });
-DepartmentTeam.belongsTo(TeamLeader, { foreignKey: 'managerId', as: 'manager' });
+// DepartmentTeam self-referential relationship (Head managing KAMs)
+DepartmentTeam.hasMany(DepartmentTeam, { foreignKey: 'managerId', as: 'managedMembers' });
+DepartmentTeam.belongsTo(DepartmentTeam, { foreignKey: 'managerId', as: 'manager' });
+
+// DepartmentTeam -> RecruitmentPosition (One to Many, posted by)
+DepartmentTeam.hasMany(RecruitmentPosition, { foreignKey: 'departmentTeamId', as: 'postedPositions' });
+RecruitmentPosition.belongsTo(DepartmentTeam, { foreignKey: 'departmentTeamId', as: 'postedBy' });
 
 // ============== RESUME BANK MODEL ==============
 class ResumeBank extends Model {}

@@ -318,11 +318,48 @@ const { sequelize } = require('./models/sequelizeModels');
         await sequelize.query('ALTER TABLE candidates ADD COLUMN IF NOT EXISTS \"addedById\" UUID');
         await sequelize.query('ALTER TABLE candidates ADD COLUMN IF NOT EXISTS \"skillMatch\" INTEGER DEFAULT 0');
         await sequelize.query('ALTER TABLE candidates ADD COLUMN IF NOT EXISTS \"experienceMatch\" INTEGER DEFAULT 0');
+        await sequelize.query('ALTER TABLE candidates ADD COLUMN IF NOT EXISTS \"offeredCTC\" VARCHAR(255)');
+        await sequelize.query('ALTER TABLE candidates ADD COLUMN IF NOT EXISTS \"offerDate\" DATE');
+        await sequelize.query('ALTER TABLE candidates ADD COLUMN IF NOT EXISTS \"offerExpiryDate\" DATE');
+        await sequelize.query('ALTER TABLE candidates ADD COLUMN IF NOT EXISTS \"joiningDate\" DATE');
+        await sequelize.query('ALTER TABLE candidates ADD COLUMN IF NOT EXISTS \"negotiationNotes\" TEXT');
+        await sequelize.query('ALTER TABLE candidates ADD COLUMN IF NOT EXISTS \"offerStatus\" VARCHAR(255) DEFAULT \'Draft\'');
         await sequelize.query('ALTER TABLE interviews ADD COLUMN IF NOT EXISTS \"interviewerId\" UUID');
         await sequelize.query('ALTER TABLE interviews ADD COLUMN IF NOT EXISTS \"interviewerType\" VARCHAR(255)');
         await sequelize.query('ALTER TABLE interviews ADD COLUMN IF NOT EXISTS \"interviewerName\" VARCHAR(255)');
         await sequelize.query('ALTER TABLE interviews ADD COLUMN IF NOT EXISTS \"interviewerRole\" VARCHAR(255)');
         await sequelize.query('ALTER TABLE interviews ADD COLUMN IF NOT EXISTS \"interviewerEmail\" VARCHAR(255)');
+        await sequelize.query('ALTER TABLE recruitment_positions ADD COLUMN IF NOT EXISTS \"postedByUserId\" UUID');
+        await sequelize.query('ALTER TABLE recruitment_positions ADD COLUMN IF NOT EXISTS \"postedByUserType\" VARCHAR(255)');
+        await sequelize.query('ALTER TABLE recruitment_positions ADD COLUMN IF NOT EXISTS \"postedByName\" VARCHAR(255)');
+        await sequelize.query('ALTER TABLE recruitment_positions ADD COLUMN IF NOT EXISTS \"postedByEmail\" VARCHAR(255)');
+        await sequelize.query('ALTER TABLE recruitment_positions DROP CONSTRAINT IF EXISTS \"recruitment_positions_departmentTeamId_fkey\"');
+        await sequelize.query('ALTER TABLE recruitment_positions DROP CONSTRAINT IF EXISTS \"recruitment_positions_departmentTeamId_fkey1\"');
+        await sequelize.query('ALTER TABLE recruitment_positions ADD CONSTRAINT \"recruitment_positions_departmentTeamId_fkey\" FOREIGN KEY (\"departmentTeamId\") REFERENCES \"DepartmentTeams\"(\"id\") ON UPDATE CASCADE ON DELETE SET NULL');
+        await sequelize.query('ALTER TABLE candidates DROP CONSTRAINT IF EXISTS \"candidates_addedById_fkey\"');
+        await sequelize.query('ALTER TABLE candidates ADD CONSTRAINT \"candidates_addedById_fkey\" FOREIGN KEY (\"addedById\") REFERENCES \"DepartmentTeams\"(\"id\") ON UPDATE CASCADE ON DELETE SET NULL');
+        await sequelize.query('ALTER TABLE interviews DROP CONSTRAINT IF EXISTS \"interviews_interviewerId_fkey\"');
+        await sequelize.query('ALTER TABLE interviews ADD CONSTRAINT \"interviews_interviewerId_fkey\" FOREIGN KEY (\"interviewerId\") REFERENCES \"DepartmentTeams\"(\"id\") ON UPDATE CASCADE ON DELETE SET NULL');
+        await sequelize.query(`
+            UPDATE recruitment_positions rp
+            SET "postedByName" = dt."name",
+                "postedByEmail" = dt."email",
+                "postedByUserId" = dt."id",
+                "postedByUserType" = 'departmentTeam'
+            FROM "DepartmentTeams" dt
+            WHERE rp."departmentTeamId" = dt."id"
+              AND (rp."postedByName" IS NULL OR rp."postedByName" = '')
+        `);
+        await sequelize.query(`
+            UPDATE recruitment_positions rp
+            SET "postedByName" = tl."name",
+                "postedByEmail" = tl."email",
+                "postedByUserId" = tl."id",
+                "postedByUserType" = 'teamLeader'
+            FROM team_leaders tl
+            WHERE rp."teamLeaderId" = tl."id"
+              AND (rp."postedByName" IS NULL OR rp."postedByName" = '')
+        `);
         console.log('--- Database Schema Patch Applied Successfully ---');
     } catch (err) {
         console.error('--- Database Schema Patch Failed ---', err.message);

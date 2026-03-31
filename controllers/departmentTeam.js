@@ -34,7 +34,7 @@ const getTeamMembers = async (req, res) => {
         const members = await DepartmentTeam.findAll({
             where,
             include: [{
-                model: TeamLeader,
+                model: DepartmentTeam,
                 as: 'manager',
                 attributes: ['id', 'name', 'email']
             }],
@@ -100,7 +100,7 @@ const getTeamMember = async (req, res) => {
     try {
         const member = await DepartmentTeam.findByPk(req.params.id, {
             include: [{
-                model: TeamLeader,
+                model: DepartmentTeam,
                 as: 'manager',
                 attributes: ['id', 'name', 'email']
             }]

@@ -100,6 +100,15 @@ const buildInterviewer = (interview) => ({
     role: interview.interviewerRole || 'Hiring Team'
 });
 
+const normalizeInterviewerType = (value) => {
+    if (!value) return 'DepartmentTeam';
+    const normalized = String(value).trim().toLowerCase();
+    if (normalized === 'departmentteam' || normalized === 'department_team') return 'DepartmentTeam';
+    if (normalized === 'teamleader' || normalized === 'team_leader') return 'TeamLeader';
+    if (normalized === 'client') return 'Client';
+    return 'DepartmentTeam';
+};
+
 const sendInterviewInvitation = async (interview, candidate, position) => {
     const meetingLink = generateMeetingLink(interview.meetingToken);
     const formattedDate = new Date(interview.interviewDate).toLocaleDateString('en-IN', {
@@ -144,6 +153,10 @@ const scheduleInterview = async (req, res) => {
             startTime,
             duration,
             meetingType,
+            candidateEmail,
+            candidateName,
+            positionTitle,
+            clientName,
             interviewerId,
             interviewerType,
             interviewerName,
@@ -190,11 +203,11 @@ const scheduleInterview = async (req, res) => {
             meetingLink: null,
             meetingToken: crypto.randomBytes(32).toString('hex'),
             meetingPassword: null,
-            interviewerId: interviewerId || null,
-            interviewerType: interviewerType || null,
+            interviewerId: interviewerId || req.user?.id || null,
+            interviewerType: normalizeInterviewerType(interviewerType || req.user?.userType),
             interviewerName: interviewerName || req.user?.name || 'Hiring Team',
-            interviewerEmail: interviewerEmail || null,
-            interviewerRole: interviewerRole || null,
+            interviewerEmail: interviewerEmail || req.user?.email || null,
+            interviewerRole: interviewerRole || req.user?.role || null,
             status: 'Scheduled',
             notes: notes || null
         });
@@ -246,7 +259,8 @@ const getInterviews = async (req, res) => {
         const { status, date, interviewType, candidateId, positionId } = req.query;
 
         const where = {};
-        if (status) where.status = status;
+        // Normalize status to Title Case to match DB enum (e.g. 'scheduled' → 'Scheduled')
+        if (status) where.status = status.charAt(0).toUpperCase() + status.slice(1).toLowerCase();
         if (interviewType) where.interviewType = interviewType;
         if (candidateId) where.candidateId = candidateId;
         if (positionId) where.positionId = positionId;
@@ -703,4 +717,3 @@ module.exports = {
     deleteInterview,
     sendInterviewReminder
 };
-

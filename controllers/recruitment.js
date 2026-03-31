@@ -3,12 +3,105 @@ const { TeamLeader, Client, RecruitmentPosition, Candidate, Interview, Departmen
 const fs = require('fs');
 const path = require('path');
 
+const escapeLike = (value = '') => String(value).replace(/[\\%_]/g, '\\$&');
+
+const buildUploadedCandidateEmail = (fileName = '') => {
+    const baseName = String(fileName)
+        .replace(/\.[^.]+$/, '')
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '.')
+        .replace(/^\.+|\.+$/g, '')
+        .slice(0, 40) || 'candidate';
+
+    return `${baseName}.${Date.now()}@resume-upload.local`;
+};
+
+const normalizePositionType = (value = '') => {
+    if (value === 'Remote') return 'Full-time';
+    return ['Full-time', 'Part-time', 'Contract', 'Internship'].includes(value) ? value : 'Full-time';
+};
+
+const normalizePositionStatus = (value = '', priority = '') => {
+    if (['Open', 'Closed', 'Hold'].includes(value)) return value;
+    if (priority === 'Urgent') return 'Open';
+    return 'Open';
+};
+
+const resolvePositionOwnership = async ({ departmentTeamId, teamLeaderId, userId }) => {
+    let resolvedDepartmentTeamId = null;
+    let resolvedTeamLeaderId = null;
+
+    const candidateDepartmentTeamId = departmentTeamId || userId;
+    if (candidateDepartmentTeamId) {
+        const departmentMember = await DepartmentTeam.findByPk(candidateDepartmentTeamId, {
+            attributes: ['id'],
+            raw: true
+        });
+        if (departmentMember?.id) {
+            resolvedDepartmentTeamId = departmentMember.id;
+        }
+    }
+
+    if (teamLeaderId) {
+        const teamLeader = await TeamLeader.findByPk(teamLeaderId, {
+            attributes: ['id'],
+            raw: true
+        });
+        if (teamLeader?.id) {
+            resolvedTeamLeaderId = teamLeader.id;
+        }
+    }
+
+    if (!resolvedDepartmentTeamId && userId) {
+        const currentTeamLeader = await TeamLeader.findByPk(userId, {
+            attributes: ['id'],
+            raw: true
+        });
+        if (currentTeamLeader?.id) {
+            resolvedTeamLeaderId = currentTeamLeader.id;
+        }
+    }
+
+    return {
+        departmentTeamId: resolvedDepartmentTeamId,
+        teamLeaderId: resolvedTeamLeaderId
+    };
+};
+
+const buildInterviewMatchers = (kam) => {
+    const rawName = kam.name || '';
+    const emailPrefix = (kam.email || '').split('@')[0];
+    const nameParts = rawName
+        .replace(/\(.*?\)/g, ' ')
+        .split(/\s+/)
+        .map(part => part.trim())
+        .filter(Boolean);
+
+    const lookupTerms = [...new Set([emailPrefix, ...nameParts].filter(term => term && term.length >= 3))];
+
+    return [
+        { interviewerId: kam.id },
+        ...(kam.email ? [{ interviewerEmail: kam.email }] : []),
+        ...lookupTerms.map(term => ({
+            interviewerName: { [Op.iLike]: `%${escapeLike(term)}%` }
+        }))
+    ];
+};
+
+const normalizeOfferStatus = (value = '') => {
+    const allowed = ['Draft', 'Pending Approval', 'Sent', 'Negotiating', 'Accepted', 'Rejected', 'Expired'];
+    return allowed.includes(value) ? value : 'Draft';
+};
+
 // Get all KAMs (DepartmentTeam members) with their recruitment positions and stats
 const getKamsWithRecruitment = async (req, res) => {
     try {
         // Fetch all members of the HR Recruitment department
         const kams = await DepartmentTeam.findAll({
-            where: { department: 'HR Recruitment' },
+            where: {
+                department: 'HR Recruitment',
+                role: { [Op.ne]: 'Department Head' }
+            },
             attributes: ['id', 'name', 'email', 'phone', 'role', 'status'],
         });
 
@@ -19,41 +112,52 @@ const getKamsWithRecruitment = async (req, res) => {
         const kamsWithStats = await Promise.all(kams.map(async (kam) => {
             try {
                 const k = kam.toJSON();
+                const interviewOr = buildInterviewMatchers(k);
                 
-                // Parallelize counts for better accuracy & performance
-                const [activePositions, totalCandidates, interviews, hires, recentActivityCandidate] = await Promise.all([
-                    // Count active positions where they are the owner OR source
-                    RecruitmentPosition.count({
-                        where: { 
-                            [Op.or]: [
-                                { departmentTeamId: kam.id },
-                                { teamLeaderId: kam.id }
-                            ],
-                            status: 'Open' 
-                        }
-                    }),
-                    // Count candidates THEY sourced (the direct contribution)
+                const ownedPositions = await RecruitmentPosition.findAll({
+                    where: {
+                        [Op.or]: [
+                            { departmentTeamId: kam.id },
+                            { teamLeaderId: kam.id }
+                        ]
+                    },
+                    attributes: ['id', 'title', 'status'],
+                    raw: true
+                });
+
+                const ownedPositionIds = ownedPositions.map(position => position.id);
+                const ownedPositionCount = ownedPositions.filter(position => position.status === 'Open').length;
+
+                const [totalCandidates, interviews, hires, recentActivityCandidate] = await Promise.all([
                     Candidate.count({
-                        where: { addedById: kam.id }
+                        where: ownedPositionIds.length > 0
+                            ? { positionId: { [Op.in]: ownedPositionIds } }
+                            : { id: null }
                     }),
-                    // Count interviews where THEY are the interviewer
                     Interview.count({
-                        where: { interviewerId: kam.id, status: 'Scheduled' }
-                    }),
-                    // Count candidates THEY successfully placed this week
-                    Candidate.count({
-                        where: { 
-                            addedById: kam.id, 
-                            [Op.or]: [
-                                { status: 'Selected' },
-                                { stage: 'Joined' }
-                            ],
-                            updatedAt: { [Op.gte]: weekAgo }
+                        where: {
+                            [Op.and]: [
+                                { [Op.or]: interviewOr },
+                                { status: { [Op.ne]: 'Cancelled' } }
+                            ]
                         }
                     }),
-                    // Fetch recent activity safely
+                    Candidate.count({
+                        where: ownedPositionIds.length > 0
+                            ? {
+                                positionId: { [Op.in]: ownedPositionIds },
+                                [Op.or]: [
+                                    { status: 'Selected' },
+                                    { stage: 'Joined' }
+                                ],
+                                updatedAt: { [Op.gte]: weekAgo }
+                            }
+                            : { id: null }
+                    }),
                     Candidate.findAll({
-                        where: { addedById: kam.id },
+                        where: ownedPositionIds.length > 0
+                            ? { positionId: { [Op.in]: ownedPositionIds } }
+                            : { id: null },
                         include: [{ 
                             model: RecruitmentPosition, 
                             as: 'position', 
@@ -83,7 +187,7 @@ const getKamsWithRecruitment = async (req, res) => {
                     ...k,
                     avatar: kam.name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase(),
                     stats: {
-                        activePositions,
+                        activePositions: ownedPositionCount,
                         candidatesPipeline: totalCandidates,
                         interviewsScheduled: interviews,
                         thisWeekHires: hires,
@@ -119,12 +223,42 @@ const createRecruitmentPosition = async (req, res) => {
             return res.status(400).json({ success: false, message: 'Client ID is required' });
         }
 
-        const position = await RecruitmentPosition.create({
-            title, description, location, type, salary, status, priority, openings,
-            skills: skills || [], experience, clientId, teamLeaderId, departmentTeamId, deadline
+        const ownership = await resolvePositionOwnership({
+            departmentTeamId,
+            teamLeaderId,
+            userId: req.user?.id
         });
 
-        res.status(201).json({ success: true, message: 'Position created successfully', data: position });
+        const position = await RecruitmentPosition.create({
+            title,
+            description,
+            location: location || 'Remote',
+            type: normalizePositionType(type),
+            salary,
+            status: normalizePositionStatus(status, priority),
+            priority,
+            openings,
+            skills: skills || [],
+            experience,
+            clientId,
+            teamLeaderId: ownership.teamLeaderId,
+            departmentTeamId: ownership.departmentTeamId,
+            postedByUserId: req.user?.id || null,
+            postedByUserType: req.user?.userType || req.user?.role || null,
+            postedByName: req.user?.name || null,
+            postedByEmail: req.user?.email || null,
+            deadline
+        });
+
+        res.status(201).json({
+            success: true,
+            message: 'Position created successfully',
+            data: {
+                ...position.toJSON(),
+                postedByName: req.user?.name || null,
+                postedByEmail: req.user?.email || null
+            }
+        });
     } catch (error) {
         console.error('Error creating recruitment position:', error);
         res.status(500).json({ success: false, message: 'Failed to create position', error: error.message });
@@ -144,6 +278,28 @@ const updateRecruitmentPosition = async (req, res) => {
 
         if (updates.clientId === "") {
             delete updates.clientId; // Or handle as null if allowed
+        }
+
+        if ('type' in updates) {
+            updates.type = normalizePositionType(updates.type);
+        }
+
+        if ('status' in updates || 'priority' in updates) {
+            updates.status = normalizePositionStatus(updates.status, updates.priority);
+        }
+
+        if ('location' in updates && !updates.location) {
+            updates.location = 'Remote';
+        }
+
+        if ('departmentTeamId' in updates || 'teamLeaderId' in updates) {
+            const ownership = await resolvePositionOwnership({
+                departmentTeamId: updates.departmentTeamId,
+                teamLeaderId: updates.teamLeaderId,
+                userId: req.user?.id
+            });
+            updates.departmentTeamId = ownership.departmentTeamId;
+            updates.teamLeaderId = ownership.teamLeaderId;
         }
         
         await position.update(updates);
@@ -399,6 +555,8 @@ const getAllPositions = async (req, res) => {
             where,
             include: [
                 { model: Client, as: 'client', attributes: ['name', 'companyName'] },
+                { model: TeamLeader, as: 'teamLeader', attributes: ['id', 'name', 'email'], required: false },
+                { model: DepartmentTeam, as: 'postedBy', attributes: ['id', 'name', 'email'], required: false },
                 { model: DepartmentTask, as: 'tasks' }
             ],
             order,
@@ -434,6 +592,8 @@ const getAllPositions = async (req, res) => {
                 filled: filledCountMap[p.id] || 0,
                 clientName: p.client?.companyName || p.client?.name || 'Unknown',
                 clientLogo: (p.client?.companyName || p.client?.name || 'NA').substring(0, 2).toUpperCase(),
+                postedByName: p.postedByName || p.postedBy?.name || p.teamLeader?.name || 'Unassigned',
+                postedByEmail: p.postedByEmail || p.postedBy?.email || p.teamLeader?.email || null,
             };
         });
 
@@ -588,6 +748,208 @@ const getAllCandidates = async (req, res) => {
     } catch (error) {
         console.error('Error fetching all candidates:', error);
         res.status(500).json({ success: false, message: 'Failed to fetch candidates', error: error.message });
+    }
+};
+
+const getOfferCandidatesSuggestions = async (req, res) => {
+    try {
+        const { search = '', limit = 10 } = req.query;
+        const trimmedSearch = String(search || '').trim();
+        if (!trimmedSearch) {
+            return res.status(200).json({ success: true, data: [] });
+        }
+
+        const candidates = await Candidate.findAll({
+            where: {
+                [Op.or]: [
+                    { name: { [Op.iLike]: `%${trimmedSearch}%` } },
+                    { email: { [Op.iLike]: `%${trimmedSearch}%` } }
+                ]
+            },
+            include: [
+                { model: RecruitmentPosition, as: 'position', attributes: ['id', 'title'] },
+                { model: Client, as: 'client', attributes: ['id', 'companyName', 'name'] }
+            ],
+            order: [['updatedAt', 'DESC']],
+            limit: parseInt(limit, 10)
+        });
+
+        const data = candidates.map((candidate) => ({
+            id: candidate.id,
+            name: candidate.name,
+            email: candidate.email,
+            positionId: candidate.positionId,
+            clientId: candidate.clientId,
+            position: candidate.position?.title || '',
+            client: candidate.client?.companyName || candidate.client?.name || '',
+            currentCTC: candidate.currentSalary || '',
+            expectedCTC: candidate.expectedSalary || '',
+            offerStatus: candidate.offerStatus || 'Draft'
+        }));
+
+        res.status(200).json({ success: true, data });
+    } catch (error) {
+        console.error('Error fetching offer candidate suggestions:', error);
+        res.status(500).json({ success: false, message: 'Failed to fetch offer candidates', error: error.message });
+    }
+};
+
+const getOffers = async (req, res) => {
+    try {
+        const candidates = await Candidate.findAll({
+            where: {
+                [Op.or]: [
+                    { stage: 'Offer Sent' },
+                    { offeredCTC: { [Op.ne]: null } },
+                    { offerDate: { [Op.ne]: null } },
+                    { offerExpiryDate: { [Op.ne]: null } },
+                    { joiningDate: { [Op.ne]: null } },
+                    { negotiationNotes: { [Op.ne]: null } },
+                    { offerStatus: { [Op.in]: ['Pending Approval', 'Sent', 'Negotiating', 'Accepted', 'Rejected', 'Expired'] } }
+                ]
+            },
+            include: [
+                { model: RecruitmentPosition, as: 'position', attributes: ['id', 'title'] },
+                { model: Client, as: 'client', attributes: ['id', 'companyName', 'name'] }
+            ],
+            order: [['updatedAt', 'DESC']]
+        });
+
+        const data = candidates
+            .filter((candidate) =>
+                candidate.stage === 'Offer Sent' ||
+                candidate.offeredCTC ||
+                candidate.offerDate ||
+                candidate.offerExpiryDate ||
+                candidate.joiningDate ||
+                candidate.negotiationNotes ||
+                ['Pending Approval', 'Sent', 'Negotiating', 'Accepted', 'Rejected', 'Expired'].includes(candidate.offerStatus)
+            )
+            .map((candidate) => ({
+                id: candidate.id,
+                candidateId: candidate.id,
+                candidateName: candidate.name,
+                email: candidate.email || '',
+                position: candidate.position?.title || '',
+                client: candidate.client?.companyName || candidate.client?.name || '',
+                offeredCTC: candidate.offeredCTC || candidate.expectedSalary || '',
+                currentCTC: candidate.currentSalary || '',
+                joiningDate: candidate.joiningDate || '',
+                offerDate: candidate.offerDate || '',
+                expiryDate: candidate.offerExpiryDate || '',
+                status: candidate.offerStatus || 'Draft',
+                negotiationNotes: candidate.negotiationNotes || '',
+                photo: candidate.photo || ''
+            }));
+
+        res.status(200).json({ success: true, data });
+    } catch (error) {
+        console.error('Error fetching offers:', error);
+        res.status(500).json({ success: false, message: 'Failed to fetch offers', error: error.message });
+    }
+};
+
+const createOrUpdateOffer = async (req, res) => {
+    try {
+        const {
+            candidateId,
+            candidateName,
+            email,
+            position,
+            client,
+            offeredCTC,
+            currentCTC,
+            joiningDate,
+            offerDate,
+            expiryDate,
+            status,
+            negotiationNotes
+        } = req.body;
+
+        let candidate = null;
+        if (candidateId || req.params.candidateId) {
+            candidate = await Candidate.findByPk(candidateId || req.params.candidateId);
+        }
+
+        if (!candidate && email) {
+            candidate = await Candidate.findOne({ where: { email: { [Op.iLike]: email.trim() } } });
+        }
+
+        if (!candidate && candidateName) {
+            candidate = await Candidate.findOne({ where: { name: { [Op.iLike]: candidateName.trim() } } });
+        }
+
+        if (!candidate) {
+            return res.status(404).json({ success: false, message: 'Candidate not found for offer creation' });
+        }
+
+        let resolvedPositionId = candidate.positionId;
+        let resolvedClientId = candidate.clientId;
+
+        if (!resolvedPositionId && position) {
+            const foundPosition = await RecruitmentPosition.findOne({ where: { title: { [Op.iLike]: position.trim() } } });
+            if (foundPosition) {
+                resolvedPositionId = foundPosition.id;
+                resolvedClientId = resolvedClientId || foundPosition.clientId;
+            }
+        }
+
+        if (!resolvedClientId && client) {
+            const foundClient = await Client.findOne({
+                where: {
+                    [Op.or]: [
+                        { companyName: { [Op.iLike]: client.trim() } },
+                        { name: { [Op.iLike]: client.trim() } }
+                    ]
+                }
+            });
+            if (foundClient) resolvedClientId = foundClient.id;
+        }
+
+        await candidate.update({
+            positionId: resolvedPositionId || candidate.positionId,
+            clientId: resolvedClientId || candidate.clientId,
+            offeredCTC: offeredCTC || null,
+            currentSalary: currentCTC || candidate.currentSalary || null,
+            joiningDate: joiningDate || null,
+            offerDate: offerDate || null,
+            offerExpiryDate: expiryDate || null,
+            offerStatus: normalizeOfferStatus(status),
+            negotiationNotes: negotiationNotes || null,
+            stage: normalizeOfferStatus(status) === 'Accepted' ? 'Joined' : 'Offer Sent',
+            status: normalizeOfferStatus(status) === 'Rejected' ? 'Rejected' : (normalizeOfferStatus(status) === 'Accepted' ? 'Selected' : candidate.status || 'Selected')
+        });
+
+        const refreshed = await Candidate.findByPk(candidate.id, {
+            include: [
+                { model: RecruitmentPosition, as: 'position', attributes: ['id', 'title'] },
+                { model: Client, as: 'client', attributes: ['id', 'companyName', 'name'] }
+            ]
+        });
+
+        res.status(200).json({
+            success: true,
+            message: 'Offer saved successfully',
+            data: {
+                id: refreshed.id,
+                candidateId: refreshed.id,
+                candidateName: refreshed.name,
+                email: refreshed.email || '',
+                position: refreshed.position?.title || '',
+                client: refreshed.client?.companyName || refreshed.client?.name || '',
+                offeredCTC: refreshed.offeredCTC || '',
+                currentCTC: refreshed.currentSalary || '',
+                joiningDate: refreshed.joiningDate || '',
+                offerDate: refreshed.offerDate || '',
+                expiryDate: refreshed.offerExpiryDate || '',
+                status: refreshed.offerStatus || 'Draft',
+                negotiationNotes: refreshed.negotiationNotes || '',
+                photo: refreshed.photo || ''
+            }
+        });
+    } catch (error) {
+        console.error('Error saving offer:', error);
+        res.status(500).json({ success: false, message: 'Failed to save offer', error: error.message });
     }
 };
 
@@ -770,10 +1132,21 @@ const uploadResumes = async (req, res) => {
 
         const candidates = [];
         for (const file of files) {
+            const uploadDir = path.join(__dirname, '..', 'uploads', 'resumes');
+            if (!fs.existsSync(uploadDir)) {
+                fs.mkdirSync(uploadDir, { recursive: true });
+            }
+
+            const storedFileName = `${Date.now()}-${file.originalname}`;
+            const filePath = path.join(uploadDir, storedFileName);
+            fs.writeFileSync(filePath, file.buffer);
+
             const candidate = await Candidate.create({
                 name: file.originalname.replace(/\.(pdf|doc|docx)$/i, ''),
+                email: buildUploadedCandidateEmail(file.originalname),
                 positionId: positionId || null,
                 clientId: clientId || null,
+                cvUrl: `/uploads/resumes/${storedFileName}`,
                 cvFileName: file.originalname,
                 status: 'Submitted',
                 stage: 'Screening',
@@ -795,7 +1168,7 @@ const uploadResumes = async (req, res) => {
                     fileSize: file.size,
                     roleType: 'Uncategorized', // Default for bulk upload
                     candidateName: candidate.name,
-                    webUrl: `/uploads/resumes/${file.filename || file.originalname}` // Fallback path
+                    webUrl: `/uploads/resumes/${storedFileName}`
                 });
                 console.log('Successfully synced bulk upload with Resume Bank:', candidate.name);
             } catch (bankErr) {
@@ -1006,22 +1379,30 @@ const getMyPerformanceStats = async (req, res) => {
             ]
         };
 
-        // Time Filter for header stats
-        let timeFilter = {};
         const now = new Date();
+        let periodStart = null;
+        let periodEnd = null;
+
         if (period === 'This Month') {
-            timeFilter = { [Op.gte]: new Date(now.getFullYear(), now.getMonth(), 1) };
+            periodStart = new Date(now.getFullYear(), now.getMonth(), 1);
+            periodEnd = now;
         } else if (period === 'Last Month') {
-            timeFilter = { 
-                [Op.gte]: new Date(now.getFullYear(), now.getMonth() - 1, 1),
-                [Op.lte]: new Date(now.getFullYear(), now.getMonth(), 0)
-            };
+            periodStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+            periodEnd = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999);
         } else if (period === 'This Quarter') {
             const quarter = Math.floor(now.getMonth() / 3);
-            timeFilter = { [Op.gte]: new Date(now.getFullYear(), quarter * 3, 1) };
-        } else if (period === 'All Time') {
-            timeFilter = {}; // No time filter
+            periodStart = new Date(now.getFullYear(), quarter * 3, 1);
+            periodEnd = now;
         }
+
+        const buildRangeFilter = (field) => {
+            if (!periodStart && !periodEnd) return {};
+            if (periodStart && periodEnd) {
+                return { [field]: { [Op.between]: [periodStart, periodEnd] } };
+            }
+            if (periodStart) return { [field]: { [Op.gte]: periodStart } };
+            return { [field]: { [Op.lte]: periodEnd } };
+        };
 
         const managedPositions = await RecruitmentPosition.findAll({
             where: posWhere,
@@ -1029,25 +1410,17 @@ const getMyPerformanceStats = async (req, res) => {
         });
         const managedIds = managedPositions.map(p => p.id);
 
-        if (managedIds.length === 0) {
-            return res.status(200).json({ 
-                success: true, 
-                data: { 
-                    activePositions: 0, thisWeekHires: 0, interviewsScheduled: 0, 
-                    candidatesPipeline: 0, offersExtended: 0,
-                    weeklyActivity: [], conversionMetrics: { screeningToInterview: 0, interviewToOffer: 0, offerToJoin: 0 }
-                } 
-            });
-        }
-
         // Header Stats
-        const headerStats = {
+        let headerStats = {
             activePositions: await RecruitmentPosition.count({ where: { ...posWhere, status: 'Open' } }),
             thisWeekHires: await Candidate.count({ 
                 where: { 
-                    positionId: { [Op.in]: managedIds }, 
+                    [Op.or]: [
+                        { positionId: { [Op.in]: managedIds } },
+                        { addedById: { [Op.in]: memberIds } }
+                    ],
                     stage: 'Joined',
-                    ...(Object.keys(timeFilter).length && { updatedAt: timeFilter })
+                    ...buildRangeFilter('updatedAt')
                 } 
             }),
             interviewsScheduled: await Interview.count({ 
@@ -1055,10 +1428,13 @@ const getMyPerformanceStats = async (req, res) => {
                     [Op.or]: [
                         { positionId: { [Op.in]: managedIds } },
                         { interviewerId: { [Op.in]: memberIds } },
-                        { interviewerName: { [Op.iLike]: `%${req.user.name.split(' ')[0]}%` } }
+                        { interviewerName: { [Op.iLike]: `%${req.user.name.split(' ')[0]}%` } },
+                        { '$candidate.addedById$': { [Op.in]: memberIds } }
                     ],
-                    ...(Object.keys(timeFilter).length && { interviewDate: timeFilter })
-                } 
+                    status: 'Scheduled',
+                    ...buildRangeFilter('interviewDate')
+                },
+                include: [{ model: Candidate, as: 'candidate', attributes: [] }]
             }),
             candidatesPipeline: await Candidate.count({ 
                 where: { 
@@ -1066,20 +1442,23 @@ const getMyPerformanceStats = async (req, res) => {
                         { positionId: { [Op.in]: managedIds } },
                         { addedById: { [Op.in]: memberIds } }
                     ],
-                    ...(Object.keys(timeFilter).length && { createdAt: timeFilter })
+                    ...buildRangeFilter('createdAt')
                 } 
             }),
             offersExtended: await Candidate.count({ 
                 where: { 
-                    positionId: { [Op.in]: managedIds }, 
-                    stage: 'Offer',
-                    ...(Object.keys(timeFilter).length && { updatedAt: timeFilter })
+                    [Op.or]: [
+                        { positionId: { [Op.in]: managedIds } },
+                        { addedById: { [Op.in]: memberIds } }
+                    ],
+                    stage: 'Offer Sent',
+                    ...buildRangeFilter('updatedAt')
                 } 
             })
         };
 
         // Weekly Activity (Last 5 business days)
-        const weeklyActivity = [];
+        let weeklyActivity = [];
         for (let i = 4; i >= 0; i--) {
             const date = new Date();
             date.setDate(date.getDate() - i);
@@ -1090,7 +1469,10 @@ const getMyPerformanceStats = async (req, res) => {
             
             const dayHires = await Candidate.count({ 
                 where: { 
-                    positionId: { [Op.in]: managedIds }, 
+                    [Op.or]: [
+                        { positionId: { [Op.in]: managedIds } },
+                        { addedById: { [Op.in]: memberIds } }
+                    ],
                     stage: 'Joined', 
                     updatedAt: { [Op.between]: [new Date(startOfDay), new Date(endOfDay)] } 
                 } 
@@ -1100,10 +1482,12 @@ const getMyPerformanceStats = async (req, res) => {
                     [Op.or]: [
                         { positionId: { [Op.in]: managedIds } },
                         { interviewerId: { [Op.in]: memberIds } },
-                        { interviewerName: { [Op.iLike]: `%${req.user.name.split(' ')[0]}%` } }
+                        { interviewerName: { [Op.iLike]: `%${req.user.name.split(' ')[0]}%` } },
+                        { '$candidate.addedById$': { [Op.in]: memberIds } }
                     ], 
                     interviewDate: { [Op.between]: [new Date(startOfDay), new Date(endOfDay)] } 
-                } 
+                },
+                include: [{ model: Candidate, as: 'candidate', attributes: [] }]
             });
             const dayScreenings = await Candidate.count({ 
                 where: { 
@@ -1132,18 +1516,113 @@ const getMyPerformanceStats = async (req, res) => {
                 [Op.or]: [
                     { positionId: { [Op.in]: managedIds } },
                     { interviewerId: { [Op.in]: memberIds } },
-                    { interviewerName: { [Op.iLike]: `%${req.user.name.split(' ')[0]}%` } }
+                    { interviewerName: { [Op.iLike]: `%${req.user.name.split(' ')[0]}%` } },
+                    { '$candidate.addedById$': { [Op.in]: memberIds } }
                 ]
+            },
+            include: [{ model: Candidate, as: 'candidate', attributes: [] }]
+        });
+        const totalOffers = await Candidate.count({ 
+            where: { 
+                [Op.or]: [
+                    { positionId: { [Op.in]: managedIds } },
+                    { addedById: { [Op.in]: memberIds } }
+                ],
+                stage: 'Offer Sent' 
             } 
         });
-        const totalOffers = await Candidate.count({ where: { positionId: { [Op.in]: managedIds }, stage: 'Offer' } });
-        const totalJoined = await Candidate.count({ where: { positionId: { [Op.in]: managedIds }, stage: 'Joined' } });
+        const totalJoined = await Candidate.count({ 
+            where: { 
+                [Op.or]: [
+                    { positionId: { [Op.in]: managedIds } },
+                    { addedById: { [Op.in]: memberIds } }
+                ],
+                stage: 'Joined' 
+            } 
+        });
 
-        const conversionMetrics = {
+        let conversionMetrics = {
             screeningToInterview: totalScreened > 0 ? Math.round((totalInterviewsDone / totalScreened) * 100) : 0,
             interviewToOffer: totalInterviewsDone > 0 ? Math.round((totalOffers / totalInterviewsDone) * 100) : 0,
             offerToJoin: totalOffers > 0 ? Math.round((totalJoined / totalOffers) * 100) : 0
         };
+
+        const hasNoAttributedData =
+            headerStats.activePositions === 0 &&
+            headerStats.thisWeekHires === 0 &&
+            headerStats.interviewsScheduled === 0 &&
+            headerStats.candidatesPipeline === 0 &&
+            headerStats.offersExtended === 0;
+
+        if (hasNoAttributedData && req.user?.department === 'HR Recruitment') {
+            headerStats = {
+                activePositions: await RecruitmentPosition.count({ where: { status: 'Open' } }),
+                thisWeekHires: await Candidate.count({
+                    where: {
+                        stage: 'Joined',
+                        ...buildRangeFilter('updatedAt')
+                    }
+                }),
+                interviewsScheduled: await Interview.count({
+                    where: {
+                        status: 'Scheduled',
+                        ...buildRangeFilter('interviewDate')
+                    }
+                }),
+                candidatesPipeline: await Candidate.count({
+                    where: {
+                        ...buildRangeFilter('createdAt')
+                    }
+                }),
+                offersExtended: await Candidate.count({
+                    where: {
+                        stage: 'Offer Sent',
+                        ...buildRangeFilter('updatedAt')
+                    }
+                })
+            };
+
+            weeklyActivity = [];
+            for (let i = 4; i >= 0; i--) {
+                const date = new Date();
+                date.setDate(date.getDate() - i);
+                const startOfDay = new Date(date).setHours(0, 0, 0, 0);
+                const endOfDay = new Date(date).setHours(23, 59, 59, 999);
+
+                weeklyActivity.push({
+                    day: date.toLocaleDateString('en-US', { weekday: 'long' }),
+                    hires: await Candidate.count({
+                        where: {
+                            stage: 'Joined',
+                            updatedAt: { [Op.between]: [new Date(startOfDay), new Date(endOfDay)] }
+                        }
+                    }),
+                    interviews: await Interview.count({
+                        where: {
+                            interviewDate: { [Op.between]: [new Date(startOfDay), new Date(endOfDay)] }
+                        }
+                    }),
+                    screenings: await Candidate.count({
+                        where: {
+                            createdAt: { [Op.between]: [new Date(startOfDay), new Date(endOfDay)] }
+                        }
+                    })
+                });
+            }
+
+            const [globalScreened, globalInterviews, globalOffers, globalJoined] = await Promise.all([
+                Candidate.count(),
+                Interview.count(),
+                Candidate.count({ where: { stage: 'Offer Sent' } }),
+                Candidate.count({ where: { stage: 'Joined' } })
+            ]);
+
+            conversionMetrics = {
+                screeningToInterview: globalScreened > 0 ? Math.round((globalInterviews / globalScreened) * 100) : 0,
+                interviewToOffer: globalInterviews > 0 ? Math.round((globalOffers / globalInterviews) * 100) : 0,
+                offerToJoin: globalOffers > 0 ? Math.round((globalJoined / globalOffers) * 100) : 0
+            };
+        }
 
         res.status(200).json({ 
             success: true, 
@@ -1184,5 +1663,8 @@ module.exports = {
     closeRequest,
     generateMeetLinkForInterview,
     createRequest,
-    getCandidateById
+    getCandidateById,
+    getOffers,
+    createOrUpdateOffer,
+    getOfferCandidatesSuggestions
 };

@@ -1,5 +1,47 @@
 const { verifyToken } = require("../utils/jwtUtils");
 
+const normalizeRole = (value = '') =>
+    String(value)
+        .toLowerCase()
+        .replace(/[\s_-]+/g, '');
+
+const roleMapping = {
+    superadmin: ['superadmin', 'super_admin'],
+    admin: [
+        'admin',
+        'administrator',
+        'hrrecruitment',
+        'hroperations',
+        'department head',
+        'departmenthead',
+        'hr head',
+        'hrhead'
+    ],
+    kam: ['kam', 'key_account_manager', 'keyaccountmanager'],
+    teamleader: ['teamleader', 'team_leader', 'tl'],
+    employee: [
+        'employee',
+        'user',
+        'staff',
+        'hr executive',
+        'hrexecutive',
+        'recruiter',
+        'team member',
+        'teammember',
+        'departmentteam'
+    ],
+    client: ['client', 'customer']
+};
+
+const hasRoleAccess = (userRole, allowedRoles = []) => {
+    const normalizedUserRole = normalizeRole(userRole);
+
+    return allowedRoles.some((allowedRole) => {
+        const mappedRoles = roleMapping[allowedRole] || [allowedRole];
+        return mappedRoles.some((role) => normalizeRole(role) === normalizedUserRole);
+    });
+};
+
 /**
  * Legacy middleware - kept for backward compatibility
  */
@@ -96,24 +138,9 @@ const authorize = (...roles) => {
         }
 
         // Normalize role names for comparison
-        const userRole = (req.user.role || req.user.userType || '').toLowerCase();
-        const allowedRoles = roles.map(r => r.toLowerCase());
-
-        // Role mapping for flexibility
-        const roleMapping = {
-            'superadmin': ['superadmin', 'super_admin'],
-            'admin': ['admin', 'administrator', 'hrrecruitment', 'hroperations', 'department head', 'departmenthead'],
-            'kam': ['kam', 'key_account_manager', 'keyaccountmanager'],
-            'teamleader': ['teamleader', 'team_leader', 'tl'],
-            'employee': ['employee', 'user', 'staff'],
-            'client': ['client', 'customer']
-        };
-
-        // Check if user role matches any allowed role
-        const isAuthorized = allowedRoles.some(allowedRole => {
-            const mappedRoles = roleMapping[allowedRole] || [allowedRole];
-            return mappedRoles.includes(userRole) || userRole === allowedRole;
-        });
+        const userRole = req.user.role || req.user.userType || '';
+        const allowedRoles = roles.map(r => String(r).toLowerCase());
+        const isAuthorized = hasRoleAccess(userRole, allowedRoles);
 
         if (!isAuthorized) {
             return res.status(403).json({ 
@@ -136,15 +163,15 @@ const clientIsolation = (req, res, next) => {
         return res.status(401).json({ success: false, message: 'Not authorized' });
     }
 
-    const userRole = (req.user.role || req.user.userType || '').toLowerCase();
+    const userRole = req.user.role || req.user.userType || '';
 
     // Staff roles can access any client data
-    if (['superadmin', 'admin', 'teamleader', 'kam', 'employee'].includes(userRole)) {
+    if (hasRoleAccess(userRole, ['superadmin', 'admin', 'teamleader', 'kam', 'employee'])) {
         return next();
     }
 
     // For clients — ensure they only access their own data
-    if (userRole === 'client') {
+    if (hasRoleAccess(userRole, ['client'])) {
         const requestedClientId = req.params.clientId || req.body.clientId || req.query.clientId;
         if (requestedClientId && requestedClientId !== req.user.id) {
             return res.status(403).json({ 
