@@ -26,6 +26,7 @@ const {
     getAllPositions,
     getAllCandidates,
     addCandidate,
+    getCandidateById,
     updateCandidateStatus,
     getCandidatesByPosition,
     getRecruitmentStats,
@@ -42,7 +43,8 @@ const {
     scheduleInterviewForRecruit,
     closeRequest,
     generateMeetLinkForInterview,
-    createRequest
+    createRequest,
+    getMyPerformanceStats
 } = require('../controllers/recruitment');
 
 /**
@@ -220,6 +222,26 @@ router.post('/candidates', verifyAuthToken, upload.single('resume'), addCandidat
  *       200:
  *         description: Status updated
  */
+/**
+ * @swagger
+ * /recruitment/candidates/{id}:
+ *   get:
+ *     summary: Get candidate details by ID
+ *     tags: [Recruitment]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Candidate details with resume and interview history
+ */
+router.get('/candidates/:id', verifyAuthToken, getCandidateById); 
+
 router.put('/candidates/:id/status', verifyAuthToken, updateCandidateStatus);
 
 /**
@@ -264,6 +286,7 @@ router.get('/positions/:positionId/candidates', verifyAuthToken, getCandidatesBy
  *                   type: object
  */
 router.get('/stats', verifyAuthToken, getRecruitmentStats);
+router.get('/my-performance', verifyAuthToken, getMyPerformanceStats);
 
 // Get all positions with filtering
 router.get('/positions', verifyAuthToken, getAllPositions);

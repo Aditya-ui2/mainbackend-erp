@@ -205,16 +205,38 @@ const submitDailyReport = async (req, res) => {
         const { summary, tasksCompleted, tasksPlanned, blockers, mood } = req.body;
         const today = new Date().toISOString().split('T')[0];
         const existing = await DailyReport.findOne({ where: { memberId: req.user.id, date: today } });
+        
+        let report;
+        let message;
+        
         if (existing) {
             await existing.update({ summary, tasksCompleted, tasksPlanned, blockers, mood });
-            return res.json({ success: true, report: existing, message: 'Report updated!' });
+            report = existing;
+            message = 'Report updated!';
+        } else {
+            report = await DailyReport.create({
+                memberId: req.user.id, memberName: req.user.name,
+                department: req.user.department, date: today,
+                summary, tasksCompleted, tasksPlanned, blockers, mood,
+            });
+            message = 'Report submitted!';
         }
-        const report = await DailyReport.create({
-            memberId: req.user.id, memberName: req.user.name,
-            department: req.user.department, date: today,
-            summary, tasksCompleted, tasksPlanned, blockers, mood,
-        });
-        res.status(201).json({ success: true, report, message: 'Report submitted!' });
+
+        // Notify Sachin (Recruitment Head)
+        const sachinId = 'b330b023-9bf1-43be-acb0-a2b6e80f6cfe';
+        try {
+            await addNotification(
+                sachinId,
+                'DepartmentTeam',
+                `📋 Daily Report: ${req.user.name} submitted their report for ${today}. Summary: ${summary.substring(0, 50)}${summary.length > 50 ? '...' : ''}`,
+                'general',
+                'medium'
+            );
+        } catch (notifyError) {
+            console.error('Failed to notify header:', notifyError);
+        }
+
+        res.status(existing ? 200 : 201).json({ success: true, report, message });
     } catch (error) {
         res.status(500).json({ success: false, message: error.message });
     }

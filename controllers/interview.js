@@ -194,13 +194,38 @@ const scheduleInterview = async (req, res) => {
  */
 const getInterviews = async (req, res) => {
     try {
-        const { status, date, interviewType, candidateId, positionId } = req.query;
+        const userId = req.user.id;
+        const isHead = req.user.role === 'Department Head' || req.user.role === 'Admin' || req.user.id === '60de4380-0140-49ff-b26d-a8d06333af11';
         
+        let memberIds = [userId];
+        if (isHead) {
+            const teamMembers = await DepartmentTeam.findAll({ 
+                where: { managerId: userId },
+                attributes: ['id']
+            });
+            memberIds = [...memberIds, ...teamMembers.map(m => m.id)];
+        }
+
         const where = {};
         if (status) where.status = status;
         if (interviewType) where.interviewType = interviewType;
         if (candidateId) where.candidateId = candidateId;
         if (positionId) where.positionId = positionId;
+
+        // For non-admins, filter interviews where they are the interviewer OR it is for a position they manage/team manages
+        if (!isHead && req.user.role !== 'Admin') {
+            where[Op.or] = [
+                { interviewerId: userId },
+                { interviewerName: { [Op.iLike]: `%${req.user.name?.split(' ')[0]}%` } }
+            ];
+        } else if (isHead) {
+            // Head sees everything for their team members
+            where[Op.or] = [
+                { interviewerId: { [Op.in]: memberIds } },
+                { interviewerName: { [Op.iLike]: `%${req.user.name?.split(' ')[0]}%` } }
+            ];
+        }
+
         if (date) {
             const startOfDay = new Date(date);
             startOfDay.setHours(0, 0, 0, 0);
@@ -234,10 +259,15 @@ const getInterviews = async (req, res) => {
         tomorrow.setDate(tomorrow.getDate() + 1);
 
         const [todaysInterviews, scheduled, completed, cancelled] = await Promise.all([
-            Interview.count({ where: { interviewDate: { [Op.gte]: today, [Op.lt]: tomorrow } } }),
-            Interview.count({ where: { status: 'Scheduled' } }),
-            Interview.count({ where: { status: 'Completed' } }),
-            Interview.count({ where: { status: 'Cancelled' } }),
+            Interview.count({ 
+                where: { 
+                    ...where,
+                    interviewDate: { [Op.gte]: today, [Op.lt]: tomorrow } 
+                } 
+            }),
+            Interview.count({ where: { ...where, status: 'Scheduled' } }),
+            Interview.count({ where: { ...where, status: 'Completed' } }),
+            Interview.count({ where: { ...where, status: 'Cancelled' } }),
         ]);
 
         res.status(200).json({

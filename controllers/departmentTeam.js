@@ -1,5 +1,8 @@
 // Use Sequelize models for all operations (PostgreSQL)
-const { DepartmentTeam, TeamLeader, DepartmentTask, ActivityLog } = require('../models/sequelizeModels');
+const { 
+    DepartmentTeam, TeamLeader, DepartmentTask, ActivityLog,
+    RecruitmentPosition, Candidate, Interview 
+} = require('../models/sequelizeModels');
 const { hashPassword, comparePasswords } = require('../utils/bcryptUtils');
 const { generateToken, generateRefreshToken } = require('../utils/jwtUtils');
 const { Op } = require('sequelize');
@@ -38,10 +41,57 @@ const getTeamMembers = async (req, res) => {
             order: [['createdAt', 'DESC']]
         });
 
-        res.status(200).json({ success: true, members });
+        // 7-day window for "This Week Hires"
+        const weekAgo = new Date();
+        weekAgo.setDate(weekAgo.getDate() - 7);
+
+        // Fetch stats for each member
+        const membersWithStats = await Promise.all(members.map(async (member) => {
+            const m = member.toJSON();
+            
+            // Parallelize counts for better performance
+            const [activePositions, candidatesPipeline, interviewsScheduled, thisWeekHires] = await Promise.all([
+                RecruitmentPosition.count({ 
+                    where: { 
+                        [Op.or]: [
+                            { departmentTeamId: member.id },
+                            { teamLeaderId: member.id }
+                        ],
+                        status: 'Open'
+                    } 
+                }),
+                Candidate.count({ where: { addedById: member.id } }),
+                Interview.count({ 
+                    where: { interviewerId: member.id, status: 'Scheduled' } 
+                }),
+                Candidate.count({ 
+                    where: { 
+                        addedById: member.id, 
+                        [Op.or]: [
+                            { status: 'Selected' },
+                            { stage: 'Joined' }
+                        ],
+                        updatedAt: { [Op.gte]: weekAgo }
+                    } 
+                })
+            ]);
+
+            return {
+                ...m,
+                stats: {
+                    activePositions,
+                    candidatesPipeline,
+                    interviewsScheduled,
+                    thisWeekHires,
+                    offersExtended: 0 // Default for now until Offer model is integrated
+                }
+            };
+        }));
+
+        res.status(200).json({ success: true, members: membersWithStats });
     } catch (error) {
         console.error('Error fetching team members:', error);
-        res.status(500).json({ success: false, message: 'Failed to fetch team members' });
+        res.status(500).json({ success: false, message: 'Failed to fetch team members', error: error.message });
     }
 };
 
@@ -404,6 +454,18 @@ const getDepartmentStats = async (req, res) => {
     try {
         const { department } = req.query;
         const managerId = req.user?.id;
+
+        // Auto-hierarchy sync for Sachin (Recruitment Head)
+        const sachinId = '60de4380-0140-49ff-b26d-a8d06333af11';
+        if (managerId === sachinId) {
+            const kamIds = [
+                'bdcdd80c-4812-45f0-9862-39594bfe7475', // Manju
+                '13b9f804-91ea-4d5a-afc0-8a9da6e27e0f', // Jyoti
+                'ffd606f2-459c-4bc1-8f4b-52b88663fed3'  // Priyanshi
+            ];
+            await DepartmentTeam.update({ managerId: sachinId }, { where: { id: kamIds, managerId: null } });
+            await DepartmentTeam.update({ role: 'Department Head' }, { where: { id: sachinId, role: { [Op.ne]: 'Department Head' } } });
+        }
 
         // Team stats (Sequelize/PostgreSQL)
         const teamWhere = {};

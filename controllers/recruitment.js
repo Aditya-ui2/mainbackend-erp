@@ -12,72 +12,95 @@ const getKamsWithRecruitment = async (req, res) => {
             attributes: ['id', 'name', 'email', 'phone', 'role', 'status'],
         });
 
+        // 7-day window for "This Week Hires"
+        const weekAgo = new Date();
+        weekAgo.setDate(weekAgo.getDate() - 7);
+
         const kamsWithStats = await Promise.all(kams.map(async (kam) => {
-            // Count active positions assigned to this KAM
-            const activePositions = await RecruitmentPosition.count({
-                where: { 
-                    [Op.or]: [
-                        { departmentTeamId: kam.id },
-                        { teamLeaderId: kam.id } // Fallback for data migration
-                    ],
-                    status: 'Open' 
-                }
-            });
+            try {
+                const k = kam.toJSON();
+                
+                // Parallelize counts for better accuracy & performance
+                const [activePositions, totalCandidates, interviews, hires, recentActivityCandidate] = await Promise.all([
+                    // Count active positions where they are the owner OR source
+                    RecruitmentPosition.count({
+                        where: { 
+                            [Op.or]: [
+                                { departmentTeamId: kam.id },
+                                { teamLeaderId: kam.id }
+                            ],
+                            status: 'Open' 
+                        }
+                    }),
+                    // Count candidates THEY sourced (the direct contribution)
+                    Candidate.count({
+                        where: { addedById: kam.id }
+                    }),
+                    // Count interviews where THEY are the interviewer
+                    Interview.count({
+                        where: { interviewerId: kam.id, status: 'Scheduled' }
+                    }),
+                    // Count candidates THEY successfully placed this week
+                    Candidate.count({
+                        where: { 
+                            addedById: kam.id, 
+                            [Op.or]: [
+                                { status: 'Selected' },
+                                { stage: 'Joined' }
+                            ],
+                            updatedAt: { [Op.gte]: weekAgo }
+                        }
+                    }),
+                    // Fetch recent activity safely
+                    Candidate.findAll({
+                        where: { addedById: kam.id },
+                        include: [{ 
+                            model: RecruitmentPosition, 
+                            as: 'position', 
+                            attributes: ['title'],
+                            required: false // LEFT JOIN ensures activity shows even if position is null
+                        }],
+                        order: [['updatedAt', 'DESC']],
+                        limit: 3
+                    })
+                ]);
 
-            // Count candidates in these positions or uploaded by this KAM
-            // This is indexed by position. For direct uploads, we'd need a field on Candidate.
-            // Let's count candidates in the positions they manage.
-            const managedPositionIds = await RecruitmentPosition.findAll({
-                where: { 
-                    [Op.or]: [{ departmentTeamId: kam.id }, { teamLeaderId: kam.id }] 
-                },
-                attributes: ['id']
-            }).then(pos => pos.map(p => p.id));
+                const activities = recentActivityCandidate.map(c => {
+                    // Determine the action based on status/stage
+                    let action = c.status || 'Active';
+                    if (c.status === 'Submitted' && c.stage === 'Screening') action = 'Sourced';
+                    if (c.status === 'Selected') action = 'Hired';
 
-            const totalCandidates = await Candidate.count({
-                where: { positionId: { [Op.in]: managedPositionIds } }
-            });
+                    return {
+                        action,
+                        candidate: c.name,
+                        position: c.position?.title || 'General Sourcing',
+                        time: c.updatedAt
+                    };
+                });
 
-            const interviews = await Interview.count({
-                where: { positionId: { [Op.in]: managedPositionIds }, status: 'Scheduled' }
-            });
-
-            const hires = await Candidate.count({
-                where: { positionId: { [Op.in]: managedPositionIds }, stage: 'Joined' }
-            });
-
-            // Fetch recent activity
-            const recentActivityCandidate = await Candidate.findAll({
-                where: { positionId: { [Op.in]: managedPositionIds } },
-                include: [{ model: RecruitmentPosition, as: 'position', attributes: ['title'] }],
-                order: [['updatedAt', 'DESC']],
-                limit: 2
-            });
-
-            const activities = recentActivityCandidate.map(c => ({
-                action: c.status,
-                candidate: c.name,
-                position: c.position?.title,
-                time: c.updatedAt
-            }));
-
-            return {
-                id: kam.id,
-                name: kam.name,
-                email: kam.email,
-                phone: kam.phone,
-                role: kam.role,
-                status: kam.status,
-                avatar: kam.name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase(),
-                stats: {
-                    activePositions: activePositions,
-                    candidatesPipeline: totalCandidates,
-                    interviewsScheduled: interviews,
-                    thisWeekHires: hires,
-                    offersExtended: 0 // Placeholder
-                },
-                recentActivity: activities.length > 0 ? activities : [{ action: 'No recent activity', candidate: '', time: 'N/A' }]
-            };
+                return {
+                    ...k,
+                    avatar: kam.name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase(),
+                    stats: {
+                        activePositions,
+                        candidatesPipeline: totalCandidates,
+                        interviewsScheduled: interviews,
+                        thisWeekHires: hires,
+                        offersExtended: 0 // Default
+                    },
+                    recentActivity: activities.length > 0 ? activities : [{ action: 'No recent activity', candidate: '', time: 'N/A' }]
+                };
+            } catch (err) {
+                console.error(`Error processing stats for KAM ${kam.id}:`, err.message);
+                // Return basic info with zero stats as fallback
+                return {
+                    ...kam.toJSON(),
+                    avatar: kam.name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase(),
+                    stats: { activePositions: 0, candidatesPipeline: 0, interviewsScheduled: 0, thisWeekHires: 0, offersExtended: 0 },
+                    recentActivity: [{ action: 'Error loading activity', candidate: '', time: 'N/A' }]
+                };
+            }
         }));
 
         res.status(200).json({ success: true, data: kamsWithStats });
@@ -200,7 +223,8 @@ const addCandidate = async (req, res) => {
             skills: Array.isArray(skills) ? skills : (skills ? skills.split(',').map(s => s.trim()) : []),
             experience, currentSalary, expectedSalary, notes, location, noticePeriod,
             stage: stage || 'Screening', pipelineStatus: pipelineStatus || 'pending',
-            rating: rating || 0, source, status: 'Submitted'
+            rating: rating || 0, source, status: 'Submitted',
+            addedById: req.user?.id
         });
 
         res.status(201).json({ 
@@ -419,6 +443,42 @@ const getAllPositions = async (req, res) => {
         res.status(500).json({ success: false, message: 'Failed to fetch positions', error: error.message });
     }
 };
+const getCandidateById = async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        const candidate = await Candidate.findByPk(id, {
+            include: [
+                { model: RecruitmentPosition, as: 'position', attributes: ['id', 'title', 'location', 'type', 'status'] },
+                { model: Client, as: 'client', attributes: ['id', 'companyName', 'name'] },
+            ],
+        });
+
+        if (!candidate) {
+            return res.status(404).json({ success: false, message: 'Candidate not found' });
+        }
+
+        // Get interview history
+        const interviews = await Interview.findAll({
+            where: { candidateId: id },
+            attributes: ['id', 'interviewType', 'interviewDate', 'startTime', 'status', 'evaluation', 'notes', 'interviewerName'],
+            order: [['interviewDate', 'DESC']],
+        });
+
+        res.status(200).json({
+            success: true,
+            data: {
+                ...candidate.toJSON(),
+                interviews,
+            }
+        });
+    } catch (error) {
+        console.error('Error fetching candidate:', error);
+        res.status(500).json({ success: false, message: 'Failed to fetch candidate', error: error.message });
+    }
+};
+
+
 
 // Delete a recruitment position
 const deleteRecruitmentPosition = async (req, res) => {
@@ -446,10 +506,61 @@ const getAllCandidates = async (req, res) => {
         const { status, positionId, search, stage, pipelineStatus, page = 1, limit = 100 } = req.query;
 
         const where = {};
-        if (status) where.status = status;
+        
+        // Define known ENUM values to prevent database validation errors (500)
+        const VALID_STATUSES = ['Submitted', 'Shortlisted', 'Interview', 'Selected', 'Rejected', 'Joined'];
+        const VALID_STAGES = ['Screening', 'Phone Interview', 'Technical Round', 'HR Round', 'Client Interview', 'Offer Sent', 'Joined', 'Rejected'];
+        const VALID_PIPELINE = ['Sourced', 'Applied', 'Pending', 'Interviewing', 'Selected', 'Rejected', 'On-Hold', 'Offer-Sent', 'Joined'];
+
+        if (status) {
+            const statusArray = status.split(',').map(s => s.trim());
+            
+            // Map frontend statuses to available DB values
+            const statusCriteria = [];
+            const stageCriteria = [];
+
+            statusArray.forEach(s => {
+                // Check Status Column
+                if (VALID_STATUSES.includes(s)) statusCriteria.push(s);
+                else if (s === 'Accepted') statusCriteria.push('Selected'); // Map Accepted to Selected
+                
+                // Check Stage Column
+                if (VALID_STAGES.includes(s)) stageCriteria.push(s);
+                else if (s === 'Offer Sent' || s === 'Negotiating') stageCriteria.push('Offer Sent');
+                else if (s === 'Joined') stageCriteria.push('Joined');
+            });
+
+            // Use Op.or to find candidates matching either criteria
+            const orFilters = [];
+            if (statusCriteria.length > 0) {
+                orFilters.push({ status: statusCriteria.length > 1 ? { [Op.in]: statusCriteria } : statusCriteria[0] });
+            }
+            if (stageCriteria.length > 0) {
+                orFilters.push({ stage: stageCriteria.length > 1 ? { [Op.in]: stageCriteria } : stageCriteria[0] });
+            }
+
+            if (orFilters.length > 0) {
+                where[Op.or] = orFilters;
+            }
+        }
+
+        if (stage) {
+            const stageArray = stage.split(',').map(s => s.trim());
+            const filteredStage = stageArray.filter(s => VALID_STAGES.includes(s));
+            if (filteredStage.length > 0) {
+                where.stage = filteredStage.length > 1 ? { [Op.in]: filteredStage } : filteredStage[0];
+            }
+        }
+
         if (positionId) where.positionId = positionId;
-        if (pipelineStatus) where.pipelineStatus = pipelineStatus;
-        if (stage) where.stage = stage;
+        
+        if (pipelineStatus) {
+             const pipelineArray = pipelineStatus.split(',').map(s => s.trim());
+             const filteredPipeline = pipelineArray.filter(s => VALID_PIPELINE.includes(s));
+             if (filteredPipeline.length > 0) {
+                 where.pipelineStatus = filteredPipeline.length > 1 ? { [Op.in]: filteredPipeline } : filteredPipeline[0];
+             }
+        }
         if (search) {
             where[Op.or] = [
                 { name: { [Op.iLike]: `%${search}%` } },
@@ -818,6 +929,9 @@ const scheduleInterviewForRecruit = async (req, res) => {
         const interview = await Interview.create({
             candidateId, positionId, interviewDate, startTime,
             interviewType: interviewType || 'Video', interviewerName,
+            interviewerId: req.user?.id,
+            interviewerType: req.user?.userType || 'DepartmentTeam',
+            interviewerEmail: req.user?.email,
             meetLink, notes, status: 'Scheduled',
         });
 
@@ -865,6 +979,186 @@ const generateMeetLinkForInterview = async (req, res) => {
     }
 };
 
+const getMyPerformanceStats = async (req, res) => {
+    try {
+        const userId = req.user.id;
+        const { period } = req.query;
+
+        // Check if user is a manager/head to perform team aggregation
+        let memberIds = [userId];
+        const isHead = req.user.role === 'Department Head' || req.user.role === 'Admin' || req.user.id === '60de4380-0140-49ff-b26d-a8d06333af11';
+        
+        if (isHead) {
+            const teamMembers = await DepartmentTeam.findAll({ 
+                where: { managerId: userId },
+                attributes: ['id']
+            });
+            if (teamMembers.length > 0) {
+                memberIds = [...memberIds, ...teamMembers.map(m => m.id)];
+            }
+        }
+
+        // Position Filter (All positions managed by the head or their direct reports)
+        const posWhere = {
+            [Op.or]: [
+                { departmentTeamId: { [Op.in]: memberIds } }, 
+                { teamLeaderId: { [Op.in]: memberIds } }
+            ]
+        };
+
+        // Time Filter for header stats
+        let timeFilter = {};
+        const now = new Date();
+        if (period === 'This Month') {
+            timeFilter = { [Op.gte]: new Date(now.getFullYear(), now.getMonth(), 1) };
+        } else if (period === 'Last Month') {
+            timeFilter = { 
+                [Op.gte]: new Date(now.getFullYear(), now.getMonth() - 1, 1),
+                [Op.lte]: new Date(now.getFullYear(), now.getMonth(), 0)
+            };
+        } else if (period === 'This Quarter') {
+            const quarter = Math.floor(now.getMonth() / 3);
+            timeFilter = { [Op.gte]: new Date(now.getFullYear(), quarter * 3, 1) };
+        } else if (period === 'All Time') {
+            timeFilter = {}; // No time filter
+        }
+
+        const managedPositions = await RecruitmentPosition.findAll({
+            where: posWhere,
+            attributes: ['id']
+        });
+        const managedIds = managedPositions.map(p => p.id);
+
+        if (managedIds.length === 0) {
+            return res.status(200).json({ 
+                success: true, 
+                data: { 
+                    activePositions: 0, thisWeekHires: 0, interviewsScheduled: 0, 
+                    candidatesPipeline: 0, offersExtended: 0,
+                    weeklyActivity: [], conversionMetrics: { screeningToInterview: 0, interviewToOffer: 0, offerToJoin: 0 }
+                } 
+            });
+        }
+
+        // Header Stats
+        const headerStats = {
+            activePositions: await RecruitmentPosition.count({ where: { ...posWhere, status: 'Open' } }),
+            thisWeekHires: await Candidate.count({ 
+                where: { 
+                    positionId: { [Op.in]: managedIds }, 
+                    stage: 'Joined',
+                    ...(Object.keys(timeFilter).length && { updatedAt: timeFilter })
+                } 
+            }),
+            interviewsScheduled: await Interview.count({ 
+                where: { 
+                    [Op.or]: [
+                        { positionId: { [Op.in]: managedIds } },
+                        { interviewerId: { [Op.in]: memberIds } },
+                        { interviewerName: { [Op.iLike]: `%${req.user.name.split(' ')[0]}%` } }
+                    ],
+                    ...(Object.keys(timeFilter).length && { interviewDate: timeFilter })
+                } 
+            }),
+            candidatesPipeline: await Candidate.count({ 
+                where: { 
+                    [Op.or]: [
+                        { positionId: { [Op.in]: managedIds } },
+                        { addedById: { [Op.in]: memberIds } }
+                    ],
+                    ...(Object.keys(timeFilter).length && { createdAt: timeFilter })
+                } 
+            }),
+            offersExtended: await Candidate.count({ 
+                where: { 
+                    positionId: { [Op.in]: managedIds }, 
+                    stage: 'Offer',
+                    ...(Object.keys(timeFilter).length && { updatedAt: timeFilter })
+                } 
+            })
+        };
+
+        // Weekly Activity (Last 5 business days)
+        const weeklyActivity = [];
+        for (let i = 4; i >= 0; i--) {
+            const date = new Date();
+            date.setDate(date.getDate() - i);
+            const startOfDay = new Date(date).setHours(0, 0, 0, 0);
+            const endOfDay = new Date(date).setHours(23, 59, 59, 999);
+            
+            const dayName = date.toLocaleDateString('en-US', { weekday: 'long' });
+            
+            const dayHires = await Candidate.count({ 
+                where: { 
+                    positionId: { [Op.in]: managedIds }, 
+                    stage: 'Joined', 
+                    updatedAt: { [Op.between]: [new Date(startOfDay), new Date(endOfDay)] } 
+                } 
+            });
+            const dayInterviews = await Interview.count({ 
+                where: { 
+                    [Op.or]: [
+                        { positionId: { [Op.in]: managedIds } },
+                        { interviewerId: { [Op.in]: memberIds } },
+                        { interviewerName: { [Op.iLike]: `%${req.user.name.split(' ')[0]}%` } }
+                    ], 
+                    interviewDate: { [Op.between]: [new Date(startOfDay), new Date(endOfDay)] } 
+                } 
+            });
+            const dayScreenings = await Candidate.count({ 
+                where: { 
+                    [Op.or]: [
+                        { positionId: { [Op.in]: managedIds } },
+                        { addedById: { [Op.in]: memberIds } }
+                    ], 
+                    createdAt: { [Op.between]: [new Date(startOfDay), new Date(endOfDay)] } 
+                } 
+            });
+            
+            weeklyActivity.push({ day: dayName, hires: dayHires, interviews: dayInterviews, screenings: dayScreenings });
+        }
+
+        // Conversion Metrics (Lifetime for this period context)
+        const totalScreened = await Candidate.count({ 
+            where: { 
+                [Op.or]: [
+                    { positionId: { [Op.in]: managedIds } },
+                    { addedById: { [Op.in]: memberIds } }
+                ]
+            } 
+        });
+        const totalInterviewsDone = await Interview.count({ 
+            where: { 
+                [Op.or]: [
+                    { positionId: { [Op.in]: managedIds } },
+                    { interviewerId: { [Op.in]: memberIds } },
+                    { interviewerName: { [Op.iLike]: `%${req.user.name.split(' ')[0]}%` } }
+                ]
+            } 
+        });
+        const totalOffers = await Candidate.count({ where: { positionId: { [Op.in]: managedIds }, stage: 'Offer' } });
+        const totalJoined = await Candidate.count({ where: { positionId: { [Op.in]: managedIds }, stage: 'Joined' } });
+
+        const conversionMetrics = {
+            screeningToInterview: totalScreened > 0 ? Math.round((totalInterviewsDone / totalScreened) * 100) : 0,
+            interviewToOffer: totalInterviewsDone > 0 ? Math.round((totalOffers / totalInterviewsDone) * 100) : 0,
+            offerToJoin: totalOffers > 0 ? Math.round((totalJoined / totalOffers) * 100) : 0
+        };
+
+        res.status(200).json({ 
+            success: true, 
+            data: { 
+                ...headerStats,
+                weeklyActivity,
+                conversionMetrics
+            } 
+        });
+    } catch (error) {
+        console.error('Error fetching personal performance stats:', error);
+        res.status(500).json({ success: false, message: 'Failed to fetch personal stats', error: error.message });
+    }
+};
+
 module.exports = {
     getKamsWithRecruitment,
     createRecruitmentPosition,
@@ -877,7 +1171,7 @@ module.exports = {
     getCandidatesByPosition,
     getRecruitmentStats,
     getClientRecruitmentProgress,
-    // New functions
+    getMyPerformanceStats,
     getRequests,
     uploadResumes,
     acceptCandidateSimple,
@@ -890,4 +1184,5 @@ module.exports = {
     closeRequest,
     generateMeetLinkForInterview,
     createRequest,
+    getCandidateById
 };

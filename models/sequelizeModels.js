@@ -18,7 +18,7 @@ const sequelize = new Sequelize(
             idle: 10000
         },
         dialectOptions: {
-            ssl: {
+            ssl: process.env.DB_SSL === 'false' ? false : {
                 require: true,
                 rejectUnauthorized: false
             }
@@ -771,6 +771,28 @@ const Candidate = sequelize.define('Candidate', {
     expectedSalary: {
         type: DataTypes.STRING,
         allowNull: true
+    },
+    addedById: {
+        type: DataTypes.UUID,
+        allowNull: true,
+        references: {
+            model: 'department_teams',
+            key: 'id'
+        },
+        comment: 'The user who added/sourced this candidate'
+    },
+    skillMatch: {
+        type: DataTypes.INTEGER,
+        defaultValue: 0
+    },
+    experienceMatch: {
+        type: DataTypes.INTEGER,
+        defaultValue: 0
+    },
+    // For data migration fallback
+    teamLeaderId: {
+        type: DataTypes.UUID,
+        allowNull: true
     }
 }, {
     tableName: 'candidates',
@@ -844,10 +866,13 @@ const Interview = sequelize.define('Interview', {
         type: DataTypes.STRING,
         allowNull: true
     },
-    // Interviewer Details (flattened)
     interviewerId: {
         type: DataTypes.UUID,
-        allowNull: true
+        allowNull: true,
+        references: {
+            model: 'department_teams',
+            key: 'id'
+        }
     },
     interviewerType: {
         type: DataTypes.ENUM('TeamLeader', 'DepartmentTeam', 'Client'),

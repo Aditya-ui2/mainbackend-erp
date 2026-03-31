@@ -425,6 +425,9 @@ const getDownloadUrl = async (req, res) => {
         if (resume.driveId === 's3') {
             // S3 pre-signed URL (short-lived, auto-expires)
             downloadUrl = await s3Service.getDownloadUrl(resume.s3Key || resume.folderPath + resume.fileName);
+        } else if (resume.driveId === 'local') {
+            // Local file stored on the server's filesystem
+            downloadUrl = resume.webUrl;
         } else {
             // SharePoint — get fresh download URL via Graph API
             try {
