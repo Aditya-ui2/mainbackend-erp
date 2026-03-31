@@ -128,7 +128,7 @@ const getKamsWithRecruitment = async (req, res) => {
                 const ownedPositionIds = ownedPositions.map(position => position.id);
                 const ownedPositionCount = ownedPositions.filter(position => position.status === 'Open').length;
 
-                const [totalCandidates, interviews, hires, recentActivityCandidate] = await Promise.all([
+                const [totalCandidates, interviews, hires, recentActivityCandidate, profilesShared, callsDone, pendingTasks, completedTasks] = await Promise.all([
                     Candidate.count({
                         where: ownedPositionIds.length > 0
                             ? { positionId: { [Op.in]: ownedPositionIds } }
@@ -166,6 +166,42 @@ const getKamsWithRecruitment = async (req, res) => {
                         }],
                         order: [['updatedAt', 'DESC']],
                         limit: 3
+                    }),
+                    Candidate.count({
+                        where: ownedPositionIds.length > 0
+                            ? {
+                                positionId: { [Op.in]: ownedPositionIds },
+                                status: { [Op.in]: ['Shared', 'Shortlisted', 'Interview', 'Selected'] }
+                            }
+                            : { id: null }
+                    }),
+                    Interview.count({
+                        where: {
+                            [Op.and]: [
+                                { [Op.or]: interviewOr },
+                                { status: { [Op.ne]: 'Cancelled' } },
+                                {
+                                    [Op.or]: [
+                                        { interviewType: 'Phone Screening' },
+                                        { meetingType: 'Phone' }
+                                    ]
+                                }
+                            ]
+                        }
+                    }),
+                    DepartmentTask.count({
+                        where: {
+                            assignedTo: kam.id,
+                            department: 'HR Recruitment',
+                            status: { [Op.in]: ['Pending', 'In Progress', 'Overdue'] }
+                        }
+                    }),
+                    DepartmentTask.count({
+                        where: {
+                            assignedTo: kam.id,
+                            department: 'HR Recruitment',
+                            status: 'Completed'
+                        }
                     })
                 ]);
 
@@ -191,7 +227,11 @@ const getKamsWithRecruitment = async (req, res) => {
                         candidatesPipeline: totalCandidates,
                         interviewsScheduled: interviews,
                         thisWeekHires: hires,
-                        offersExtended: 0 // Default
+                        offersExtended: 0,
+                        profilesShared,
+                        callsDone,
+                        pendingTasks,
+                        completedTasks
                     },
                     recentActivity: activities.length > 0 ? activities : [{ action: 'No recent activity', candidate: '', time: 'N/A' }]
                 };
@@ -201,7 +241,17 @@ const getKamsWithRecruitment = async (req, res) => {
                 return {
                     ...kam.toJSON(),
                     avatar: kam.name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase(),
-                    stats: { activePositions: 0, candidatesPipeline: 0, interviewsScheduled: 0, thisWeekHires: 0, offersExtended: 0 },
+                    stats: {
+                        activePositions: 0,
+                        candidatesPipeline: 0,
+                        interviewsScheduled: 0,
+                        thisWeekHires: 0,
+                        offersExtended: 0,
+                        profilesShared: 0,
+                        callsDone: 0,
+                        pendingTasks: 0,
+                        completedTasks: 0
+                    },
                     recentActivity: [{ action: 'Error loading activity', candidate: '', time: 'N/A' }]
                 };
             }
@@ -460,23 +510,61 @@ const getCandidatesByPosition = async (req, res) => {
 // Get recruitment stats (for dashboard)
 const getRecruitmentStats = async (req, res) => {
     try {
+        const { year, month, date } = req.query;
+        
+        // Build date filter for candidates and positions
+        let dateFilter = {};
+        if (date) {
+            // Specific date filter
+            const specificDate = new Date(date);
+            const nextDay = new Date(specificDate);
+            nextDay.setDate(nextDay.getDate() + 1);
+            dateFilter = {
+                createdAt: {
+                    [Op.gte]: specificDate,
+                    [Op.lt]: nextDay
+                }
+            };
+        } else if (year && month) {
+            // Month filter
+            const startDate = new Date(year, month - 1, 1);
+            const endDate = new Date(year, month, 0, 23, 59, 59);
+            dateFilter = {
+                createdAt: {
+                    [Op.gte]: startDate,
+                    [Op.lte]: endDate
+                }
+            };
+        } else if (year) {
+            // Year filter
+            const startDate = new Date(year, 0, 1);
+            const endDate = new Date(year, 11, 31, 23, 59, 59);
+            dateFilter = {
+                createdAt: {
+                    [Op.gte]: startDate,
+                    [Op.lte]: endDate
+                }
+            };
+        }
+        
         const [totalPositions, openPositions, holdPositions, closedPositions] = await Promise.all([
-            RecruitmentPosition.count(),
-            RecruitmentPosition.count({ where: { status: 'Open' } }),
-            RecruitmentPosition.count({ where: { status: 'Hold' } }),
-            RecruitmentPosition.count({ where: { status: 'Closed' } }),
+            RecruitmentPosition.count({ where: dateFilter }),
+            RecruitmentPosition.count({ where: { ...dateFilter, status: 'Open' } }),
+            RecruitmentPosition.count({ where: { ...dateFilter, status: 'Hold' } }),
+            RecruitmentPosition.count({ where: { ...dateFilter, status: 'Closed' } }),
         ]);
 
         const [totalCandidates, sharedCVs, shortlisted, selected] = await Promise.all([
-            Candidate.count(),
-            Candidate.count({ where: { status: { [Op.in]: ['Shared', 'Shortlisted', 'Interview', 'Selected'] } } }),
-            Candidate.count({ where: { status: { [Op.in]: ['Shortlisted', 'Interview', 'Selected'] } } }),
-            Candidate.count({ where: { status: 'Selected' } }),
+            Candidate.count({ where: dateFilter }),
+            Candidate.count({ where: { ...dateFilter, status: { [Op.in]: ['Shared', 'Shortlisted', 'Interview', 'Selected'] } } }),
+            Candidate.count({ where: { ...dateFilter, status: { [Op.in]: ['Shortlisted', 'Interview', 'Selected'] } } }),
+            Candidate.count({ where: { ...dateFilter, status: 'Selected' } }),
         ]);
 
         // Pipeline stage counts
         const stageCounts = await Candidate.findAll({
             attributes: ['stage', [fn('COUNT', col('id')), 'count']],
+            where: dateFilter,
             group: ['stage'],
             raw: true,
         });

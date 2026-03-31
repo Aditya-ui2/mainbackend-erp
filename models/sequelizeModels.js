@@ -1564,12 +1564,25 @@ const DailyReport = sequelize.define('DailyReport', {
     memberName: { type: DataTypes.STRING, allowNull: false },
     department: { type: DataTypes.ENUM('HR Operations', 'HR Recruitment'), allowNull: false },
     date: { type: DataTypes.DATEONLY, allowNull: false },
+    // Work Timing (MIS)
+    checkInTime: { type: DataTypes.STRING, allowNull: true },  // e.g. '09:05'
+    checkOutTime: { type: DataTypes.STRING, allowNull: true }, // e.g. '18:35'
+    workHours: { type: DataTypes.FLOAT, defaultValue: 0 },
+    // KPI Metrics (MIS)
+    callsCount: { type: DataTypes.INTEGER, defaultValue: 0 },
+    profilesVisited: { type: DataTypes.INTEGER, defaultValue: 0 },
+    profilesShared: { type: DataTypes.INTEGER, defaultValue: 0 },
+    candidatesContacted: { type: DataTypes.INTEGER, defaultValue: 0 },
+    interviewsArranged: { type: DataTypes.INTEGER, defaultValue: 0 },
+    // Existing fields
     summary: { type: DataTypes.TEXT, allowNull: false },
     tasksCompleted: { type: DataTypes.JSONB, defaultValue: [] },
     tasksPlanned: { type: DataTypes.JSONB, defaultValue: [] },
     blockers: { type: DataTypes.TEXT },
     mood: { type: DataTypes.ENUM('Great', 'Good', 'Okay', 'Tough'), defaultValue: 'Good' },
     headComment: { type: DataTypes.TEXT },
+    headCommentBy: { type: DataTypes.STRING, allowNull: true },
+    headCommentAt: { type: DataTypes.DATE, allowNull: true },
 }, { tableName: 'DailyReports', timestamps: true });
 
 // ============== ANNOUNCEMENT MODEL ==============

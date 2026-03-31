@@ -404,10 +404,12 @@ router.get('/dept-attendance', verifyAuthToken, mf.getDeptAttendance);
 // Performance
 router.get('/performance', verifyAuthToken, mf.getPerformanceStats);
 
-// Daily Reports
+// Daily Reports / MIS Reports
 router.post('/daily-report', verifyAuthToken, mf.submitDailyReport);
 router.get('/my-reports', verifyAuthToken, mf.getMyReports);
 router.get('/dept-reports', verifyAuthToken, mf.getDeptReports);
+router.get('/mis-reports', verifyAuthToken, mf.getMISReports);
+router.post('/daily-report/:id/comment', verifyAuthToken, mf.addHeadComment);
 
 // Announcements
 router.get('/announcements', verifyAuthToken, mf.getAnnouncements);

@@ -202,22 +202,39 @@ const getPerformanceStats = async (req, res) => {
 // ============== DAILY REPORTS ==============
 const submitDailyReport = async (req, res) => {
     try {
-        const { summary, tasksCompleted, tasksPlanned, blockers, mood } = req.body;
+        const {
+            summary, tasksCompleted, tasksPlanned, blockers, mood,
+            checkInTime, checkOutTime, workHours,
+            callsCount, profilesVisited, profilesShared,
+            candidatesContacted, interviewsArranged
+        } = req.body;
         const today = new Date().toISOString().split('T')[0];
         const existing = await DailyReport.findOne({ where: { memberId: req.user.id, date: today } });
+
+        const reportData = {
+            summary, tasksCompleted, tasksPlanned, blockers, mood,
+            checkInTime: checkInTime || null,
+            checkOutTime: checkOutTime || null,
+            workHours: parseFloat(workHours) || 0,
+            callsCount: parseInt(callsCount) || 0,
+            profilesVisited: parseInt(profilesVisited) || 0,
+            profilesShared: parseInt(profilesShared) || 0,
+            candidatesContacted: parseInt(candidatesContacted) || 0,
+            interviewsArranged: parseInt(interviewsArranged) || 0,
+        };
         
         let report;
         let message;
         
         if (existing) {
-            await existing.update({ summary, tasksCompleted, tasksPlanned, blockers, mood });
+            await existing.update(reportData);
             report = existing;
             message = 'Report updated!';
         } else {
             report = await DailyReport.create({
                 memberId: req.user.id, memberName: req.user.name,
                 department: req.user.department, date: today,
-                summary, tasksCompleted, tasksPlanned, blockers, mood,
+                ...reportData,
             });
             message = 'Report submitted!';
         }
@@ -261,6 +278,55 @@ const getDeptReports = async (req, res) => {
         if (req.query.date) where.date = req.query.date;
         const reports = await DailyReport.findAll({ where, order: [['date', 'DESC']], limit: 50 });
         res.json({ success: true, reports });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
+
+// GET /department/mis-reports — Head view: all KAM MIS reports with filters
+const getMISReports = async (req, res) => {
+    try {
+        const { date, memberId, startDate, endDate } = req.query;
+        const department = req.query.department || req.user.department || 'HR Recruitment';
+        const where = { department };
+
+        if (date) {
+            where.date = date;
+        } else if (startDate && endDate) {
+            const { Op } = require('sequelize');
+            where.date = { [Op.between]: [startDate, endDate] };
+        } else {
+            // Default: last 30 days
+            const { Op } = require('sequelize');
+            const thirtyDaysAgo = new Date();
+            thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+            where.date = { [Op.gte]: thirtyDaysAgo.toISOString().split('T')[0] };
+        }
+        if (memberId) where.memberId = memberId;
+
+        const reports = await DailyReport.findAll({
+            where,
+            order: [['date', 'DESC'], ['memberName', 'ASC']],
+            limit: 200,
+        });
+        res.json({ success: true, reports });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
+
+// POST /department/daily-report/:id/comment — Head can add a comment
+const addHeadComment = async (req, res) => {
+    try {
+        const { comment } = req.body;
+        const report = await DailyReport.findByPk(req.params.id);
+        if (!report) return res.status(404).json({ success: false, message: 'Report not found' });
+        await report.update({
+            headComment: comment,
+            headCommentBy: req.user.name,
+            headCommentAt: new Date(),
+        });
+        res.json({ success: true, message: 'Comment added', report });
     } catch (error) {
         res.status(500).json({ success: false, message: error.message });
     }
@@ -476,7 +542,7 @@ module.exports = {
     getLeaveRequests, applyLeave, getDeptLeaveRequests, approveRejectLeave,
     checkIn, checkOut, getMyAttendance, getDeptAttendance,
     getPerformanceStats,
-    submitDailyReport, getMyReports, getDeptReports,
+    submitDailyReport, getMyReports, getDeptReports, getMISReports, addHeadComment,
     getAnnouncements, createAnnouncement, deleteAnnouncement,
     getDocuments, uploadDocument, deleteDocument,
     getMyTrainings, updateTraining, assignTraining,
