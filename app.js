@@ -336,6 +336,20 @@ const { sequelize } = require('./models/sequelizeModels');
         await sequelize.query('ALTER TABLE interviews ADD COLUMN IF NOT EXISTS \"interviewerName\" VARCHAR(255)');
         await sequelize.query('ALTER TABLE interviews ADD COLUMN IF NOT EXISTS \"interviewerRole\" VARCHAR(255)');
         await sequelize.query('ALTER TABLE interviews ADD COLUMN IF NOT EXISTS \"interviewerEmail\" VARCHAR(255)');
+        await sequelize.query(`
+            CREATE TABLE IF NOT EXISTS "DepartmentNotes" (
+                "id" UUID PRIMARY KEY,
+                "department" VARCHAR(255) NOT NULL,
+                "title" VARCHAR(255) NOT NULL,
+                "content" TEXT NOT NULL,
+                "category" VARCHAR(255) DEFAULT 'General',
+                "priority" VARCHAR(255) DEFAULT 'normal',
+                "createdById" UUID,
+                "createdByName" VARCHAR(255),
+                "createdAt" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+                "updatedAt" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+            )
+        `);
         await sequelize.query('ALTER TABLE recruitment_positions ADD COLUMN IF NOT EXISTS \"postedByUserId\" UUID');
         await sequelize.query('ALTER TABLE recruitment_positions ADD COLUMN IF NOT EXISTS \"postedByUserType\" VARCHAR(255)');
         await sequelize.query('ALTER TABLE recruitment_positions ADD COLUMN IF NOT EXISTS \"postedByName\" VARCHAR(255)');
