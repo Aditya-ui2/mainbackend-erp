@@ -2,6 +2,7 @@ const { Op, fn, col, literal } = require('sequelize');
 const { TeamLeader, Client, RecruitmentPosition, Candidate, Interview, DepartmentTask, ResumeBank, DepartmentTeam } = require('../models/sequelizeModels');
 const fs = require('fs');
 const path = require('path');
+const sendEmail = require('../utils/emailService');
 
 const escapeLike = (value = '') => String(value).replace(/[\\%_]/g, '\\$&');
 
@@ -26,6 +27,23 @@ const normalizePositionStatus = (value = '', priority = '') => {
     if (priority === 'Urgent') return 'Open';
     return 'Open';
 };
+
+const buildOfferEmailHtml = ({ candidateName, position, client, offeredCTC, joiningDate, expiryDate }) => `
+    <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #0f172a;">
+        <h2 style="margin-bottom: 12px; color: #0f4c81;">Offer Letter</h2>
+        <p>Dear ${candidateName || 'Candidate'},</p>
+        <p>Your offer details have been shared by the recruitment team.</p>
+        <ul>
+            <li><strong>Position:</strong> ${position || 'N/A'}</li>
+            <li><strong>Client:</strong> ${client || 'Internal'}</li>
+            <li><strong>Offered CTC:</strong> ${offeredCTC || 'N/A'}</li>
+            <li><strong>Joining Date:</strong> ${joiningDate || 'N/A'}</li>
+            <li><strong>Offer Valid Till:</strong> ${expiryDate || 'N/A'}</li>
+        </ul>
+        <p>Please review the attached offer letter and revert in case of any questions.</p>
+        <p>Regards,<br/>Mabicons Recruitment Team</p>
+    </div>
+`;
 
 const resolvePositionOwnership = async ({ departmentTeamId, teamLeaderId, userId }) => {
     let resolvedDepartmentTeamId = null;
@@ -88,7 +106,28 @@ const buildInterviewMatchers = (kam) => {
     ];
 };
 
-const buildDateRangeFromQuery = ({ year, month, date } = {}) => {
+const buildDateRangeFromQuery = ({ year, month, date, startDate, endDate } = {}) => {
+    if (startDate || endDate) {
+        const parsedStart = startDate ? new Date(startDate) : new Date(endDate);
+        const parsedEnd = endDate ? new Date(endDate) : new Date(startDate);
+
+        if (Number.isNaN(parsedStart.getTime()) || Number.isNaN(parsedEnd.getTime())) {
+            return null;
+        }
+
+        const minDate = parsedStart <= parsedEnd ? parsedStart : parsedEnd;
+        const maxDate = parsedStart <= parsedEnd ? parsedEnd : parsedStart;
+
+        const normalizedStart = new Date(minDate);
+        normalizedStart.setHours(0, 0, 0, 0);
+
+        const normalizedEnd = new Date(maxDate);
+        normalizedEnd.setHours(0, 0, 0, 0);
+        normalizedEnd.setDate(normalizedEnd.getDate() + 1);
+
+        return { startDate: normalizedStart, endDate: normalizedEnd };
+    }
+
     if (date) {
         const startDate = new Date(date);
         if (Number.isNaN(startDate.getTime())) return null;
@@ -963,6 +1002,8 @@ const getOffers = async (req, res) => {
                 expiryDate: candidate.offerExpiryDate || '',
                 status: candidate.offerStatus || 'Draft',
                 negotiationNotes: candidate.negotiationNotes || '',
+                offerLetterUrl: candidate.offerLetterUrl || '',
+                offerLetterFileName: candidate.offerLetterFileName || '',
                 photo: candidate.photo || ''
             }));
 
@@ -989,6 +1030,21 @@ const createOrUpdateOffer = async (req, res) => {
             status,
             negotiationNotes
         } = req.body;
+
+        let uploadedOfferMeta = null;
+        if (req.file) {
+            const offerDirectory = path.join(__dirname, '..', 'uploads', 'offers');
+            fs.mkdirSync(offerDirectory, { recursive: true });
+            const sanitizedFileName = `${Date.now()}-${req.file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+            const targetPath = path.join(offerDirectory, sanitizedFileName);
+            fs.writeFileSync(targetPath, req.file.buffer);
+            uploadedOfferMeta = {
+                offerLetterUrl: `/uploads/offers/${sanitizedFileName}`,
+                offerLetterFileName: req.file.originalname,
+                emailAttachmentName: req.file.originalname,
+                emailAttachmentContent: req.file.buffer.toString('base64')
+            };
+        }
 
         let candidate = null;
         if (candidateId || req.params.candidateId) {
@@ -1040,9 +1096,35 @@ const createOrUpdateOffer = async (req, res) => {
             offerExpiryDate: expiryDate || null,
             offerStatus: normalizeOfferStatus(status),
             negotiationNotes: negotiationNotes || null,
+            offerLetterUrl: uploadedOfferMeta?.offerLetterUrl || candidate.offerLetterUrl || null,
+            offerLetterFileName: uploadedOfferMeta?.offerLetterFileName || candidate.offerLetterFileName || null,
             stage: normalizeOfferStatus(status) === 'Accepted' ? 'Joined' : 'Offer Sent',
             status: normalizeOfferStatus(status) === 'Rejected' ? 'Rejected' : (normalizeOfferStatus(status) === 'Accepted' ? 'Selected' : candidate.status || 'Selected')
         });
+
+        if (candidate.email && uploadedOfferMeta) {
+            try {
+                await sendEmail({
+                    email: candidate.email,
+                    name: candidate.name,
+                    subject: `Offer Letter - ${position || 'Mabicons Opportunity'}`,
+                    htmlContent: buildOfferEmailHtml({
+                        candidateName: candidate.name,
+                        position,
+                        client,
+                        offeredCTC,
+                        joiningDate,
+                        expiryDate
+                    }),
+                    attachments: [{
+                        name: uploadedOfferMeta.emailAttachmentName,
+                        content: uploadedOfferMeta.emailAttachmentContent
+                    }]
+                });
+            } catch (emailError) {
+                console.error('Failed to send offer email:', emailError.response?.data || emailError.message);
+            }
+        }
 
         const refreshed = await Candidate.findByPk(candidate.id, {
             include: [
@@ -1068,6 +1150,8 @@ const createOrUpdateOffer = async (req, res) => {
                 expiryDate: refreshed.offerExpiryDate || '',
                 status: refreshed.offerStatus || 'Draft',
                 negotiationNotes: refreshed.negotiationNotes || '',
+                offerLetterUrl: refreshed.offerLetterUrl || '',
+                offerLetterFileName: refreshed.offerLetterFileName || '',
                 photo: refreshed.photo || ''
             }
         });
@@ -1248,7 +1332,8 @@ const createRequest = async (req, res) => {
 const uploadResumes = async (req, res) => {
     try {
         const files = req.files;
-        const { positionId, clientId } = req.body;
+        const { positionId, clientId, roleType } = req.body;
+        const resolvedRoleType = roleType?.trim() || 'Uncategorized';
 
         if (!files || files.length === 0) {
             return res.status(400).json({ success: false, message: 'No files uploaded' });
@@ -1290,7 +1375,7 @@ const uploadResumes = async (req, res) => {
                     fileName: file.originalname,
                     fileType: fileType,
                     fileSize: file.size,
-                    roleType: 'Uncategorized', // Default for bulk upload
+                    roleType: resolvedRoleType,
                     candidateName: candidate.name,
                     webUrl: `/uploads/resumes/${storedFileName}`
                 });

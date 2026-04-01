@@ -7,10 +7,12 @@ const http = require('http');
 const socketIO = require('socket.io');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
+const cron = require('node-cron');
 dotenv.config();
 const { Message } = require('./models/sequelizeModels');
 const swaggerUi = require('swagger-ui-express');
 const swaggerSpec = require('./swagger');
+const { runAutomaticInterviewReminders } = require('./controllers/interview_sequelize');
 
 // Create HTTP server
 const server = http.createServer(app); // Add this
@@ -302,6 +304,9 @@ app.use('/api/resumebank', resumeBankRoutes);
 
 restartCronJobs();
 seedSuperAdmin();
+cron.schedule('* * * * *', () => {
+    runAutomaticInterviewReminders();
+});
 
 // Change app.listen to server.listen
 server.listen(PORT, () => {
@@ -324,6 +329,8 @@ const { sequelize } = require('./models/sequelizeModels');
         await sequelize.query('ALTER TABLE candidates ADD COLUMN IF NOT EXISTS \"joiningDate\" DATE');
         await sequelize.query('ALTER TABLE candidates ADD COLUMN IF NOT EXISTS \"negotiationNotes\" TEXT');
         await sequelize.query('ALTER TABLE candidates ADD COLUMN IF NOT EXISTS \"offerStatus\" VARCHAR(255) DEFAULT \'Draft\'');
+        await sequelize.query('ALTER TABLE candidates ADD COLUMN IF NOT EXISTS "offerLetterUrl" VARCHAR(255)');
+        await sequelize.query('ALTER TABLE candidates ADD COLUMN IF NOT EXISTS "offerLetterFileName" VARCHAR(255)');
         await sequelize.query('ALTER TABLE interviews ADD COLUMN IF NOT EXISTS \"interviewerId\" UUID');
         await sequelize.query('ALTER TABLE interviews ADD COLUMN IF NOT EXISTS \"interviewerType\" VARCHAR(255)');
         await sequelize.query('ALTER TABLE interviews ADD COLUMN IF NOT EXISTS \"interviewerName\" VARCHAR(255)');

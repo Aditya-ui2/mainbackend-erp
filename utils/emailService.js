@@ -22,7 +22,10 @@ const sendEmail = async (options) => {
                     name: options.name || options.email
                 }],
                 subject: options.subject,
-                htmlContent: options.htmlContent
+                htmlContent: options.htmlContent,
+                attachment: Array.isArray(options.attachments) && options.attachments.length > 0
+                    ? options.attachments
+                    : undefined
             },
             {
                 headers: {

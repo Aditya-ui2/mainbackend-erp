@@ -813,6 +813,14 @@ const Candidate = sequelize.define('Candidate', {
         allowNull: true,
         defaultValue: 'Draft'
     },
+    offerLetterUrl: {
+        type: DataTypes.STRING,
+        allowNull: true
+    },
+    offerLetterFileName: {
+        type: DataTypes.STRING,
+        allowNull: true
+    },
     addedById: {
         type: DataTypes.UUID,
         allowNull: true,

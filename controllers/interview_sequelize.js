@@ -8,7 +8,8 @@ const {
     RecruitmentPosition,
     DepartmentTeam,
     TeamLeader,
-    Client
+    Client,
+    Notification
 } = require('../models/sequelizeModels');
 
 const sendEmail = require('../utils/emailService');
@@ -107,6 +108,90 @@ const normalizeInterviewerType = (value) => {
     if (normalized === 'teamleader' || normalized === 'team_leader') return 'TeamLeader';
     if (normalized === 'client') return 'Client';
     return 'DepartmentTeam';
+};
+
+const sendInterviewReminderNotification = async (interview) => {
+    if (!interview.interviewerId) return;
+
+    try {
+        await Notification.create({
+            userId: interview.interviewerId,
+            userType: interview.interviewerType === 'TeamLeader' ? 'TeamLeader' : 'Employee',
+            message: `Interview with ${interview.candidate?.name || 'candidate'} starts in 10 minutes.`,
+            type: 'alert',
+            priority: 'high'
+        });
+    } catch (error) {
+        console.error('Failed to create interview reminder notification:', error.message);
+    }
+};
+
+const processInterviewReminder = async (interview) => {
+    const meetingLink = interview.meetingLink;
+    const formattedDate = new Date(interview.interviewDate).toLocaleDateString('en-IN', {
+        weekday: 'long',
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric'
+    });
+
+    await sendEmail({
+        email: interview.candidate.email,
+        name: interview.candidate.name,
+        subject: `Reminder: Interview in 10 Minutes - ${interview.position.title}`,
+        htmlContent: `
+            <div>
+                <h2>⏰ Interview Reminder</h2>
+                <p>Dear ${interview.candidate.name},</p>
+                <p>Your interview is scheduled for <strong>${formattedDate}</strong> at <strong>${interview.startTime}</strong>.</p>
+                <p><strong>Position:</strong> ${interview.position.title}</p>
+                <p><strong>Interview Type:</strong> ${interview.interviewType}</p>
+                ${interview.meetingType === 'Video' ? `<p><a href="${meetingLink}">Join Interview</a></p>` : ''}
+                <p>Please be ready 5-10 minutes before the scheduled slot.</p>
+                <p>Mabicons HR Team</p>
+            </div>
+        `
+    });
+
+    interview.reminderSent = true;
+    await interview.save();
+    await sendInterviewReminderNotification(interview);
+};
+
+const runAutomaticInterviewReminders = async () => {
+    try {
+        const now = new Date();
+        const windowStart = new Date(now.getTime() + 9 * 60 * 1000);
+        const windowEnd = new Date(now.getTime() + 11 * 60 * 1000);
+
+        const interviews = await Interview.findAll({
+            where: {
+                status: 'Scheduled',
+                reminderSent: false,
+                interviewDate: {
+                    [Op.between]: [windowStart, windowEnd]
+                }
+            },
+            include: [
+                { model: Candidate, as: 'candidate' },
+                { model: RecruitmentPosition, as: 'position' }
+            ]
+        });
+
+        for (const interview of interviews) {
+            if (!interview.candidate?.email || !interview.position?.title) {
+                continue;
+            }
+
+            try {
+                await processInterviewReminder(interview);
+            } catch (error) {
+                console.error(`Failed to send automatic reminder for interview ${interview.id}:`, error.response?.data || error.message);
+            }
+        }
+    } catch (error) {
+        console.error('Automatic interview reminder scheduler failed:', error.message);
+    }
 };
 
 const sendInterviewInvitation = async (interview, candidate, position) => {
@@ -639,34 +724,9 @@ const sendInterviewReminder = async (req, res) => {
         if (!interview) return res.status(404).json({ success: false, message: 'Interview not found' });
 
         const meetingLink = interview.meetingLink;
-        const formattedDate = new Date(interview.interviewDate).toLocaleDateString('en-IN', {
-            weekday: 'long',
-            year: 'numeric',
-            month: 'long',
-            day: 'numeric'
-        });
 
         try {
-            await sendEmail({
-                email: interview.candidate.email,
-                name: interview.candidate.name,
-                subject: `Reminder: Interview Tomorrow - ${interview.position.title}`,
-                htmlContent: `
-                    <div>
-                        <h2>⏰ Interview Reminder</h2>
-                        <p>Dear ${interview.candidate.name},</p>
-                        <p>This is a friendly reminder about your interview scheduled for <strong>${formattedDate}</strong> at <strong>${interview.startTime}</strong>.</p>
-                        <p><strong>Position:</strong> ${interview.position.title}</p>
-                        <p><strong>Interview Type:</strong> ${interview.interviewType}</p>
-                        ${interview.meetingType === 'Video' ? `<a href="${meetingLink}">Join Interview</a>` : ''}
-                        <p>Best of luck!</p>
-                        <p>Mabicons HR Team</p>
-                    </div>
-                `
-            });
-
-            interview.reminderSent = true;
-            await interview.save();
+            await processInterviewReminder(interview);
 
             return res.status(200).json({ success: true, message: 'Reminder email sent successfully', emailSent: true });
         } catch (error) {
@@ -715,5 +775,6 @@ module.exports = {
     getInterviewFeedbackForm,
     cancelInterview,
     deleteInterview,
-    sendInterviewReminder
+    sendInterviewReminder,
+    runAutomaticInterviewReminders
 };

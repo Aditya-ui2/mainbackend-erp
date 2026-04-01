@@ -291,8 +291,8 @@ router.get('/positions/:positionId/candidates', verifyAuthToken, getCandidatesBy
 router.get('/stats', verifyAuthToken, getRecruitmentStats);
 router.get('/my-performance', verifyAuthToken, getMyPerformanceStats);
 router.get('/offers', verifyAuthToken, getOffers);
-router.post('/offers', verifyAuthToken, createOrUpdateOffer);
-router.put('/offers/:candidateId', verifyAuthToken, createOrUpdateOffer);
+router.post('/offers', verifyAuthToken, upload.single('offerLetter'), createOrUpdateOffer);
+router.put('/offers/:candidateId', verifyAuthToken, upload.single('offerLetter'), createOrUpdateOffer);
 router.get('/offers/candidate-suggestions', verifyAuthToken, getOfferCandidatesSuggestions);
 
 // Get all positions with filtering
