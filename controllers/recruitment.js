@@ -88,6 +88,50 @@ const buildInterviewMatchers = (kam) => {
     ];
 };
 
+const buildDateRangeFromQuery = ({ year, month, date } = {}) => {
+    if (date) {
+        const startDate = new Date(date);
+        if (Number.isNaN(startDate.getTime())) return null;
+
+        startDate.setHours(0, 0, 0, 0);
+        const endDate = new Date(startDate);
+        endDate.setDate(endDate.getDate() + 1);
+        return { startDate, endDate };
+    }
+
+    const yearNumber = Number(year);
+    if (!Number.isInteger(yearNumber) || yearNumber < 2000) {
+        return null;
+    }
+
+    if (month !== undefined) {
+        const monthNumber = Number(month);
+        if (!Number.isInteger(monthNumber) || monthNumber < 1 || monthNumber > 12) {
+            return null;
+        }
+
+        const startDate = new Date(yearNumber, monthNumber - 1, 1);
+        const endDate = new Date(yearNumber, monthNumber, 1);
+        return { startDate, endDate };
+    }
+
+    return {
+        startDate: new Date(yearNumber, 0, 1),
+        endDate: new Date(yearNumber + 1, 0, 1)
+    };
+};
+
+const buildDateFieldFilter = (dateRange, fieldName = 'createdAt') => {
+    if (!dateRange) return {};
+
+    return {
+        [fieldName]: {
+            [Op.gte]: dateRange.startDate,
+            [Op.lt]: dateRange.endDate
+        }
+    };
+};
+
 const normalizeOfferStatus = (value = '') => {
     const allowed = ['Draft', 'Pending Approval', 'Sent', 'Negotiating', 'Accepted', 'Rejected', 'Expired'];
     return allowed.includes(value) ? value : 'Draft';
@@ -96,6 +140,12 @@ const normalizeOfferStatus = (value = '') => {
 // Get all KAMs (DepartmentTeam members) with their recruitment positions and stats
 const getKamsWithRecruitment = async (req, res) => {
     try {
+        const dateRange = buildDateRangeFromQuery(req.query);
+        const positionDateFilter = buildDateFieldFilter(dateRange, 'createdAt');
+        const candidateDateFilter = buildDateFieldFilter(dateRange, 'createdAt');
+        const interviewDateFilter = buildDateFieldFilter(dateRange, 'interviewDate');
+        const activityDateFilter = buildDateFieldFilter(dateRange, 'updatedAt');
+
         // Fetch all members of the HR Recruitment department
         const kams = await DepartmentTeam.findAll({
             where: {
@@ -108,6 +158,16 @@ const getKamsWithRecruitment = async (req, res) => {
         // 7-day window for "This Week Hires"
         const weekAgo = new Date();
         weekAgo.setDate(weekAgo.getDate() - 7);
+        const hiresDateFilter = dateRange
+            ? {
+                updatedAt: {
+                    [Op.gte]: new Date(Math.max(weekAgo.getTime(), dateRange.startDate.getTime())),
+                    [Op.lt]: dateRange.endDate
+                }
+            }
+            : {
+                updatedAt: { [Op.gte]: weekAgo }
+            };
 
         const kamsWithStats = await Promise.all(kams.map(async (kam) => {
             try {
@@ -116,9 +176,14 @@ const getKamsWithRecruitment = async (req, res) => {
                 
                 const ownedPositions = await RecruitmentPosition.findAll({
                     where: {
-                        [Op.or]: [
-                            { departmentTeamId: kam.id },
-                            { teamLeaderId: kam.id }
+                        [Op.and]: [
+                            {
+                                [Op.or]: [
+                                    { departmentTeamId: kam.id },
+                                    { teamLeaderId: kam.id }
+                                ]
+                            },
+                            ...(dateRange ? [positionDateFilter] : [])
                         ]
                     },
                     attributes: ['id', 'title', 'status'],
@@ -131,14 +196,15 @@ const getKamsWithRecruitment = async (req, res) => {
                 const [totalCandidates, interviews, hires, recentActivityCandidate, profilesShared, callsDone, pendingTasks, completedTasks] = await Promise.all([
                     Candidate.count({
                         where: ownedPositionIds.length > 0
-                            ? { positionId: { [Op.in]: ownedPositionIds } }
+                            ? { positionId: { [Op.in]: ownedPositionIds }, ...candidateDateFilter }
                             : { id: null }
                     }),
                     Interview.count({
                         where: {
                             [Op.and]: [
                                 { [Op.or]: interviewOr },
-                                { status: { [Op.ne]: 'Cancelled' } }
+                                { status: { [Op.ne]: 'Cancelled' } },
+                                ...(dateRange ? [interviewDateFilter] : [])
                             ]
                         }
                     }),
@@ -150,13 +216,13 @@ const getKamsWithRecruitment = async (req, res) => {
                                     { status: 'Selected' },
                                     { stage: 'Joined' }
                                 ],
-                                updatedAt: { [Op.gte]: weekAgo }
+                                ...hiresDateFilter
                             }
                             : { id: null }
                     }),
                     Candidate.findAll({
                         where: ownedPositionIds.length > 0
-                            ? { positionId: { [Op.in]: ownedPositionIds } }
+                            ? { positionId: { [Op.in]: ownedPositionIds }, ...activityDateFilter }
                             : { id: null },
                         include: [{ 
                             model: RecruitmentPosition, 
@@ -171,7 +237,8 @@ const getKamsWithRecruitment = async (req, res) => {
                         where: ownedPositionIds.length > 0
                             ? {
                                 positionId: { [Op.in]: ownedPositionIds },
-                                status: { [Op.in]: ['Shared', 'Shortlisted', 'Interview', 'Selected'] }
+                                status: { [Op.in]: ['Shared', 'Shortlisted', 'Interview', 'Selected'] },
+                                ...candidateDateFilter
                             }
                             : { id: null }
                     }),
@@ -180,6 +247,7 @@ const getKamsWithRecruitment = async (req, res) => {
                             [Op.and]: [
                                 { [Op.or]: interviewOr },
                                 { status: { [Op.ne]: 'Cancelled' } },
+                                ...(dateRange ? [interviewDateFilter] : []),
                                 {
                                     [Op.or]: [
                                         { interviewType: 'Phone Screening' },
@@ -510,42 +578,8 @@ const getCandidatesByPosition = async (req, res) => {
 // Get recruitment stats (for dashboard)
 const getRecruitmentStats = async (req, res) => {
     try {
-        const { year, month, date } = req.query;
-        
-        // Build date filter for candidates and positions
-        let dateFilter = {};
-        if (date) {
-            // Specific date filter
-            const specificDate = new Date(date);
-            const nextDay = new Date(specificDate);
-            nextDay.setDate(nextDay.getDate() + 1);
-            dateFilter = {
-                createdAt: {
-                    [Op.gte]: specificDate,
-                    [Op.lt]: nextDay
-                }
-            };
-        } else if (year && month) {
-            // Month filter
-            const startDate = new Date(year, month - 1, 1);
-            const endDate = new Date(year, month, 0, 23, 59, 59);
-            dateFilter = {
-                createdAt: {
-                    [Op.gte]: startDate,
-                    [Op.lte]: endDate
-                }
-            };
-        } else if (year) {
-            // Year filter
-            const startDate = new Date(year, 0, 1);
-            const endDate = new Date(year, 11, 31, 23, 59, 59);
-            dateFilter = {
-                createdAt: {
-                    [Op.gte]: startDate,
-                    [Op.lte]: endDate
-                }
-            };
-        }
+        const dateRange = buildDateRangeFromQuery(req.query);
+        const dateFilter = buildDateFieldFilter(dateRange, 'createdAt');
         
         const [totalPositions, openPositions, holdPositions, closedPositions] = await Promise.all([
             RecruitmentPosition.count({ where: dateFilter }),
@@ -573,18 +607,20 @@ const getRecruitmentStats = async (req, res) => {
 
         // Position-wise metrics
         const positions = await RecruitmentPosition.findAll({
+            where: dateFilter,
             include: [{ model: Client, as: 'client', attributes: ['companyName', 'name'] }],
             limit: 10,
         });
 
         const positionMetrics = await Promise.all(positions.map(async (pos) => {
-            const candidateCount = await Candidate.count({ where: { positionId: pos.id } });
-            const filledCount = await Candidate.count({ where: { positionId: pos.id, stage: 'Joined' } });
+            const candidateCount = await Candidate.count({ where: { positionId: pos.id, ...dateFilter } });
+            const filledCount = await Candidate.count({ where: { positionId: pos.id, stage: 'Joined', ...dateFilter } });
             return { position: pos.title, openings: pos.openings || 1, filled: filledCount, total: candidateCount };
         }));
 
         // Client-wise metrics
         const allPositions = await RecruitmentPosition.findAll({
+            where: dateFilter,
             include: [{ model: Client, as: 'client', attributes: ['companyName', 'name'] }],
         });
         const clientGroups = {};
@@ -595,7 +631,7 @@ const getRecruitmentStats = async (req, res) => {
             clientGroups[clientName].positionIds.push(pos.id);
         });
         const clientMetrics = await Promise.all(Object.entries(clientGroups).map(async ([client, data]) => {
-            const filledCount = await Candidate.count({ where: { positionId: { [Op.in]: data.positionIds }, stage: 'Joined' } });
+            const filledCount = await Candidate.count({ where: { positionId: { [Op.in]: data.positionIds }, stage: 'Joined', ...dateFilter } });
             return { client, openings: data.openings, filled: filledCount };
         }));
 
