@@ -437,4 +437,10 @@ router.post('/chat', verifyAuthToken, mf.sendChatMessage);
 // Calendar
 router.get('/calendar', verifyAuthToken, mf.getCalendarEvents);
 
+// Notes
+router.get('/notes', verifyAuthToken, mf.getNotes);
+router.post('/notes', verifyAuthToken, mf.createNote);
+router.put('/notes/:id', verifyAuthToken, mf.updateNote);
+router.delete('/notes/:id', verifyAuthToken, mf.deleteNote);
+
 module.exports = router;

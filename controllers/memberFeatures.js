@@ -1,4 +1,4 @@
-const { DepartmentTeam, LeaveRequest, Attendance, DailyReport, Announcement, DeptDocument, Training, Payslip, DeptChat, DepartmentTask } = require('../models/sequelizeModels');
+const { DepartmentTeam, LeaveRequest, Attendance, DailyReport, Announcement, DeptDocument, Training, Payslip, DeptChat, DepartmentTask, DepartmentNote } = require('../models/sequelizeModels');
 const { Op } = require('sequelize');
 const { addNotification } = require('./notification');
 
@@ -537,6 +537,95 @@ const getCalendarEvents = async (req, res) => {
     }
 };
 
+// ============== NOTES ==============
+const getNotes = async (req, res) => {
+    try {
+        const { category, search, limit = 100 } = req.query;
+        const department = req.query.department || req.user.department;
+
+        const where = { department };
+        if (category && category !== 'all') where.category = category;
+        if (search) {
+            where[Op.or] = [
+                { title: { [Op.iLike]: `%${search}%` } },
+                { content: { [Op.iLike]: `%${search}%` } }
+            ];
+        }
+
+        const notes = await DepartmentNote.findAll({
+            where,
+            order: [['updatedAt', 'DESC']],
+            limit: Math.min(parseInt(limit, 10) || 100, 300)
+        });
+
+        res.json({ success: true, notes });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
+
+const createNote = async (req, res) => {
+    try {
+        const { title, content, category, priority } = req.body;
+        if (!title || !content) {
+            return res.status(400).json({ success: false, message: 'Title and content are required' });
+        }
+
+        const note = await DepartmentNote.create({
+            department: req.body.department || req.user.department,
+            title,
+            content,
+            category: category || 'General',
+            priority: priority || 'normal',
+            createdById: req.user.id,
+            createdByName: req.user.name
+        });
+
+        res.status(201).json({ success: true, note, message: 'Note created successfully' });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
+
+const updateNote = async (req, res) => {
+    try {
+        const note = await DepartmentNote.findByPk(req.params.id);
+        if (!note) return res.status(404).json({ success: false, message: 'Note not found' });
+
+        if (note.department !== (req.user.department || note.department)) {
+            return res.status(403).json({ success: false, message: 'Not allowed to edit this note' });
+        }
+
+        const { title, content, category, priority } = req.body;
+        await note.update({
+            title: title ?? note.title,
+            content: content ?? note.content,
+            category: category ?? note.category,
+            priority: priority ?? note.priority,
+        });
+
+        res.json({ success: true, note, message: 'Note updated successfully' });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
+
+const deleteNote = async (req, res) => {
+    try {
+        const note = await DepartmentNote.findByPk(req.params.id);
+        if (!note) return res.status(404).json({ success: false, message: 'Note not found' });
+
+        if (note.department !== (req.user.department || note.department)) {
+            return res.status(403).json({ success: false, message: 'Not allowed to delete this note' });
+        }
+
+        await note.destroy();
+        res.json({ success: true, message: 'Note deleted successfully' });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
+
 module.exports = {
     getMyProfile, updateMyProfile,
     getLeaveRequests, applyLeave, getDeptLeaveRequests, approveRejectLeave,
@@ -549,4 +638,5 @@ module.exports = {
     getMyPayslips, generatePayslip,
     getChatMessages, sendChatMessage,
     getCalendarEvents,
+    getNotes, createNote, updateNote, deleteNote,
 };

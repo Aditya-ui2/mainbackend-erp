@@ -1063,6 +1063,9 @@ const createOrUpdateOffer = async (req, res) => {
             return res.status(404).json({ success: false, message: 'Candidate not found for offer creation' });
         }
 
+        const normalizedRequestEmail = typeof email === 'string' ? email.trim() : '';
+        const resolvedCandidateEmail = (candidate.email || normalizedRequestEmail || '').trim();
+
         let resolvedPositionId = candidate.positionId;
         let resolvedClientId = candidate.clientId;
 
@@ -1089,6 +1092,7 @@ const createOrUpdateOffer = async (req, res) => {
         await candidate.update({
             positionId: resolvedPositionId || candidate.positionId,
             clientId: resolvedClientId || candidate.clientId,
+            email: resolvedCandidateEmail || candidate.email,
             offeredCTC: offeredCTC || null,
             currentSalary: currentCTC || candidate.currentSalary || null,
             joiningDate: joiningDate || null,
@@ -1102,10 +1106,19 @@ const createOrUpdateOffer = async (req, res) => {
             status: normalizeOfferStatus(status) === 'Rejected' ? 'Rejected' : (normalizeOfferStatus(status) === 'Accepted' ? 'Selected' : candidate.status || 'Selected')
         });
 
-        if (candidate.email && uploadedOfferMeta) {
+        let emailNotification = {
+            attempted: Boolean(uploadedOfferMeta),
+            sent: false,
+            reason: null
+        };
+
+        if (uploadedOfferMeta) {
+            if (!resolvedCandidateEmail) {
+                emailNotification.reason = 'Candidate email is missing';
+            } else {
             try {
                 await sendEmail({
-                    email: candidate.email,
+                    email: resolvedCandidateEmail,
                     name: candidate.name,
                     subject: `Offer Letter - ${position || 'Mabicons Opportunity'}`,
                     htmlContent: buildOfferEmailHtml({
@@ -1121,8 +1134,14 @@ const createOrUpdateOffer = async (req, res) => {
                         content: uploadedOfferMeta.emailAttachmentContent
                     }]
                 });
+                emailNotification.sent = true;
             } catch (emailError) {
                 console.error('Failed to send offer email:', emailError.response?.data || emailError.message);
+                emailNotification.reason = emailError.response?.data?.message || emailError.message || 'Email provider error';
+                if (emailError?.code === 'BREVO_API_KEY_MISSING') {
+                    emailNotification.reason = 'BREVO_API_KEY missing in backend .env';
+                }
+            }
             }
         }
 
@@ -1135,7 +1154,10 @@ const createOrUpdateOffer = async (req, res) => {
 
         res.status(200).json({
             success: true,
-            message: 'Offer saved successfully',
+            message: uploadedOfferMeta
+                ? (emailNotification.sent ? 'Offer saved and email sent successfully' : 'Offer saved, but email was not sent')
+                : 'Offer saved successfully',
+            emailNotification,
             data: {
                 id: refreshed.id,
                 candidateId: refreshed.id,

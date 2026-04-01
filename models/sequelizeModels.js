@@ -1670,6 +1670,18 @@ const DeptChat = sequelize.define('DeptChat', {
     replyTo: { type: DataTypes.UUID },
 }, { tableName: 'DeptChats', timestamps: true });
 
+// ============== DEPARTMENT NOTE MODEL ==============
+const DepartmentNote = sequelize.define('DepartmentNote', {
+    id: { type: DataTypes.UUID, defaultValue: DataTypes.UUIDV4, primaryKey: true },
+    department: { type: DataTypes.ENUM('HR Operations', 'HR Recruitment'), allowNull: false },
+    title: { type: DataTypes.STRING, allowNull: false },
+    content: { type: DataTypes.TEXT, allowNull: false },
+    category: { type: DataTypes.STRING, defaultValue: 'General' },
+    priority: { type: DataTypes.ENUM('low', 'normal', 'high', 'urgent'), defaultValue: 'normal' },
+    createdById: { type: DataTypes.UUID, allowNull: true },
+    createdByName: { type: DataTypes.STRING, allowNull: true },
+}, { tableName: 'DepartmentNotes', timestamps: true });
+
 // ============== SHAREPOINT CANDIDATE MODEL ============== 
 const SharePointCandidate = sequelize.define('SharePointCandidate', {
     id: { type: DataTypes.UUID, defaultValue: DataTypes.UUIDV4, primaryKey: true },
@@ -1797,6 +1809,7 @@ module.exports = {
     Training,
     Payslip,
     DeptChat,
+    DepartmentNote,
     SharePointCandidate,
     SharePointInterview,
     SharePointClient,
