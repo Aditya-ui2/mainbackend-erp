@@ -895,7 +895,17 @@ const getAllCandidates = async (req, res) => {
         const { count: total, rows: candidates } = await Candidate.findAndCountAll({
             where,
             include: [
-                { model: RecruitmentPosition, as: 'position', attributes: ['title'] },
+                {
+                    model: RecruitmentPosition,
+                    as: 'position',
+                    attributes: ['id', 'title', 'status'],
+                    where: {
+                        status: {
+                            [Op.ne]: 'Closed'
+                        }
+                    },
+                    required: true
+                },
                 { model: Client, as: 'client', attributes: ['companyName', 'name'] },
             ],
             order: [['createdAt', 'DESC']],

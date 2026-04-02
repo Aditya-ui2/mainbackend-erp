@@ -75,7 +75,6 @@ const verifyAuthToken = (req, res, next) => {
         // Proceed to the next middleware or route handler
         next();
     } catch (error) {
-        console.error('Error verifying token:', error);
         return res.status(401).json({ message: 'Invalid or expired token' });
     }
 };

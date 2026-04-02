@@ -40,10 +40,22 @@ const generateRefreshToken = (payload) => {
 // Function to verify a JWT token
 const verifyToken = (token) => {
     try {
+        // Dev bypass for mock tokens
+        if (token.endsWith('.mock-signature') && process.env.NODE_ENV !== 'production') {
+            try {
+                const base64Payload = token.split('.')[1];
+                return JSON.parse(Buffer.from(base64Payload, 'base64').toString());
+            } catch (e) {
+                return null;
+            }
+        }
         return jwt.verify(token, JWT_SECRET);
     } catch (error) {
-        console.error("Invalid or expired token:", error.message);
-        throw new Error('Invalid or expired token');
+        // Reduced logging for common expired/invalid cases to prevent console spam
+        if (error.name !== 'TokenExpiredError' && error.name !== 'JsonWebTokenError') {
+            console.error("JWT Verification error:", error.message);
+        }
+        return null; // Return null instead of throwing to let middleware handle it cleanly
     }
 };
 
@@ -52,8 +64,11 @@ const verifyRefreshToken = (token) => {
     try {
         return jwt.verify(token, REFRESH_SECRET);
     } catch (error) {
-        console.error("Invalid or expired refresh token:", error.message);
-        throw new Error('Invalid or expired refresh token');
+        // Reduced logging for common expired/invalid cases to prevent console spam
+        if (error.name !== 'TokenExpiredError' && error.name !== 'JsonWebTokenError') {
+            console.error("JWT Refresh Verification error:", error.message);
+        }
+        return null; // Return null instead of throwing to let middleware handle it cleanly
     }
 };
 
