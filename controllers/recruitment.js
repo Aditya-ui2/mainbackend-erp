@@ -470,7 +470,33 @@ const updateRecruitmentPosition = async (req, res) => {
 // Add a candidate
 const addCandidate = async (req, res) => {
     try {
-        const { name, email, phone, positionId, clientId, skills, experience, currentSalary, expectedSalary, notes, location, noticePeriod, stage, pipelineStatus, rating, source } = req.body;
+        let { name, email, phone, positionId, clientId, skills, experience, currentSalary, expectedSalary, notes, location, noticePeriod, stage, pipelineStatus, rating, source } = req.body;
+        
+        // Robustness: Handle empty or mock UUID fields
+        const isUUID = (val) => /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(val);
+        
+        if (!isUUID(positionId)) positionId = null;
+        if (!isUUID(clientId)) clientId = null;
+        
+        let addedById = req.user?.id;
+        if (!isUUID(addedById)) addedById = null;
+
+        // Robustness: Handle skills (String/Array/JSON)
+        let parsedSkills = [];
+        try {
+            if (Array.isArray(skills)) {
+                parsedSkills = skills;
+            } else if (typeof skills === 'string') {
+                if (skills.startsWith('[') && skills.endsWith(']')) {
+                    parsedSkills = JSON.parse(skills);
+                } else if (skills.trim()) {
+                    parsedSkills = skills.split(',').map(s => s.trim()).filter(Boolean);
+                }
+            }
+        } catch (e) {
+            console.error('Error parsing skills:', e);
+            parsedSkills = [];
+        }
         
         let cvUrl = req.body.cvUrl || null;
         let cvFileName = req.body.cvFileName || null;
@@ -513,7 +539,7 @@ const addCandidate = async (req, res) => {
                     email: email,
                     phone: phone,
                     experience: experience,
-                    skills: Array.isArray(skills) ? skills : (skills ? skills.split(',').map(s => s.trim()) : []),
+                    skills: parsedSkills,
                     currentLocation: location,
                     noticePeriod: noticePeriod,
                     currentSalary: currentSalary,
@@ -530,14 +556,14 @@ const addCandidate = async (req, res) => {
 
         const candidate = await Candidate.create({
             name, email, phone, 
-            positionId: positionId || null, 
-            clientId: clientId || null, 
+            positionId, 
+            clientId, 
             cvUrl, cvFileName,
-            skills: Array.isArray(skills) ? skills : (skills ? skills.split(',').map(s => s.trim()) : []),
+            skills: parsedSkills,
             experience, currentSalary, expectedSalary, notes, location, noticePeriod,
             stage: stage || 'Screening', pipelineStatus: pipelineStatus || 'pending',
             rating: rating || 0, source, status: 'Submitted',
-            addedById: req.user?.id
+            addedById
         });
 
         res.status(201).json({ 
@@ -590,6 +616,89 @@ const updateCandidateStatus = async (req, res) => {
     } catch (error) {
         console.error('Error updating candidate status:', error);
         res.status(500).json({ success: false, message: 'Failed to update candidate', error: error.message });
+    }
+};
+
+
+// Update candidate profile
+const updateCandidate = async (req, res) => {
+    console.log('--- UPDATE CANDIDATE REQUEST ---');
+    console.log('ID:', req.params.id);
+    console.log('BODY:', JSON.stringify(req.body, null, 2));
+    try {
+        const { id } = req.params;
+        let { name, email, phone, positionId, clientId, skills, experience, currentSalary, expectedSalary, notes, location, noticePeriod, stage, pipelineStatus, rating, source } = req.body;
+
+        const candidate = await Candidate.findByPk(id);
+        if (!candidate) {
+            return res.status(404).json({ success: false, message: 'Candidate not found' });
+        }
+
+        // Robustness: Handle empty or mock UUID fields
+        const isUUID = (val) => /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(val);
+        
+        if (positionId !== undefined && !isUUID(positionId)) positionId = null;
+        if (clientId !== undefined && !isUUID(clientId)) clientId = null;
+
+        // Robustness: Handle skills (String/Array/JSON)
+        let parsedSkills = undefined;
+        if (skills !== undefined) {
+            try {
+                if (Array.isArray(skills)) {
+                    parsedSkills = skills;
+                } else if (typeof skills === 'string') {
+                    if (skills.startsWith('[') && skills.endsWith(']')) {
+                        parsedSkills = JSON.parse(skills);
+                    } else if (skills.trim()) {
+                        parsedSkills = skills.split(',').map(s => s.trim()).filter(Boolean);
+                    } else {
+                        parsedSkills = [];
+                    }
+                }
+            } catch (e) {
+                console.error('Error parsing skills during update:', e);
+                parsedSkills = [];
+            }
+        }
+
+        const updateData = {
+            name, email, phone, positionId, clientId,
+            experience, currentSalary, expectedSalary, notes, location, noticePeriod,
+            stage, pipelineStatus, rating, source
+        };
+        
+        if (parsedSkills !== undefined) updateData.skills = parsedSkills;
+
+        // Remove undefined fields to not overwrite with null unless intentional
+        Object.keys(updateData).forEach(key => {
+            if (updateData[key] === undefined) {
+                delete updateData[key];
+            }
+        });
+
+        await candidate.update(updateData);
+
+        // Reload with full info for frontend state synchronization
+        await candidate.reload({ 
+            include: [
+                { model: RecruitmentPosition, as: 'position', attributes: ['title'] },
+                { model: Client, as: 'client', attributes: ['name', 'companyName'] }
+            ] 
+        });
+
+        console.log('--- UPDATE SUCCESSFUL ---');
+        return res.status(200).json({ 
+            success: true, 
+            message: 'Candidate updated successfully', 
+            data: candidate 
+        });
+    } catch (error) {
+        console.error('--- UPDATE FAILED ---', error);
+        return res.status(500).json({ 
+            success: false, 
+            message: 'Failed to update candidate', 
+            error: error.message 
+        });
     }
 };
 
@@ -1907,5 +2016,6 @@ module.exports = {
     getCandidateById,
     getOffers,
     createOrUpdateOffer,
-    getOfferCandidatesSuggestions
+    getOfferCandidatesSuggestions,
+    updateCandidate
 };

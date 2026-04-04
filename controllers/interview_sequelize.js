@@ -13,10 +13,24 @@ const {
 } = require('../models/sequelizeModels');
 
 const sendEmail = require('../utils/emailService');
+const { validate: validateUuid } = require('uuid');
+
+// Helper to check if a string is a valid UUID
+const isValidUUID = (id) => {
+    if (!id || typeof id !== 'string') return false;
+    // Simple regex check or use uuid library if available
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    return uuidRegex.test(id) || (typeof validateUuid === 'function' && validateUuid(id));
+};
 
 // ============ HELPER: resolveInterviewIds ============
 const resolveInterviewIds = async (data) => {
     let { candidateId, positionId, clientId, candidateEmail, candidateName, positionTitle, clientName } = data;
+
+    // Sanitize IDs - if not valid UUID, treat as null to trigger auto-resolution
+    if (!isValidUUID(candidateId)) candidateId = null;
+    if (!isValidUUID(positionId)) positionId = null;
+    if (!isValidUUID(clientId)) clientId = null;
 
     // 1. Resolve or Create Client
     if (!clientId && clientName) {
@@ -250,6 +264,12 @@ const scheduleInterview = async (req, res) => {
             notes
         } = req.body;
 
+        // Sanitize interviewerId from body or user object
+        let sanInterviewerId = interviewerId;
+        if (!isValidUUID(sanInterviewerId)) {
+            sanInterviewerId = isValidUUID(req.user?.id) ? req.user.id : null;
+        }
+
         // --- FULLY RESILIENT ID RESOLUTION / AUTO-CREATION ---
         const resolvedIds = await resolveInterviewIds(req.body);
         const { candidateId, positionId, clientId } = resolvedIds;
@@ -288,7 +308,7 @@ const scheduleInterview = async (req, res) => {
             meetingLink: null,
             meetingToken: crypto.randomBytes(32).toString('hex'),
             meetingPassword: null,
-            interviewerId: interviewerId || req.user?.id || null,
+            interviewerId: sanInterviewerId,
             interviewerType: normalizeInterviewerType(interviewerType || req.user?.userType),
             interviewerName: interviewerName || req.user?.name || 'Hiring Team',
             interviewerEmail: interviewerEmail || req.user?.email || null,

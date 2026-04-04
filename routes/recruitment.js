@@ -47,7 +47,8 @@ const {
     getMyPerformanceStats,
     getOffers,
     createOrUpdateOffer,
-    getOfferCandidatesSuggestions
+    getOfferCandidatesSuggestions,
+    updateCandidate
 } = require('../controllers/recruitment');
 
 /**
@@ -194,6 +195,7 @@ router.put('/positions/:id', verifyAuthToken, updateRecruitmentPosition);
  *         description: Candidate added
  */
 router.post('/candidates', verifyAuthToken, upload.single('resume'), addCandidate);
+router.put('/candidates/:id', verifyAuthToken, updateCandidate);
 
 /**
  * @swagger
@@ -349,3 +351,4 @@ router.post('/close-request', verifyAuthToken, closeRequest);
 router.post('/meet-link', verifyAuthToken, generateMeetLinkForInterview);
 
 module.exports = router;
+// RESTART TRIGGER FOR ENDPOINTS
