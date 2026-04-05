@@ -252,6 +252,7 @@ const scheduleInterview = async (req, res) => {
             startTime,
             duration,
             meetingType,
+            meetingLink: clientMeetingLink,
             candidateEmail,
             candidateName,
             positionTitle,
@@ -305,7 +306,7 @@ const scheduleInterview = async (req, res) => {
             startTime,
             duration: duration || 45,
             meetingType: meetingType || 'Video',
-            meetingLink: null,
+                meetingLink: clientMeetingLink || null,
             meetingToken: crypto.randomBytes(32).toString('hex'),
             meetingPassword: null,
             interviewerId: sanInterviewerId,
@@ -317,9 +318,11 @@ const scheduleInterview = async (req, res) => {
             notes: notes || null
         });
 
-        // Store generated meeting link
-        interview.meetingLink = generateMeetingLink(interview.meetingToken);
-        await interview.save();
+        // Store generated meeting link only if no external link was provided
+        if (!clientMeetingLink) {
+            interview.meetingLink = generateMeetingLink(interview.meetingToken);
+            await interview.save();
+        }
 
         // Update candidate status + interview date
         await Candidate.update(
@@ -544,6 +547,7 @@ const updateInterview = async (req, res) => {
             startTime,
             duration,
             meetingType,
+            meetingLink,
             interviewerName,
             interviewerEmail,
             interviewerRole,
@@ -565,6 +569,7 @@ const updateInterview = async (req, res) => {
         if (startTime) interview.startTime = startTime;
         if (duration) interview.duration = duration;
         if (meetingType) interview.meetingType = meetingType;
+        if (meetingLink !== undefined) interview.meetingLink = meetingLink;
         if (interviewerName) interview.interviewerName = interviewerName;
         if (interviewerEmail) interview.interviewerEmail = interviewerEmail;
         if (interviewerRole) interview.interviewerRole = interviewerRole;

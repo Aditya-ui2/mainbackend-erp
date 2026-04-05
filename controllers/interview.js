@@ -140,7 +140,7 @@ const scheduleInterview = async (req, res) => {
     try {
         const {
             candidateId, positionId, clientId, interviewType, interviewDate,
-            startTime, duration, meetingType, interviewerId, interviewerType,
+            startTime, duration, meetingType, meetingLink: clientMeetingLink, interviewerId, interviewerType,
             interviewerName, interviewerEmail, interviewerRole, notes
         } = req.body;
 
@@ -151,7 +151,7 @@ const scheduleInterview = async (req, res) => {
         if (!position) return res.status(404).json({ success: false, message: 'Position not found' });
 
         const meetingToken = crypto.randomBytes(32).toString('hex');
-        const meetingLink = generateMeetingLink(meetingToken);
+        const meetingLink = clientMeetingLink || generateMeetingLink(meetingToken);
 
         const interview = await Interview.create({
             candidateId, positionId, clientId, interviewType, interviewDate,
