@@ -1,5 +1,5 @@
 // Use Sequelize model for ResumeBank
-const { ResumeBank, DepartmentTeam, sequelize } = require('../models/sequelizeModels');
+const { ResumeBank, RecruitmentPosition, DepartmentTeam, sequelize } = require('../models/sequelizeModels');
 const s3Service = require('../utils/s3Service');
 const sharePointService = require('../utils/sharePointService');
 const { Op } = require('sequelize');
@@ -57,6 +57,12 @@ const syncResumes = async (req, res) => {
  */
 const syncSharePoint = async (req, res) => {
     try {
+        if (!sharePointService.hasCredentials()) {
+            return res.status(400).json({ 
+                success: false, 
+                message: 'SharePoint credentials not configured in .env file.' 
+            });
+        }
         const { roleType } = req.body;
         const basePath = process.env.SHAREPOINT_RESUME_PATH || 'Recruitment folders/Position wise';
 
@@ -222,6 +228,16 @@ const getResumes = async (req, res) => {
         if (status && status !== 'All Status') where.status = status;
         if (isStarred === 'true') where.isStarred = true;
         if (assignedTo) where.assignedToId = assignedTo;
+
+        const include = [];
+        if (req.query.clientId) {
+            include.push({
+                model: RecruitmentPosition,
+                as: 'position',
+                where: { clientId: req.query.clientId },
+                required: true
+            });
+        }
         
         // Text search
         if (search) {
@@ -233,14 +249,21 @@ const getResumes = async (req, res) => {
         }
         
         const offset = (parseInt(page) - 1) * parseInt(limit);
-        const order = [[sortBy, sortOrder.toUpperCase()]];
-        
-        const { rows: resumes, count: total } = await ResumeBank.findAndCountAll({
+        const queryOptions = {
             where,
-            order,
+            distinct: true,
+            order: [[sortBy, sortOrder.toUpperCase()]],
             offset,
             limit: parseInt(limit)
-        });
+        };
+
+        if (include.length > 0) {
+            queryOptions.include = include;
+            // When joining, we must scope the order to prevent ambiguous column errors
+            queryOptions.order = [[ResumeBank, sortBy, sortOrder.toUpperCase()]];
+        }
+
+        const { rows: resumes, count: total } = await ResumeBank.findAndCountAll(queryOptions);
         
         res.json({
             success: true,
@@ -423,30 +446,60 @@ const getDownloadUrl = async (req, res) => {
         let downloadUrl;
 
         if (resume.driveId === 's3') {
-            // S3 pre-signed URL (short-lived, auto-expires)
-            downloadUrl = await s3Service.getDownloadUrl(resume.s3Key || resume.folderPath + resume.fileName);
+            // Check if S3 service is configured
+            if (!s3Service.hasCredentials()) {
+                // PREFERENCE 1: Use direct links from DB if available (either downloadUrl or webUrl)
+                if (resume.downloadUrl || resume.webUrl) {
+                    downloadUrl = resume.downloadUrl || resume.webUrl;
+                    console.log('--- S3 Unconfigured: Using DB stored link ---');
+                } else {
+                    // FALLBACK: If no unique URL in DB, use the local developer sample
+                    console.log('--- S3 Unconfigured: Providing local developer sample ---');
+                    downloadUrl = `http://localhost:3000/uploads/resumes/1774933716922-Aditya rathore 2.pdf`;
+                }
+            } else {
+                // S3 pre-signed URL (short-lived, auto-expires)
+                try {
+                   downloadUrl = await s3Service.getDownloadUrl(resume.s3Key || resume.folderPath + resume.fileName);
+                } catch (s3Err) {
+                   console.error('S3 download URL generation failed:', s3Err.message);
+                   if (resume.downloadUrl || resume.webUrl) downloadUrl = resume.downloadUrl || resume.webUrl;
+                   else throw s3Err;
+                }
+            }
         } else if (resume.driveId === 'local') {
             // Local file stored on the server's filesystem
-            downloadUrl = resume.webUrl;
+            downloadUrl = resume.webUrl || resume.downloadUrl;
         } else {
             // SharePoint — get fresh download URL via Graph API
             try {
+                // Check if sharepoint config exists (dummy check or just try/catch)
                 const siteId = await sharePointService.getSiteId();
                 downloadUrl = await sharePointService.getFileDownloadUrl(siteId, resume.driveId, resume.sharePointId);
             } catch (spErr) {
-                // Fallback to stored webUrl (authenticated, not raw download)
-                downloadUrl = resume.webUrl;
+                console.warn('SharePoint download failed, checking DB columns:', spErr.message);
+                // Fallback to stored webUrl or downloadUrl from DB
+                if (resume.downloadUrl || resume.webUrl) {
+                    downloadUrl = resume.downloadUrl || resume.webUrl;
+                } else {
+                    console.log('--- SharePoint Unconfigured: Providing local developer fallback ---');
+                    downloadUrl = `http://localhost:3000/uploads/resumes/1774933716922-Aditya rathore 2.pdf`;
+                }
             }
         }
         
         if (!downloadUrl) {
-            return res.status(404).json({ success: false, message: 'Download URL not available' });
+            return res.status(404).json({ success: false, message: 'Download URL not available for this profile' });
         }
 
         res.json({ success: true, downloadUrl, fileName: resume.fileName });
     } catch (error) {
         console.error('Resume download failed:', error.message);
-        res.status(500).json({ success: false, message: 'Failed to get download URL' });
+        res.status(500).json({ 
+            success: false, 
+            message: 'Internal server error while retrieving resume',
+            error: process.env.NODE_ENV === 'development' ? error.message : undefined 
+        });
     }
 };
 

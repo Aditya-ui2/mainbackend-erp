@@ -1417,6 +1417,10 @@ ResumeBank.init({
     ]
 });
 
+// ResumeBank -> RecruitmentPosition (One to Many)
+ResumeBank.belongsTo(RecruitmentPosition, { foreignKey: 'assignedPositionId', as: 'position' });
+RecruitmentPosition.hasMany(ResumeBank, { foreignKey: 'assignedPositionId', as: 'resumes' });
+
 // ============== DEPARTMENT TASK MODEL ==============
 class DepartmentTask extends Model {}
 

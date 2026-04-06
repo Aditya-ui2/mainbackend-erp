@@ -1043,9 +1043,17 @@ const getOfferCandidatesSuggestions = async (req, res) => {
 
         const candidates = await Candidate.findAll({
             where: {
-                [Op.or]: [
-                    { name: { [Op.iLike]: `%${trimmedSearch}%` } },
-                    { email: { [Op.iLike]: `%${trimmedSearch}%` } }
+                [Op.and]: [
+                    {
+                        [Op.or]: [
+                            { name: { [Op.iLike]: `%${trimmedSearch}%` } },
+                            { email: { [Op.iLike]: `%${trimmedSearch}%` } }
+                        ]
+                    },
+                    {
+                        status: { [Op.notIn]: ['Rejected'] },
+                        stage: { [Op.notIn]: ['Rejected', 'Joined'] }
+                    }
                 ]
             },
             include: [
@@ -1988,6 +1996,41 @@ const getMyPerformanceStats = async (req, res) => {
     }
 };
 
+const deleteOffer = async (req, res) => {
+    try {
+        const { candidateId } = req.params;
+        const candidate = await Candidate.findByPk(candidateId);
+
+        if (!candidate) {
+            return res.status(404).json({ success: false, message: 'Candidate not found' });
+        }
+
+        // Clear offer-related fields
+        await candidate.update({
+            offeredCTC: null,
+            offerDate: null,
+            offerExpiryDate: null,
+            joiningDate: null,
+            negotiationNotes: null,
+            offerStatus: null,
+            offerLetterUrl: null,
+            offerLetterFileName: null,
+            // Reset to previous pipeline stage
+            stage: 'Client Interview',
+            status: 'Interview'
+        });
+
+        res.status(200).json({ 
+            success: true, 
+            message: 'Offer deleted and candidate stage reset successfully',
+            data: { candidateId }
+        });
+    } catch (error) {
+        console.error('Error deleting offer:', error);
+        res.status(500).json({ success: false, message: 'Failed to delete offer', error: error.message });
+    }
+};
+
 module.exports = {
     getKamsWithRecruitment,
     createRecruitmentPosition,
@@ -2017,5 +2060,6 @@ module.exports = {
     getOffers,
     createOrUpdateOffer,
     getOfferCandidatesSuggestions,
-    updateCandidate
+    updateCandidate,
+    deleteOffer
 };

@@ -156,6 +156,9 @@ class S3Service {
    * Get a pre-signed URL for downloading a resume
    */
   async getDownloadUrl(fileKey, expiresIn = 3600) {
+    if (!this.s3) {
+      throw new Error('S3 client not configured');
+    }
     try {
       const params = {
         Bucket: this.bucketName,

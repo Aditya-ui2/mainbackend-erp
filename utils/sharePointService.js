@@ -22,6 +22,10 @@ class SharePointService {
     this.tokenExpiry = null;
   }
 
+  hasCredentials() {
+    return !!(this.tenantId && this.clientId && this.clientSecret && this.siteUrl);
+  }
+
   /**
    * Get access token using client credentials flow
    */
