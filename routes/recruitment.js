@@ -48,8 +48,11 @@ const {
     getOffers,
     createOrUpdateOffer,
     getOfferCandidatesSuggestions,
-    updateCandidate
+    updateCandidate,
+    deleteOffer
 } = require('../controllers/recruitment');
+
+const { distributeJobToPlatforms } = require('../controllers/jobDistribution');
 
 /**
  * @swagger
@@ -142,6 +145,9 @@ router.post('/positions', verifyAuthToken, createRecruitmentPosition);
  *         description: Position updated
  */
 router.put('/positions/:id', verifyAuthToken, updateRecruitmentPosition);
+
+// Distribute job to external platforms
+router.post('/positions/:id/distribute', verifyAuthToken, distributeJobToPlatforms);
 
 /**
  * @swagger
@@ -296,7 +302,7 @@ router.get('/offers', verifyAuthToken, getOffers);
 router.post('/offers', verifyAuthToken, upload.single('offerLetter'), createOrUpdateOffer);
 router.put('/offers/:candidateId', verifyAuthToken, upload.single('offerLetter'), createOrUpdateOffer);
 router.get('/offers/candidate-suggestions', verifyAuthToken, getOfferCandidatesSuggestions);
-
+router.delete('/offers/:candidateId', verifyAuthToken, deleteOffer);
 // Get all positions with filtering
 router.get('/positions', verifyAuthToken, getAllPositions);
 

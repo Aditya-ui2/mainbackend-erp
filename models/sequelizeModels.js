@@ -675,6 +675,25 @@ const RecruitmentPosition = sequelize.define('RecruitmentPosition', {
     deadline: {
         type: DataTypes.DATEONLY,
         allowNull: true
+    },
+    postPlatforms: {
+        type: DataTypes.JSONB,
+        defaultValue: [],
+        allowNull: true
+    },
+    distributedPlatforms: {
+        type: DataTypes.JSONB,
+        defaultValue: [],
+        allowNull: true
+    },
+    distributionResults: {
+        type: DataTypes.JSONB,
+        defaultValue: [],
+        allowNull: true
+    },
+    lastDistributedAt: {
+        type: DataTypes.DATE,
+        allowNull: true
     }
 }, {
     tableName: 'recruitment_positions',
