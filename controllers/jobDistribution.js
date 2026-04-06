@@ -1,17 +1,16 @@
 const { RecruitmentPosition, Client } = require('../models/sequelizeModels');
-const axios = require('axios');
+const { Op } = require('sequelize');
 
-/**
- * Build Google Jobs JSON-LD structured data for a position.
- * This can be embedded on a public page to get indexed by Google Jobs.
- */
-function buildGoogleJobsJsonLd(position, clientName) {
+// =============================================
+// HELPER: Build Google Jobs JSON-LD
+// =============================================
+function buildGoogleJobsJsonLd(position, clientName, baseUrl) {
     return {
         "@context": "https://schema.org/",
         "@type": "JobPosting",
         "title": position.title,
         "description": position.description || position.title,
-        "datePosted": position.postedDate || new Date().toISOString(),
+        "datePosted": position.postedDate || position.createdAt || new Date().toISOString(),
         "validThrough": position.deadline || undefined,
         "employmentType": mapEmploymentType(position.type),
         "hiringOrganization": {
@@ -23,154 +22,190 @@ function buildGoogleJobsJsonLd(position, clientName) {
             "@type": "Place",
             "address": {
                 "@type": "PostalAddress",
-                "addressLocality": position.location || "Remote"
+                "addressLocality": position.location || "Remote",
+                "addressCountry": "IN"
             }
         },
         "baseSalary": position.salary ? {
             "@type": "MonetaryAmount",
             "currency": "INR",
-            "value": {
-                "@type": "QuantitativeValue",
-                "value": position.salary
-            }
+            "value": { "@type": "QuantitativeValue", "value": position.salary }
         } : undefined,
-        "skills": Array.isArray(position.skills) ? position.skills.join(', ') : '',
         "experienceRequirements": position.experience || undefined,
+        "url": `${baseUrl}/api/public/jobs/${position.id}`,
     };
 }
 
 function mapEmploymentType(type) {
-    const map = {
-        'Full-time': 'FULL_TIME',
-        'Part-time': 'PART_TIME',
-        'Contract': 'CONTRACTOR',
-        'Internship': 'INTERN'
-    };
+    const map = { 'Full-time': 'FULL_TIME', 'Part-time': 'PART_TIME', 'Contract': 'CONTRACTOR', 'Internship': 'INTERN' };
     return map[type] || 'FULL_TIME';
 }
 
-/**
- * Post job to Arbeitnow (free job board API)
- * Docs: https://documenter.getpostman.com/view/18545278/UVsEVpHJ
- */
-async function postToArbeitnow(position, clientName) {
-    try {
-        const payload = {
-            company_name: clientName || 'Mabicons',
-            title: position.title,
-            description: position.description || position.title,
-            remote: position.location?.toLowerCase().includes('remote'),
-            location: position.location || 'India',
-            tags: Array.isArray(position.skills) ? position.skills.slice(0, 5) : [],
-            job_types: [position.type || 'Full-time'],
-            url: `https://www.mabicons.com/careers/${position.id}`,
-        };
+// =============================================
+// HELPER: Build XML feed entry for a single job
+// =============================================
+function buildJobXmlEntry(position, clientName, baseUrl) {
+    const escXml = (str) => String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    return `  <job>
+    <title><![CDATA[${position.title || ''}]]></title>
+    <date><![CDATA[${position.postedDate || position.createdAt || new Date().toISOString()}]]></date>
+    <referencenumber><![CDATA[${position.id}]]></referencenumber>
+    <url><![CDATA[${baseUrl}/api/public/jobs/${position.id}]]></url>
+    <company><![CDATA[${clientName || 'Mabicons'}]]></company>
+    <city><![CDATA[${position.location || 'Remote'}]]></city>
+    <country><![CDATA[IN]]></country>
+    <description><![CDATA[${position.description || position.title || ''}]]></description>
+    <salary><![CDATA[${position.salary || ''}]]></salary>
+    <jobtype><![CDATA[${position.type || 'Full-time'}]]></jobtype>
+    <experience><![CDATA[${position.experience || ''}]]></experience>
+    <skills><![CDATA[${Array.isArray(position.skills) ? position.skills.join(', ') : ''}]]></skills>
+    <category><![CDATA[IT Jobs]]></category>
+  </job>`;
+}
 
-        const response = await axios.post('https://www.arbeitnow.com/api/job-board-api', payload, {
-            headers: { 'Content-Type': 'application/json' },
-            timeout: 15000,
+// =============================================
+// PUBLIC: XML Job Feed (for Indeed, Jooble, Adzuna crawlers)
+// GET /api/public/jobs-feed.xml
+// =============================================
+const getPublicJobsFeedXml = async (req, res) => {
+    try {
+        const baseUrl = `${req.protocol}://${req.get('host')}`;
+        const positions = await RecruitmentPosition.findAll({
+            where: { status: 'Open' },
+            include: [{ model: Client, as: 'client', attributes: ['id', 'companyName', 'name'] }],
+            order: [['postedDate', 'DESC']],
         });
-        return { success: true, platform: 'arbeitnow', data: response.data };
+
+        const jobEntries = positions.map(pos => {
+            const clientName = pos.client?.companyName || pos.client?.name || 'Mabicons';
+            return buildJobXmlEntry(pos, clientName, baseUrl);
+        }).join('\n');
+
+        const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<source>
+  <publisher>Mabicons</publisher>
+  <publisherurl>https://www.mabicons.com</publisherurl>
+  <lastBuildDate>${new Date().toISOString()}</lastBuildDate>
+${jobEntries}
+</source>`;
+
+        res.set('Content-Type', 'application/xml');
+        return res.send(xml);
     } catch (error) {
-        return { success: false, platform: 'arbeitnow', error: error.message };
+        console.error('Error generating job feed:', error);
+        return res.status(500).json({ error: 'Failed to generate job feed' });
     }
-}
+};
 
-/**
- * Post to Jooble (free aggregator XML feed endpoint)
- */
-async function postToJooble(position, clientName) {
+// =============================================
+// PUBLIC: Single Job Page with JSON-LD (for Google Jobs)
+// GET /api/public/jobs/:id
+// =============================================
+const getPublicJobPage = async (req, res) => {
     try {
-        const payload = {
-            title: position.title,
-            location: position.location || 'India',
-            company: clientName || 'Mabicons',
-            description: position.description || position.title,
-            salary: position.salary || '',
-            source: 'https://www.mabicons.com',
-            url: `https://www.mabicons.com/careers/${position.id}`,
-            type: position.type || 'Full-time',
-        };
-
-        // Jooble partner API
-        const apiKey = process.env.JOOBLE_API_KEY;
-        if (!apiKey) {
-            return { success: false, platform: 'jooble', error: 'JOOBLE_API_KEY not configured' };
-        }
-        const response = await axios.post(`https://jooble.org/api/${apiKey}`, payload, {
-            headers: { 'Content-Type': 'application/json' },
-            timeout: 15000,
+        const { id } = req.params;
+        const baseUrl = `${req.protocol}://${req.get('host')}`;
+        const position = await RecruitmentPosition.findByPk(id, {
+            include: [{ model: Client, as: 'client', attributes: ['id', 'companyName', 'name'] }],
         });
-        return { success: true, platform: 'jooble', data: response.data };
-    } catch (error) {
-        return { success: false, platform: 'jooble', error: error.message };
-    }
-}
 
-/**
- * Post to Adzuna (free job aggregator)
- */
-async function postToAdzuna(position, clientName) {
-    try {
-        const apiKey = process.env.ADZUNA_API_KEY;
-        const appId = process.env.ADZUNA_APP_ID;
-        if (!apiKey || !appId) {
-            return { success: false, platform: 'adzuna', error: 'ADZUNA_API_KEY or ADZUNA_APP_ID not configured' };
+        if (!position || position.status !== 'Open') {
+            return res.status(404).json({ error: 'Job not found or no longer open' });
         }
 
-        const payload = {
-            title: position.title,
-            description: position.description || position.title,
-            location: position.location || 'India',
-            company: clientName || 'Mabicons',
-            salary_min: position.salary || '',
-            category: 'it-jobs',
-            contract_type: position.type === 'Full-time' ? 'permanent' : 'contract',
-            redirect_url: `https://www.mabicons.com/careers/${position.id}`,
-        };
+        const clientName = position.client?.companyName || position.client?.name || 'Mabicons';
+        const jsonLd = buildGoogleJobsJsonLd(position, clientName, baseUrl);
+        const skills = Array.isArray(position.skills) ? position.skills : [];
 
-        const response = await axios.post(
-            `https://api.adzuna.com/v1/api/jobs/in/post?app_id=${encodeURIComponent(appId)}&app_key=${encodeURIComponent(apiKey)}`,
-            payload,
-            { headers: { 'Content-Type': 'application/json' }, timeout: 15000 }
-        );
-        return { success: true, platform: 'adzuna', data: response.data };
+        // Return HTML page with embedded JSON-LD for Google Jobs indexing
+        const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${position.title} - Mabicons Careers</title>
+  <meta name="description" content="${(position.description || position.title).substring(0, 160)}">
+  <script type="application/ld+json">${JSON.stringify(jsonLd)}</script>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 800px; margin: 40px auto; padding: 0 20px; color: #1a1a2e; }
+    h1 { color: #1B4DA0; } .meta { color: #666; margin: 8px 0; } .badge { display: inline-block; background: #e8f0fe; color: #1B4DA0; padding: 4px 12px; border-radius: 20px; font-size: 13px; margin: 4px 4px 4px 0; }
+    .section { margin: 24px 0; } .section h2 { font-size: 18px; color: #333; border-bottom: 2px solid #1B4DA0; padding-bottom: 8px; }
+    .apply-btn { display: inline-block; background: #1B4DA0; color: white; padding: 12px 32px; border-radius: 8px; text-decoration: none; font-weight: bold; margin-top: 16px; }
+  </style>
+</head>
+<body>
+  <img src="https://www.mabicons.com/logo.png" alt="Mabicons" style="height:40px;margin-bottom:20px;" onerror="this.style.display='none'">
+  <h1>${position.title}</h1>
+  <p class="meta">📍 ${position.location || 'Remote'} &nbsp;|&nbsp; 💼 ${position.type || 'Full-time'} &nbsp;|&nbsp; 🏢 ${clientName}</p>
+  ${position.salary ? `<p class="meta">💰 ${position.salary}</p>` : ''}
+  ${position.experience ? `<p class="meta">📋 Experience: ${position.experience}</p>` : ''}
+  <p class="meta">📅 Posted: ${position.postedDate ? new Date(position.postedDate).toLocaleDateString() : 'Recently'}</p>
+  ${position.deadline ? `<p class="meta">⏰ Deadline: ${new Date(position.deadline).toLocaleDateString()}</p>` : ''}
+  
+  <div class="section">
+    <h2>Description</h2>
+    <p>${position.description || 'No description available.'}</p>
+  </div>
+  
+  ${skills.length > 0 ? `<div class="section"><h2>Skills Required</h2><div>${skills.map(s => `<span class="badge">${s}</span>`).join('')}</div></div>` : ''}
+  
+  <div class="section">
+    <p><strong>Openings:</strong> ${position.openings || 1} &nbsp;|&nbsp; <strong>Priority:</strong> ${position.priority || 'Medium'}</p>
+  </div>
+  
+  <a href="mailto:hr@mabicons.com?subject=Application for ${encodeURIComponent(position.title)}" class="apply-btn">Apply Now</a>
+  <p style="margin-top:40px;color:#999;font-size:12px;">&copy; ${new Date().getFullYear()} Mabicons Digital Solutions</p>
+</body>
+</html>`;
+
+        res.set('Content-Type', 'text/html');
+        return res.send(html);
     } catch (error) {
-        return { success: false, platform: 'adzuna', error: error.message };
+        console.error('Error generating job page:', error);
+        return res.status(500).json({ error: 'Failed to load job page' });
     }
-}
+};
 
-/**
- * Generate a shareable LinkedIn job post URL
- */
-function generateLinkedInShareUrl(position) {
-    const text = `We're hiring: ${position.title} at ${position.location || 'our company'}! Apply now.`;
-    const url = `https://www.mabicons.com/careers/${position.id}`;
-    return `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(url)}&title=${encodeURIComponent(text)}`;
-}
+// =============================================
+// PUBLIC: JSON list of all open jobs (API for frontend careers page)
+// GET /api/public/jobs
+// =============================================
+const getPublicJobsList = async (req, res) => {
+    try {
+        const positions = await RecruitmentPosition.findAll({
+            where: { status: 'Open' },
+            attributes: ['id', 'title', 'description', 'location', 'type', 'salary', 'experience', 'skills', 'openings', 'priority', 'postedDate', 'deadline'],
+            include: [{ model: Client, as: 'client', attributes: ['companyName', 'name'] }],
+            order: [['postedDate', 'DESC']],
+        });
 
-/**
- * Generate Indeed XML feed data for a job
- */
-function generateIndeedFeedEntry(position, clientName) {
-    return {
-        title: position.title,
-        date: position.postedDate || new Date().toISOString(),
-        referencenumber: position.id,
-        url: `https://www.mabicons.com/careers/${position.id}`,
-        company: clientName || 'Mabicons',
-        city: position.location || 'Remote',
-        country: 'IN',
-        description: position.description || position.title,
-        salary: position.salary || '',
-        jobtype: position.type || 'Full-time',
-        experience: position.experience || '',
-    };
-}
+        const jobs = positions.map(pos => ({
+            id: pos.id,
+            title: pos.title,
+            description: pos.description,
+            location: pos.location,
+            type: pos.type,
+            salary: pos.salary,
+            experience: pos.experience,
+            skills: pos.skills,
+            openings: pos.openings,
+            priority: pos.priority,
+            postedDate: pos.postedDate,
+            deadline: pos.deadline,
+            company: pos.client?.companyName || pos.client?.name || 'Mabicons',
+        }));
 
-/**
- * Main controller: Distribute a job to selected platforms
- */
+        return res.json({ count: jobs.length, jobs });
+    } catch (error) {
+        console.error('Error fetching public jobs:', error);
+        return res.status(500).json({ error: 'Failed to fetch jobs' });
+    }
+};
+
+// =============================================
+// AUTHENTICATED: Distribute job to selected platforms
+// POST /recruitment/positions/:id/distribute
+// =============================================
 const distributeJobToPlatforms = async (req, res) => {
     try {
         const { id } = req.params;
@@ -180,7 +215,7 @@ const distributeJobToPlatforms = async (req, res) => {
             return res.status(400).json({ error: 'Please select at least one platform' });
         }
 
-        // Fetch position with client details
+        const baseUrl = `${req.protocol}://${req.get('host')}`;
         const position = await RecruitmentPosition.findByPk(id, {
             include: [{ model: Client, as: 'client' }]
         });
@@ -195,25 +230,35 @@ const distributeJobToPlatforms = async (req, res) => {
         for (const platform of platforms) {
             switch (platform) {
                 case 'google_jobs': {
-                    const jsonLd = buildGoogleJobsJsonLd(position, clientName);
+                    // Google Jobs indexes via JSON-LD on the public job page — automatic
+                    const jsonLd = buildGoogleJobsJsonLd(position, clientName, baseUrl);
                     results.push({
                         success: true,
                         platform: 'google_jobs',
-                        data: { jsonLd, message: 'JSON-LD structured data generated. Embed on public careers page for Google indexing.' }
+                        data: {
+                            jsonLd,
+                            publicUrl: `${baseUrl}/api/public/jobs/${position.id}`,
+                            message: 'Job page with JSON-LD is live. Google will auto-index it.'
+                        }
                     });
                     break;
                 }
                 case 'mabicons_website': {
-                    // Internal — position is already in DB and accessible via API
                     results.push({
                         success: true,
                         platform: 'mabicons_website',
-                        data: { url: `https://www.mabicons.com/careers/${position.id}`, message: 'Job listed on Mabicons careers page' }
+                        data: {
+                            publicUrl: `${baseUrl}/api/public/jobs/${position.id}`,
+                            careersPage: `${baseUrl}/api/public/jobs`,
+                            message: 'Job is live on public careers page'
+                        }
                     });
                     break;
                 }
                 case 'linkedin': {
-                    const shareUrl = generateLinkedInShareUrl(position);
+                    const jobUrl = `${baseUrl}/api/public/jobs/${position.id}`;
+                    const text = `We're hiring: ${position.title} at ${position.location || 'our company'}! Apply now: ${jobUrl}`;
+                    const shareUrl = `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(jobUrl)}`;
                     results.push({
                         success: true,
                         platform: 'linkedin',
@@ -222,22 +267,41 @@ const distributeJobToPlatforms = async (req, res) => {
                     break;
                 }
                 case 'indeed': {
-                    const feedEntry = generateIndeedFeedEntry(position, clientName);
+                    // Indeed crawls the XML feed — job is automatically included
                     results.push({
                         success: true,
                         platform: 'indeed',
-                        data: { feedEntry, message: 'Indeed XML feed entry generated. Add to /api/jobs-feed.xml for Indeed to crawl.' }
+                        data: {
+                            feedUrl: `${baseUrl}/api/public/jobs-feed.xml`,
+                            message: 'Job included in XML feed. Submit feed URL to Indeed employer dashboard for crawling.'
+                        }
                     });
                     break;
                 }
                 case 'jooble': {
-                    const joobleResult = await postToJooble(position, clientName);
-                    results.push(joobleResult);
+                    // Jooble crawls XML feeds — register feed URL at jooble.org/partner/advertise
+                    results.push({
+                        success: true,
+                        platform: 'jooble',
+                        data: {
+                            feedUrl: `${baseUrl}/api/public/jobs-feed.xml`,
+                            partnerUrl: 'https://jooble.org/partner/advertise',
+                            message: 'Job included in XML feed. Register feed URL at Jooble partner portal (one-time setup).'
+                        }
+                    });
                     break;
                 }
                 case 'adzuna': {
-                    const adzunaResult = await postToAdzuna(position, clientName);
-                    results.push(adzunaResult);
+                    // Adzuna crawls XML feeds — register at developer.adzuna.com
+                    results.push({
+                        success: true,
+                        platform: 'adzuna',
+                        data: {
+                            feedUrl: `${baseUrl}/api/public/jobs-feed.xml`,
+                            partnerUrl: 'https://developer.adzuna.com/signup',
+                            message: 'Job included in XML feed. Register feed URL with Adzuna (one-time setup).'
+                        }
+                    });
                     break;
                 }
                 default:
@@ -245,18 +309,17 @@ const distributeJobToPlatforms = async (req, res) => {
             }
         }
 
-        // Store distribution results on the position
+        // Store distribution info on the position
         await position.update({
             distributedPlatforms: platforms,
             distributionResults: results,
             lastDistributedAt: new Date()
         });
 
-        const successCount = results.filter(r => r.success).length;
-        const failCount = results.filter(r => !r.success).length;
-
         return res.json({
-            message: `Distributed to ${successCount} platform(s)${failCount > 0 ? `, ${failCount} failed` : ''}`,
+            message: `Job distributed to ${results.length} platform(s)`,
+            feedUrl: `${baseUrl}/api/public/jobs-feed.xml`,
+            jobPageUrl: `${baseUrl}/api/public/jobs/${position.id}`,
             results
         });
     } catch (error) {
@@ -265,4 +328,9 @@ const distributeJobToPlatforms = async (req, res) => {
     }
 };
 
-module.exports = { distributeJobToPlatforms };
+module.exports = {
+    distributeJobToPlatforms,
+    getPublicJobsFeedXml,
+    getPublicJobPage,
+    getPublicJobsList,
+};

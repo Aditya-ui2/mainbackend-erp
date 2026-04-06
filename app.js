@@ -302,6 +302,12 @@ app.use('/sharepoint', sharePointRoutes);
 app.use('/interview', interviewRoutes);
 app.use('/api/resumebank', resumeBankRoutes);
 
+// Public job feed routes (no auth - for Google Jobs, Indeed, Jooble, Adzuna crawlers)
+const { getPublicJobsFeedXml, getPublicJobPage, getPublicJobsList } = require('./controllers/jobDistribution');
+app.get('/api/public/jobs-feed.xml', getPublicJobsFeedXml);
+app.get('/api/public/jobs', getPublicJobsList);
+app.get('/api/public/jobs/:id', getPublicJobPage);
+
 restartCronJobs();
 seedSuperAdmin();
 cron.schedule('* * * * *', () => {
