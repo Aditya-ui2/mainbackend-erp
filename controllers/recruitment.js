@@ -1481,7 +1481,7 @@ const createRequest = async (req, res) => {
 const uploadResumes = async (req, res) => {
     try {
         const files = req.files;
-        const { positionId, clientId, roleType } = req.body;
+        const { positionId, clientId, roleType, candidateName, phone } = req.body;
         const resolvedRoleType = roleType?.trim() || 'Uncategorized';
 
         if (!files || files.length === 0) {
@@ -1499,9 +1499,12 @@ const uploadResumes = async (req, res) => {
             const filePath = path.join(uploadDir, storedFileName);
             fs.writeFileSync(filePath, file.buffer);
 
+            const resolvedName = candidateName?.trim() || file.originalname.replace(/\.(pdf|doc|docx)$/i, '');
+
             const candidate = await Candidate.create({
-                name: file.originalname.replace(/\.(pdf|doc|docx)$/i, ''),
+                name: resolvedName,
                 email: buildUploadedCandidateEmail(file.originalname),
+                phone: phone?.trim() || null,
                 positionId: positionId || null,
                 clientId: clientId || null,
                 cvUrl: `/uploads/resumes/${storedFileName}`,
@@ -1525,10 +1528,10 @@ const uploadResumes = async (req, res) => {
                     fileType: fileType,
                     fileSize: file.size,
                     roleType: resolvedRoleType,
-                    candidateName: candidate.name,
+                    candidateName: resolvedName,
                     webUrl: `/uploads/resumes/${storedFileName}`
                 });
-                console.log('Successfully synced bulk upload with Resume Bank:', candidate.name);
+                console.log('Successfully synced bulk upload with Resume Bank:', resolvedName);
             } catch (bankErr) {
                 console.error('Failed to sync bulk upload with Resume Bank Error details:', bankErr);
             }
