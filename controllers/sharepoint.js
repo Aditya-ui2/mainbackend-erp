@@ -543,3 +543,55 @@ exports.getSyncLogs = async (req, res) => {
     safeError(res, 'Failed to get sync logs');
   }
 };
+
+/* ═══════════════════════════════════════════════════════════
+ * EXCEL WORKBOOK ENDPOINTS
+ * ═══════════════════════════════════════════════════════════ */
+
+/**
+ * @desc    Get list of worksheets in a SharePoint Excel file
+ * @route   GET /sharepoint/excel/sheets?file=Joinings%20Master.xlsx
+ * @access  Private
+ */
+exports.getExcelSheets = async (req, res) => {
+  try {
+    const { file } = req.query;
+    if (!file) return res.status(400).json({ success: false, message: 'file query parameter is required' });
+
+    const siteId = await getSiteId();
+    const found = await sharePointService.findExcelFile(siteId, file);
+    if (!found) return res.status(404).json({ success: false, message: `File "${file}" not found in SharePoint` });
+
+    const sheets = await sharePointService.getExcelWorksheets(siteId, found.driveId, found.itemId);
+    auditLog('excel_sheets', req.user?.email || 'system', { file, sheetCount: sheets.length });
+
+    res.status(200).json({ success: true, file: found.name, sheets });
+  } catch (error) {
+    console.error('Get Excel sheets failed:', error.message);
+    safeError(res, 'Failed to read Excel workbook');
+  }
+};
+
+/**
+ * @desc    Get data from a specific sheet in a SharePoint Excel file
+ * @route   GET /sharepoint/excel/data?file=Joinings%20Master.xlsx&sheet=April
+ * @access  Private
+ */
+exports.getExcelData = async (req, res) => {
+  try {
+    const { file, sheet } = req.query;
+    if (!file || !sheet) return res.status(400).json({ success: false, message: 'file and sheet query parameters are required' });
+
+    const siteId = await getSiteId();
+    const found = await sharePointService.findExcelFile(siteId, file);
+    if (!found) return res.status(404).json({ success: false, message: `File "${file}" not found in SharePoint` });
+
+    const data = await sharePointService.getExcelSheetData(siteId, found.driveId, found.itemId, sheet);
+    auditLog('excel_data', req.user?.email || 'system', { file, sheet, rowCount: data.totalRows });
+
+    res.status(200).json({ success: true, file: found.name, sheet, ...data });
+  } catch (error) {
+    console.error('Get Excel data failed:', error.message);
+    safeError(res, 'Failed to read Excel sheet data');
+  }
+};

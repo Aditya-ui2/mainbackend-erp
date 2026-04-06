@@ -19,6 +19,8 @@ const {
   getSavedInterviews,
   getSavedClients,
   getSyncLogs,
+  getExcelSheets,
+  getExcelData,
 } = require('../controllers/sharepoint');
 const { protect, authorize } = require('../middleware/authMiddleware');
 
@@ -302,5 +304,54 @@ router.get('/data/clients', authorize('superadmin', 'admin', 'kam'), getSavedCli
  *         description: List of sync logs
  */
 router.get('/sync-logs', authorize('superadmin', 'admin'), getSyncLogs);
+
+// ═══════════════════════════════════════════
+// EXCEL WORKBOOK ENDPOINTS
+// ═══════════════════════════════════════════
+
+/**
+ * @swagger
+ * /sharepoint/excel/sheets:
+ *   get:
+ *     summary: Get worksheet names from a SharePoint Excel file
+ *     tags: [SharePoint]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: file
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: List of worksheet names
+ */
+router.get('/excel/sheets', authorize('superadmin', 'admin', 'kam', 'employee'), getExcelSheets);
+
+/**
+ * @swagger
+ * /sharepoint/excel/data:
+ *   get:
+ *     summary: Get data from a specific worksheet in a SharePoint Excel file
+ *     tags: [SharePoint]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: file
+ *         required: true
+ *         schema:
+ *           type: string
+ *       - in: query
+ *         name: sheet
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Sheet data with headers and rows
+ */
+router.get('/excel/data', authorize('superadmin', 'admin', 'kam', 'employee'), getExcelData);
 
 module.exports = router;

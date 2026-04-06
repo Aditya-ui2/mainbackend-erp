@@ -297,6 +297,74 @@ class SharePointService {
   }
 
   /* ═══════════════════════════════════════════════════════════
+   * EXCEL WORKBOOK METHODS - Read Excel files from SharePoint
+   * ═══════════════════════════════════════════════════════════ */
+
+  /**
+   * Search for an Excel file by name in the site's default document library
+   */
+  async findExcelFile(siteId, fileName) {
+    const token = await this.getAccessToken();
+    const drives = await this.getDrives(siteId);
+    
+    for (const drive of drives) {
+      try {
+        const searchUrl = `https://graph.microsoft.com/v1.0/sites/${siteId}/drives/${drive.id}/root/search(q='${encodeURIComponent(fileName)}')`;
+        const response = await axios.get(searchUrl, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        const match = response.data.value?.find(f => 
+          f.name.toLowerCase() === fileName.toLowerCase()
+        );
+        if (match) return { driveId: drive.id, itemId: match.id, name: match.name };
+      } catch (e) { /* continue to next drive */ }
+    }
+    return null;
+  }
+
+  /**
+   * Get all worksheet names from an Excel workbook
+   */
+  async getExcelWorksheets(siteId, driveId, itemId) {
+    const token = await this.getAccessToken();
+    const url = `https://graph.microsoft.com/v1.0/sites/${siteId}/drives/${driveId}/items/${itemId}/workbook/worksheets`;
+    const response = await axios.get(url, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    return response.data.value.map(ws => ({ id: ws.id, name: ws.name, position: ws.position }));
+  }
+
+  /**
+   * Get data from a specific worksheet (used range)
+   */
+  async getExcelSheetData(siteId, driveId, itemId, sheetName) {
+    const token = await this.getAccessToken();
+    const encodedSheet = encodeURIComponent(sheetName);
+    const url = `https://graph.microsoft.com/v1.0/sites/${siteId}/drives/${driveId}/items/${itemId}/workbook/worksheets('${encodedSheet}')/usedRange`;
+    const response = await axios.get(url, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    
+    const raw = response.data;
+    if (!raw.values || raw.values.length < 2) return { headers: [], rows: [] };
+    
+    // First non-empty row as headers, rest as data rows
+    const headerRowIdx = raw.values.findIndex(row => row.some(cell => cell !== null && cell !== ''));
+    if (headerRowIdx === -1) return { headers: [], rows: [] };
+    
+    const headers = raw.values[headerRowIdx].map(h => (h || '').toString().trim());
+    const rows = raw.values.slice(headerRowIdx + 1)
+      .filter(row => row.some(cell => cell !== null && cell !== ''))
+      .map(row => {
+        const obj = {};
+        headers.forEach((h, i) => { if (h) obj[h] = row[i] ?? ''; });
+        return obj;
+      });
+    
+    return { headers, rows, totalRows: rows.length };
+  }
+
+  /* ═══════════════════════════════════════════════════════════
    * RESUME BANK METHODS - Sync 10,000+ resumes from SharePoint
    * ═══════════════════════════════════════════════════════════ */
 
