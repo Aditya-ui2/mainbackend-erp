@@ -799,6 +799,18 @@ const Candidate = sequelize.define('Candidate', {
         type: DataTypes.STRING,
         allowNull: true
     },
+    addedById: {
+        type: DataTypes.UUID,
+        allowNull: true,
+        references: {
+            model: 'DepartmentTeams',
+            key: 'id'
+        }
+    },
+    addedByType: {
+        type: DataTypes.ENUM('Employee', 'TeamLeader', 'DepartmentTeam'),
+        allowNull: true
+    },
     currentSalary: {
         type: DataTypes.STRING,
         allowNull: true
@@ -1273,6 +1285,7 @@ DepartmentTeam.belongsTo(DepartmentTeam, { foreignKey: 'managerId', as: 'manager
 // DepartmentTeam -> RecruitmentPosition (One to Many, posted by)
 DepartmentTeam.hasMany(RecruitmentPosition, { foreignKey: 'departmentTeamId', as: 'postedPositions' });
 RecruitmentPosition.belongsTo(DepartmentTeam, { foreignKey: 'departmentTeamId', as: 'postedBy' });
+Candidate.belongsTo(DepartmentTeam, { foreignKey: 'addedById', as: 'addedBy' });
 
 // ============== RESUME BANK MODEL ==============
 class ResumeBank extends Model {}

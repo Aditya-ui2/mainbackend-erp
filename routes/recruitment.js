@@ -19,6 +19,7 @@ const upload = multer({
 });
 
 const {
+    getRecruitmentClients,
     getKamsWithRecruitment,
     createRecruitmentPosition,
     updateRecruitmentPosition,
@@ -76,6 +77,7 @@ const { distributeJobToPlatforms } = require('../controllers/jobDistribution');
  *         description: Unauthorized
  */
 router.get('/kams', verifyAuthToken, getKamsWithRecruitment);
+router.get('/clients', verifyAuthToken, getRecruitmentClients);
 
 /**
  * @swagger

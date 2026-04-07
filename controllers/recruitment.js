@@ -1,5 +1,5 @@
 const { Op, fn, col, literal } = require('sequelize');
-const { TeamLeader, Client, RecruitmentPosition, Candidate, Interview, DepartmentTask, ResumeBank, DepartmentTeam } = require('../models/sequelizeModels');
+const { TeamLeader, Client, RecruitmentPosition, Candidate, Interview, DepartmentTask, ResumeBank, DepartmentTeam, DepartmentNote } = require('../models/sequelizeModels');
 const fs = require('fs');
 const path = require('path');
 const sendEmail = require('../utils/emailService');
@@ -177,8 +177,30 @@ const normalizeOfferStatus = (value = '') => {
 };
 
 // Get all KAMs (DepartmentTeam members) with their recruitment positions and stats
+const getRecruitmentClients = async (req, res) => {
+    try {
+        const clients = await Client.findAll({
+            include: [{
+                model: RecruitmentPosition,
+                as: 'recruitmentPositions',
+                attributes: [],
+                required: true
+            }],
+            attributes: ['id', 'name', 'companyName'],
+            group: ['Client.id'],
+            order: [[literal('COALESCE("companyName", "name")'), 'ASC']]
+        });
+
+        res.status(200).json({ success: true, data: clients });
+    } catch (error) {
+        console.error('Error fetching recruitment clients:', error);
+        res.status(500).json({ success: false, message: 'Failed to fetch clients' });
+    }
+};
+
 const getKamsWithRecruitment = async (req, res) => {
     try {
+        const { client: clientId } = req.query;
         const dateRange = buildDateRangeFromQuery(req.query);
         const positionDateFilter = buildDateFieldFilter(dateRange, 'createdAt');
         const candidateDateFilter = buildDateFieldFilter(dateRange, 'createdAt');
@@ -188,25 +210,22 @@ const getKamsWithRecruitment = async (req, res) => {
         // Fetch all members of the HR Recruitment department
         const kams = await DepartmentTeam.findAll({
             where: {
-                department: 'HR Recruitment',
-                role: { [Op.ne]: 'Department Head' }
+                department: 'HR Recruitment'
             },
             attributes: ['id', 'name', 'email', 'phone', 'role', 'status'],
         });
 
-        // 7-day window for "This Week Hires"
+        // 7-day window for "This Week Hires" - but respect dashboard filter if provided
         const weekAgo = new Date();
         weekAgo.setDate(weekAgo.getDate() - 7);
         const hiresDateFilter = dateRange
             ? {
                 updatedAt: {
-                    [Op.gte]: new Date(Math.max(weekAgo.getTime(), dateRange.startDate.getTime())),
+                    [Op.gte]: dateRange.startDate,
                     [Op.lt]: dateRange.endDate
                 }
             }
-            : {
-                updatedAt: { [Op.gte]: weekAgo }
-            };
+            : {}; // If no dateRange (All Time), don't filter by date
 
         const kamsWithStats = await Promise.all(kams.map(async (kam) => {
             try {
@@ -222,64 +241,23 @@ const getKamsWithRecruitment = async (req, res) => {
                                     { teamLeaderId: kam.id }
                                 ]
                             },
-                            ...(dateRange ? [positionDateFilter] : [])
+                            ...(dateRange ? [positionDateFilter] : []),
+                            ...(clientId ? [{ clientId }] : [])
                         ]
                     },
                     attributes: ['id', 'title', 'status'],
                     raw: true
                 });
 
-                const ownedPositionIds = ownedPositions.map(position => position.id);
                 const ownedPositionCount = ownedPositions.filter(position => position.status === 'Open').length;
 
                 const [totalCandidates, interviews, hires, recentActivityCandidate, profilesShared, callsDone, pendingTasks, completedTasks] = await Promise.all([
                     Candidate.count({
-                        where: ownedPositionIds.length > 0
-                            ? { positionId: { [Op.in]: ownedPositionIds }, ...candidateDateFilter }
-                            : { id: null }
-                    }),
-                    Interview.count({
-                        where: {
-                            [Op.and]: [
-                                { [Op.or]: interviewOr },
-                                { status: { [Op.ne]: 'Cancelled' } },
-                                ...(dateRange ? [interviewDateFilter] : [])
-                            ]
+                        where: { 
+                            addedById: kam.id, 
+                            ...candidateDateFilter,
+                            ...(clientId ? { clientId } : {})
                         }
-                    }),
-                    Candidate.count({
-                        where: ownedPositionIds.length > 0
-                            ? {
-                                positionId: { [Op.in]: ownedPositionIds },
-                                [Op.or]: [
-                                    { status: 'Selected' },
-                                    { stage: 'Joined' }
-                                ],
-                                ...hiresDateFilter
-                            }
-                            : { id: null }
-                    }),
-                    Candidate.findAll({
-                        where: ownedPositionIds.length > 0
-                            ? { positionId: { [Op.in]: ownedPositionIds }, ...activityDateFilter }
-                            : { id: null },
-                        include: [{ 
-                            model: RecruitmentPosition, 
-                            as: 'position', 
-                            attributes: ['title'],
-                            required: false // LEFT JOIN ensures activity shows even if position is null
-                        }],
-                        order: [['updatedAt', 'DESC']],
-                        limit: 3
-                    }),
-                    Candidate.count({
-                        where: ownedPositionIds.length > 0
-                            ? {
-                                positionId: { [Op.in]: ownedPositionIds },
-                                status: { [Op.in]: ['Shared', 'Shortlisted', 'Interview', 'Selected'] },
-                                ...candidateDateFilter
-                            }
-                            : { id: null }
                     }),
                     Interview.count({
                         where: {
@@ -287,6 +265,53 @@ const getKamsWithRecruitment = async (req, res) => {
                                 { [Op.or]: interviewOr },
                                 { status: { [Op.ne]: 'Cancelled' } },
                                 ...(dateRange ? [interviewDateFilter] : []),
+                                ...(clientId ? [{ clientId }] : [])
+                            ]
+                        }
+                    }),
+                    Candidate.count({
+                        where: {
+                            addedById: kam.id,
+                            [Op.or]: [
+                                { status: 'Selected' },
+                                { stage: 'Joined' }
+                            ],
+                            ...hiresDateFilter,
+                            ...(clientId ? { clientId } : {})
+                        }
+                    }),
+                    Candidate.findAll({
+                        where: { 
+                            addedById: kam.id, 
+                            ...activityDateFilter,
+                            ...(clientId ? { clientId } : {})
+                        },
+                        include: [{ 
+                            model: RecruitmentPosition, 
+                            as: 'position', 
+                            attributes: ['title'],
+                            required: false
+                        }],
+                        order: [['updatedAt', 'DESC']],
+                        limit: 3,
+                        raw: true,
+                        nest: true
+                    }),
+                    Candidate.count({
+                        where: { 
+                            addedById: kam.id, 
+                            status: { [Op.in]: ['Shared', 'Shortlisted', 'Interview', 'Selected'] },
+                            ...candidateDateFilter,
+                            ...(clientId ? { clientId } : {})
+                        }
+                    }),
+                    Interview.count({
+                        where: {
+                            [Op.and]: [
+                                { [Op.or]: interviewOr },
+                                { status: { [Op.ne]: 'Cancelled' } },
+                                ...(dateRange ? [interviewDateFilter] : []),
+                                ...(clientId ? [{ clientId }] : []),
                                 {
                                     [Op.or]: [
                                         { interviewType: 'Phone Screening' },
@@ -726,36 +751,77 @@ const getCandidatesByPosition = async (req, res) => {
 // Get recruitment stats (for dashboard)
 const getRecruitmentStats = async (req, res) => {
     try {
+        const { teamMember, client: clientId, activityType } = req.query;
         const dateRange = buildDateRangeFromQuery(req.query);
         const dateFilter = buildDateFieldFilter(dateRange, 'createdAt');
-        
-        const [totalPositions, openPositions, holdPositions, closedPositions] = await Promise.all([
-            RecruitmentPosition.count({ where: dateFilter }),
-            RecruitmentPosition.count({ where: { ...dateFilter, status: 'Open' } }),
-            RecruitmentPosition.count({ where: { ...dateFilter, status: 'Hold' } }),
-            RecruitmentPosition.count({ where: { ...dateFilter, status: 'Closed' } }),
+        const interviewDateFilter = buildDateFieldFilter(dateRange, 'interviewDate');
+
+        // Combined filter for components that filter by team member AND client
+        const commonFilter = {
+            ...dateFilter,
+            ...(teamMember && teamMember !== 'All Team' ? { addedById: teamMember } : {}),
+            ...(clientId ? { clientId } : {})
+        };
+
+        const totalPositions = await RecruitmentPosition.count({ 
+            where: { 
+                ...dateFilter,
+                ...(clientId ? { clientId } : {})
+            } 
+        });
+        const openPositions = await RecruitmentPosition.count({ 
+            where: { 
+                status: 'Open', 
+                ...dateFilter,
+                ...(clientId ? { clientId } : {})
+            } 
+        });
+        const holdPositions = await RecruitmentPosition.count({ 
+            where: { 
+                status: 'Hold', 
+                ...dateFilter,
+                ...(clientId ? { clientId } : {})
+            } 
+        });
+        const closedPositions = await RecruitmentPosition.count({ 
+            where: { 
+                status: 'Closed', 
+                ...dateFilter,
+                ...(clientId ? { clientId } : {})
+            } 
+        });
+
+        // Pipeline stats
+        const [totalCandidates, sharedCVs, shortlisted, selected, rejected] = await Promise.all([
+            Candidate.count({ where: commonFilter }),
+            Candidate.count({ where: { ...commonFilter, status: 'Shared' } }),
+            Candidate.count({ where: { ...commonFilter, status: 'Shortlisted' } }),
+            Candidate.count({ where: { ...commonFilter, [Op.or]: [{ status: 'Selected' }, { stage: 'Joined' }] } }),
+            Candidate.count({ where: { ...commonFilter, status: 'Rejected' } }),
         ]);
 
-        const [totalCandidates, sharedCVs, shortlisted, selected] = await Promise.all([
-            Candidate.count({ where: dateFilter }),
-            Candidate.count({ where: { ...dateFilter, status: { [Op.in]: ['Shared', 'Shortlisted', 'Interview', 'Selected'] } } }),
-            Candidate.count({ where: { ...dateFilter, status: { [Op.in]: ['Shortlisted', 'Interview', 'Selected'] } } }),
-            Candidate.count({ where: { ...dateFilter, status: 'Selected' } }),
-        ]);
-
+        console.log('Fetching stage map...');
         // Pipeline stage counts
         const stageCounts = await Candidate.findAll({
-            attributes: ['stage', [fn('COUNT', col('id')), 'count']],
-            where: dateFilter,
+            attributes: ['stage', [fn('COUNT', col('Candidate.id')), 'count']],
+            where: commonFilter,
             group: ['stage'],
             raw: true,
         });
         const stageMap = {};
-        stageCounts.forEach(s => { stageMap[s.stage] = parseInt(s.count); });
+        stageCounts.forEach(s => { 
+            if (s.stage) {
+                stageMap[s.stage] = parseInt(s.count); 
+            }
+        });
 
+        console.log('Fetching position metrics...');
         // Position-wise metrics
         const positions = await RecruitmentPosition.findAll({
-            where: dateFilter,
+            where: {
+                ...dateFilter,
+                ...(clientId ? { clientId } : {})
+            },
             include: [{ model: Client, as: 'client', attributes: ['companyName', 'name'] }],
             limit: 10,
         });
@@ -766,9 +832,13 @@ const getRecruitmentStats = async (req, res) => {
             return { position: pos.title, openings: pos.openings || 1, filled: filledCount, total: candidateCount };
         }));
 
+        console.log('Fetching client metrics...');
         // Client-wise metrics
         const allPositions = await RecruitmentPosition.findAll({
-            where: dateFilter,
+            where: {
+                ...dateFilter,
+                ...(clientId ? { clientId } : {})
+            },
             include: [{ model: Client, as: 'client', attributes: ['companyName', 'name'] }],
         });
         const clientGroups = {};
@@ -783,11 +853,205 @@ const getRecruitmentStats = async (req, res) => {
             return { client, openings: data.openings, filled: filledCount };
         }));
 
+        console.log('Fetching interview counts...');
+        // Interview counts - Global for stats card
+        const [totalInterviews, scheduledInterviews, completedInterviews, cancelledInterviews] = await Promise.all([
+            Interview.count({ 
+                where: {
+                    ...interviewDateFilter,
+                    ...(clientId ? { clientId } : {})
+                } 
+            }),
+            Interview.count({ 
+                where: { 
+                    ...interviewDateFilter, 
+                    status: 'Scheduled',
+                    ...(clientId ? { clientId } : {})
+                } 
+            }),
+            Interview.count({ 
+                where: { 
+                    ...interviewDateFilter, 
+                    status: 'Completed',
+                    ...(clientId ? { clientId } : {})
+                } 
+            }),
+            Interview.count({ 
+                where: { 
+                    ...interviewDateFilter, 
+                    status: 'Cancelled',
+                    ...(clientId ? { clientId } : {})
+                } 
+            }),
+        ]);
+
+        console.log('Fetching candidates for annual summary...');
+        // Determine summary range (Always show full year of the selected filter for "Annual" context)
+        let summaryYear = new Date().getFullYear();
+        if (dateRange && dateRange.startDate) {
+            summaryYear = new Date(dateRange.startDate).getFullYear();
+        }
+        
+        let summaryStartDate = new Date(summaryYear, 0, 1); // Jan 1st
+        let summaryEndDate = new Date(summaryYear, 11, 31, 23, 59, 59); // Dec 31st
+
+        // If no filter, show last 12 months instead of calendar year
+        if (!dateRange || !dateRange.startDate) {
+            summaryStartDate = new Date();
+            summaryStartDate.setMonth(summaryStartDate.getMonth() - 11);
+            summaryStartDate.setDate(1);
+            summaryEndDate = new Date();
+        }
+
+
+        let summaryRecords = [];
+        const summaryDateFilter = { 
+            [Op.gte]: summaryStartDate,
+            [Op.lte]: summaryEndDate
+        };
+
+        if (activityType === 'Calls' || activityType === 'Interview Count' || activityType === 'Meeting') {
+            // For Interview-based metrics
+            const interviewWhere = {
+                ...(clientId ? { clientId } : {}),
+                interviewDate: summaryDateFilter,
+                status: { [Op.ne]: 'Cancelled' }
+            };
+
+            if (activityType === 'Calls') {
+                interviewWhere[Op.or] = [
+                    { interviewType: 'Phone Screening' },
+                    { meetingType: 'Phone' }
+                ];
+            } else if (activityType === 'Meeting') {
+                interviewWhere.meetingType = { [Op.in]: ['Meeting', 'In-Person', 'Client Interview'] };
+            }
+
+            summaryRecords = await Interview.findAll({
+                where: {
+                    ...interviewWhere,
+                    ...(teamMember && teamMember !== 'All Team' ? { interviewerId: teamMember } : {})
+                },
+                include: [{
+                    model: Candidate,
+                    as: 'candidate',
+                    attributes: ['addedById'],
+                    include: [{
+                        model: DepartmentTeam,
+                        as: 'addedBy',
+                        attributes: ['name']
+                    }]
+                }],
+                attributes: ['interviewDate', 'createdAt'],
+                raw: true,
+                nest: true
+            });
+
+            // Map interview records to look like summaryRecords
+            summaryRecords = summaryRecords.map(int => ({
+                ...int,
+                createdAt: int.interviewDate || int.createdAt,
+                addedBy: int.candidate?.addedBy || { name: 'Unknown' }
+            }));
+
+        } else {
+            // For Candidate-based metrics (Hiring, Offers, Rejected, or default Sourcing)
+            const candidateWhere = {
+                ...commonFilter,
+                createdAt: summaryDateFilter
+            };
+
+            if (activityType === 'Hiring') {
+                candidateWhere[Op.or] = [
+                    { status: 'Selected' },
+                    { stage: 'Joined' }
+                ];
+            } else if (activityType === 'Offers') {
+                candidateWhere.stage = 'Offer Sent';
+            } else if (activityType === 'Rejected') {
+                candidateWhere.status = 'Rejected';
+            }
+
+            summaryRecords = await Candidate.findAll({
+                where: candidateWhere,
+                include: [{
+                    model: DepartmentTeam,
+                    as: 'addedBy',
+                    attributes: ['name']
+                }],
+                attributes: ['createdAt', 'addedById'],
+                raw: true,
+                nest: true
+            });
+        }
+
+        console.log('Processing annual summary with consistent keys...');
+        const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+        const summaryMap = {};
+        
+        // 1. First pass: bucket candidates by month and recruiter
+        const recruitersFromDb = await DepartmentTeam.findAll({ 
+            where: { department: 'HR Recruitment' },
+            attributes: ['name'],
+            raw: true 
+        });
+        const allRecruiters = recruitersFromDb.map(r => r.name);
+        
+        summaryRecords.forEach(cand => {
+            const date = new Date(cand.createdAt);
+            const monthIndex = date.getMonth();
+            const year = date.getFullYear();
+            const sortKey = `${year}-${(monthIndex + 1).toString().padStart(2, '0')}`;
+            
+            if (!summaryMap[sortKey]) {
+                summaryMap[sortKey] = { 
+                    name: monthNames[monthIndex],
+                    sortKey 
+                };
+            }
+            // Use recruiter full name from addedBy relation
+            const recruiterKey = cand.addedBy?.name || 'Unknown';
+            summaryMap[sortKey][recruiterKey] = (summaryMap[sortKey][recruiterKey] || 0) + 1;
+        });
+
+        // 2. Second pass: ensure ALL 12 MONTHS of the year are present
+        // This ensures a stable X-axis and professional layout
+        const annualSummary = [];
+        for (let i = 0; i < 12; i++) {
+            const mName = monthNames[i];
+            const sKey = `${summaryYear}-${(i + 1).toString().padStart(2, '0')}`;
+            
+            const monthData = summaryMap[sKey] || { name: mName };
+            
+            // Backfill ALL recruiters from DB
+            allRecruiters.forEach(recruiterKey => {
+                if (monthData[recruiterKey] === undefined) {
+                    monthData[recruiterKey] = 0;
+                }
+            });
+            
+            delete monthData.sortKey;
+            annualSummary.push(monthData);
+        }
+        
+        console.log('Fetching tasks and notes count...');
+        const pendingTasks = await DepartmentTask.count({ where: { department: 'HR Recruitment', status: 'Pending' } });
+        const totalNotes = await DepartmentNote.count({ where: { department: 'HR Recruitment' } });
+        
+        console.log('Success! Sending response.');
+
         res.status(200).json({
             success: true,
             data: {
                 positions: { total: totalPositions, open: openPositions, hold: holdPositions, closed: closedPositions },
-                candidates: { total: totalCandidates, sharedCVs, shortlisted, selected },
+                candidates: { total: totalCandidates, sharedCVs, shortlisted, selected, rejected },
+                interviews: { 
+                    total: totalInterviews, 
+                    scheduled: scheduledInterviews, 
+                    pending: completedInterviews,
+                    rejected: cancelledInterviews 
+                },
+                annualSummary,
                 funnel: {
                     screening: stageMap['Screening'] || 0, phoneInterview: stageMap['Phone Interview'] || 0,
                     technical: stageMap['Technical Round'] || 0, hrRound: stageMap['HR Round'] || 0,
@@ -796,6 +1060,8 @@ const getRecruitmentStats = async (req, res) => {
                 },
                 positionMetrics,
                 clientMetrics,
+                pendingTasks,
+                totalNotes
             }
         });
     } catch (error) {
@@ -2035,6 +2301,7 @@ const deleteOffer = async (req, res) => {
 };
 
 module.exports = {
+    getRecruitmentClients,
     getKamsWithRecruitment,
     createRecruitmentPosition,
     updateRecruitmentPosition,
