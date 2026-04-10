@@ -60,8 +60,8 @@ const { hashPassword } = require('./utils/bcryptUtils');
       process.exit(0);
     }
     
-    const hash1 = await hashPassword('Recruitment@123');
-    const hash2 = await hashPassword('Operation@123');
+    const hash1 = await hashPassword('Mabicons@123');
+    const hash2 = await hashPassword('Mabicons@123');
     
     await sequelize.query(`
       INSERT INTO "DepartmentTeams" (name, email, password, department, role, status)
