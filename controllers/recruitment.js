@@ -59,6 +59,11 @@ const safeJsonParse = (value, fallback) => {
 
 const upsertOfferTemplate = async (req, res) => {
     try {
+        const requesterRole = String(req.user?.role || req.user?.userType || '').toLowerCase();
+        if (requesterRole.includes('client') || requesterRole.includes('customer')) {
+            return res.status(403).json({ success: false, message: 'Access denied' });
+        }
+
         const { clientId, clientName, fieldMap } = req.body;
 
         let resolvedClientId = clientId;
@@ -111,6 +116,11 @@ const upsertOfferTemplate = async (req, res) => {
 
 const getOfferTemplate = async (req, res) => {
     try {
+        const requesterRole = String(req.user?.role || req.user?.userType || '').toLowerCase();
+        if (requesterRole.includes('client') || requesterRole.includes('customer')) {
+            return res.status(403).json({ success: false, message: 'Access denied' });
+        }
+
         const { clientId, clientName } = req.query;
 
         let resolvedClientId = clientId;
