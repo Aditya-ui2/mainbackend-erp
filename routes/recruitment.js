@@ -50,7 +50,9 @@ const {
     createOrUpdateOffer,
     getOfferCandidatesSuggestions,
     updateCandidate,
-    deleteOffer
+    deleteOffer,
+    upsertOfferTemplate,
+    getOfferTemplate
 } = require('../controllers/recruitment');
 
 const { distributeJobToPlatforms } = require('../controllers/jobDistribution');
@@ -305,6 +307,9 @@ router.post('/offers', verifyAuthToken, upload.single('offerLetter'), createOrUp
 router.put('/offers/:candidateId', verifyAuthToken, upload.single('offerLetter'), createOrUpdateOffer);
 router.get('/offers/candidate-suggestions', verifyAuthToken, getOfferCandidatesSuggestions);
 router.delete('/offers/:candidateId', verifyAuthToken, deleteOffer);
+
+router.post('/offer-templates', verifyAuthToken, upload.single('template'), upsertOfferTemplate);
+router.get('/offer-templates', verifyAuthToken, getOfferTemplate);
 // Get all positions with filtering
 router.get('/positions', verifyAuthToken, getAllPositions);
 

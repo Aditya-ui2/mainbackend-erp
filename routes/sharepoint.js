@@ -21,6 +21,8 @@ const {
   getSyncLogs,
   getExcelSheets,
   getExcelData,
+  browseDrive,
+  listExcelFiles,
 } = require('../controllers/sharepoint');
 const { protect, authorize } = require('../middleware/authMiddleware');
 
@@ -353,5 +355,43 @@ router.get('/excel/sheets', authorize('superadmin', 'admin', 'kam', 'employee'),
  *         description: Sheet data with headers and rows
  */
 router.get('/excel/data', authorize('superadmin', 'admin', 'kam', 'employee'), getExcelData);
+
+// ═══════════════════════════════════════════
+// DRIVE BROWSER ENDPOINTS
+// ═══════════════════════════════════════════
+
+/**
+ * @swagger
+ * /sharepoint/drive/browse:
+ *   get:
+ *     summary: Browse SharePoint drive folders and files
+ *     tags: [SharePoint]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: path
+ *         schema:
+ *           type: string
+ *         description: Folder path relative to root
+ *     responses:
+ *       200:
+ *         description: Folder contents
+ */
+router.get('/drive/browse', authorize('superadmin', 'admin', 'kam', 'employee'), browseDrive);
+
+/**
+ * @swagger
+ * /sharepoint/drive/excel-files:
+ *   get:
+ *     summary: List all Excel files in SharePoint drive
+ *     tags: [SharePoint]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: List of Excel files
+ */
+router.get('/drive/excel-files', authorize('superadmin', 'admin', 'kam', 'employee'), listExcelFiles);
 
 module.exports = router;

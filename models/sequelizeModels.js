@@ -879,6 +879,46 @@ const Candidate = sequelize.define('Candidate', {
     timestamps: true
 });
 
+// ============ OFFER TEMPLATE MODEL ============
+const OfferTemplate = sequelize.define('OfferTemplate', {
+    id: {
+        type: DataTypes.UUID,
+        defaultValue: DataTypes.UUIDV4,
+        primaryKey: true
+    },
+    clientId: {
+        type: DataTypes.UUID,
+        allowNull: false,
+        references: {
+            model: 'clients',
+            key: 'id'
+        }
+    },
+    templateUrl: {
+        type: DataTypes.STRING,
+        allowNull: false
+    },
+    templateFileName: {
+        type: DataTypes.STRING,
+        allowNull: false
+    },
+    fieldMap: {
+        type: DataTypes.JSONB,
+        defaultValue: {}
+    },
+    status: {
+        type: DataTypes.STRING,
+        defaultValue: 'Active'
+    }
+}, {
+    tableName: 'offer_templates',
+    timestamps: true,
+    indexes: [
+        { fields: ['clientId'] },
+        { fields: ['status'] }
+    ]
+});
+
 // ============ INTERVIEW MODEL ============
 const Interview = sequelize.define('Interview', {
     id: {
@@ -1157,6 +1197,9 @@ WorkAgreement.belongsTo(Client, { foreignKey: 'clientId', as: 'client' });
 // Client -> RecruitmentPosition (One to Many)
 Client.hasMany(RecruitmentPosition, { foreignKey: 'clientId', as: 'recruitmentPositions' });
 RecruitmentPosition.belongsTo(Client, { foreignKey: 'clientId', as: 'client' });
+
+Client.hasMany(OfferTemplate, { foreignKey: 'clientId', as: 'offerTemplates' });
+OfferTemplate.belongsTo(Client, { foreignKey: 'clientId', as: 'client' });
 
 // TeamLeader -> RecruitmentPosition (One to Many)
 TeamLeader.hasMany(RecruitmentPosition, { foreignKey: 'teamLeaderId', as: 'recruitmentPositions' });
@@ -1830,6 +1873,7 @@ module.exports = {
     Message,
     RecruitmentPosition,
     Candidate,
+    OfferTemplate,
     Interview,
     WorkAgreement,
     WorkHandover,

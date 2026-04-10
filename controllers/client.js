@@ -27,7 +27,9 @@ const signupClient = async (req, res) => {
             spocContact,
             authorizedSignatory, 
             ownerDirectorDetails, 
-            website 
+            website,
+            logoUrl,
+            category
         } = req.body;
 
         // Validate required fields
@@ -65,7 +67,9 @@ const signupClient = async (req, res) => {
             spocContact,
             authorizedSignatory, 
             ownerDirectorDetails, 
-            website 
+            website,
+            logoUrl,
+            category
         });
 
         res.status(201).json({
@@ -398,7 +402,7 @@ const getAllClients = async (req, res) => {
                 as: 'teamLeader',
                 attributes: ['id', 'name', 'email', 'phone']
             }],
-            attributes: ['id', 'name', 'email', 'companyName', 'corporateAddress', 'contactNumber', 'gstNumber', 'panNumber', 'cinNumber', 'spocName', 'spocContact', 'status', 'createdAt'],
+            attributes: ['id', 'name', 'email', 'companyName', 'corporateAddress', 'contactNumber', 'gstNumber', 'panNumber', 'cinNumber', 'spocName', 'spocContact', 'status', 'createdAt', 'logoUrl', 'category'],
             order: [['createdAt', 'DESC']]
         });
 

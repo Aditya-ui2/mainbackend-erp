@@ -595,3 +595,100 @@ exports.getExcelData = async (req, res) => {
     safeError(res, 'Failed to read Excel sheet data');
   }
 };
+
+/* ═══════════════════════════════════════════════════════════
+ * DRIVE / FOLDER BROWSER ENDPOINTS
+ * ═══════════════════════════════════════════════════════════ */
+
+/**
+ * @desc    Browse SharePoint drive folders/files
+ * @route   GET /api/sharepoint/drive/browse
+ * @query   path (optional) – folder path relative to root, e.g. "Recruitment folders"
+ * @access  Private (Admin/KAM)
+ */
+exports.browseDrive = async (req, res) => {
+  try {
+    const siteId = await getSiteId();
+    const folderPath = req.query.path || 'root';
+
+    const drives = await sharePointService.getDrives(siteId);
+    if (!drives.length) return safeError(res, 'No document libraries found', 404);
+
+    // Use first drive (default document library)
+    const driveId = drives[0].id;
+    const items = await sharePointService.getFolderContents(siteId, driveId, folderPath);
+
+    const result = items.map(item => ({
+      id: item.id,
+      name: item.name,
+      type: item.folder ? 'folder' : 'file',
+      size: item.size || 0,
+      childCount: item.folder?.childCount || 0,
+      mimeType: item.file?.mimeType || null,
+      webUrl: item.webUrl,
+      createdAt: item.createdDateTime,
+      modifiedAt: item.lastModifiedDateTime,
+      createdBy: item.createdBy?.user?.displayName || null,
+      lastModifiedBy: item.lastModifiedBy?.user?.displayName || null,
+    }));
+
+    auditLog('BROWSE_DRIVE', req.user, { path: folderPath, itemCount: result.length });
+
+    res.status(200).json({
+      success: true,
+      path: folderPath,
+      count: result.length,
+      data: result,
+    });
+  } catch (error) {
+    console.error('Browse drive failed:', error.message);
+    safeError(res, 'Failed to browse SharePoint drive');
+  }
+};
+
+/**
+ * @desc    List all Excel files in SharePoint drive (searches recursively)
+ * @route   GET /api/sharepoint/drive/excel-files
+ * @access  Private (Admin/KAM)
+ */
+exports.listExcelFiles = async (req, res) => {
+  try {
+    const siteId = await getSiteId();
+    const drives = await sharePointService.getDrives(siteId);
+    if (!drives.length) return safeError(res, 'No document libraries found', 404);
+
+    const driveId = drives[0].id;
+    const token = await sharePointService.getAccessToken();
+
+    // Search for xlsx files
+    const searchUrl = `https://graph.microsoft.com/v1.0/sites/${siteId}/drives/${driveId}/root/search(q='.xlsx')`;
+    const axios = require('axios');
+    const response = await axios.get(searchUrl, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+
+    const excelFiles = (response.data.value || [])
+      .filter(f => f.name.endsWith('.xlsx') || f.name.endsWith('.xls'))
+      .map(f => ({
+        id: f.id,
+        name: f.name,
+        size: f.size,
+        webUrl: f.webUrl,
+        createdAt: f.createdDateTime,
+        modifiedAt: f.lastModifiedDateTime,
+        lastModifiedBy: f.lastModifiedBy?.user?.displayName || null,
+        path: f.parentReference?.path?.replace(/.*root:/, '') || '/',
+      }));
+
+    auditLog('LIST_EXCEL_FILES', req.user, { count: excelFiles.length });
+
+    res.status(200).json({
+      success: true,
+      count: excelFiles.length,
+      data: excelFiles,
+    });
+  } catch (error) {
+    console.error('List Excel files failed:', error.message);
+    safeError(res, 'Failed to list Excel files');
+  }
+};

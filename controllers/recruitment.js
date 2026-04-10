@@ -1,8 +1,9 @@
 const { Op, fn, col, literal } = require('sequelize');
-const { TeamLeader, Client, RecruitmentPosition, Candidate, Interview, DepartmentTask, ResumeBank, DepartmentTeam, DepartmentNote } = require('../models/sequelizeModels');
+const { TeamLeader, Client, RecruitmentPosition, Candidate, Interview, OfferTemplate, DepartmentTask, ResumeBank, DepartmentTeam, DepartmentNote } = require('../models/sequelizeModels');
 const fs = require('fs');
 const path = require('path');
 const sendEmail = require('../utils/emailService');
+const { PDFDocument, StandardFonts, rgb } = require('pdf-lib');
 
 const escapeLike = (value = '') => String(value).replace(/[\\%_]/g, '\\$&');
 
@@ -44,6 +45,125 @@ const buildOfferEmailHtml = ({ candidateName, position, client, offeredCTC, join
         <p>Regards,<br/>Mabicons Recruitment Team</p>
     </div>
 `;
+
+const safeJsonParse = (value, fallback) => {
+    try {
+        if (typeof value !== 'string') return fallback;
+        const trimmed = value.trim();
+        if (!trimmed) return fallback;
+        return JSON.parse(trimmed);
+    } catch (_) {
+        return fallback;
+    }
+};
+
+const upsertOfferTemplate = async (req, res) => {
+    try {
+        const { clientId, clientName, fieldMap } = req.body;
+
+        let resolvedClientId = clientId;
+        if (!resolvedClientId && clientName) {
+            const foundClient = await Client.findOne({
+                where: {
+                    [Op.or]: [
+                        { companyName: { [Op.iLike]: String(clientName).trim() } },
+                        { name: { [Op.iLike]: String(clientName).trim() } }
+                    ]
+                },
+                attributes: ['id']
+            });
+            resolvedClientId = foundClient?.id || null;
+        }
+
+        if (!resolvedClientId) {
+            return res.status(400).json({ success: false, message: 'clientId or clientName is required' });
+        }
+
+        if (!req.file) {
+            return res.status(400).json({ success: false, message: 'Template PDF file is required' });
+        }
+
+        if (req.file.mimetype !== 'application/pdf') {
+            return res.status(400).json({ success: false, message: 'Only PDF templates are supported' });
+        }
+
+        const baseDir = path.join(__dirname, '..', 'uploads', 'offer-templates', resolvedClientId);
+        fs.mkdirSync(baseDir, { recursive: true });
+        const sanitizedFileName = `${Date.now()}-${String(req.file.originalname).replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+        const targetPath = path.join(baseDir, sanitizedFileName);
+        fs.writeFileSync(targetPath, req.file.buffer);
+
+        const parsedFieldMap = typeof fieldMap === 'object' ? fieldMap : safeJsonParse(fieldMap, {});
+
+        const record = await OfferTemplate.create({
+            clientId: resolvedClientId,
+            templateUrl: `/uploads/offer-templates/${resolvedClientId}/${sanitizedFileName}`,
+            templateFileName: req.file.originalname,
+            fieldMap: parsedFieldMap
+        });
+
+        return res.status(201).json({ success: true, data: record });
+    } catch (error) {
+        console.error('Error saving offer template:', error);
+        return res.status(500).json({ success: false, message: 'Failed to save offer template', error: error.message });
+    }
+};
+
+const getOfferTemplate = async (req, res) => {
+    try {
+        const { clientId, clientName } = req.query;
+
+        let resolvedClientId = clientId;
+        if (!resolvedClientId && clientName) {
+            const foundClient = await Client.findOne({
+                where: {
+                    [Op.or]: [
+                        { companyName: { [Op.iLike]: String(clientName).trim() } },
+                        { name: { [Op.iLike]: String(clientName).trim() } }
+                    ]
+                },
+                attributes: ['id']
+            });
+            resolvedClientId = foundClient?.id || null;
+        }
+
+        if (!resolvedClientId) {
+            return res.status(400).json({ success: false, message: 'clientId or clientName is required' });
+        }
+
+        const record = await OfferTemplate.findOne({
+            where: { clientId: resolvedClientId, status: { [Op.ne]: 'Deleted' } },
+            order: [['createdAt', 'DESC']]
+        });
+
+        if (!record) {
+            return res.status(404).json({ success: false, message: 'No offer template found for this client' });
+        }
+
+        return res.status(200).json({ success: true, data: record });
+    } catch (error) {
+        console.error('Error fetching offer template:', error);
+        return res.status(500).json({ success: false, message: 'Failed to fetch offer template', error: error.message });
+    }
+};
+
+const wrapTextToWidth = ({ text, font, fontSize, maxWidth }) => {
+    const words = String(text || '').split(/\s+/).filter(Boolean);
+    const lines = [];
+    let current = '';
+    for (const word of words) {
+        const next = current ? `${current} ${word}` : word;
+        const width = font.widthOfTextAtSize(next, fontSize);
+        if (width <= maxWidth) {
+            current = next;
+            continue;
+        }
+        if (current) lines.push(current);
+        current = word;
+    }
+    if (current) lines.push(current);
+    return lines;
+};
 
 const resolvePositionOwnership = async ({ departmentTeamId, teamLeaderId, userId }) => {
     let resolvedDepartmentTeamId = null;
@@ -1482,6 +1602,102 @@ const createOrUpdateOffer = async (req, res) => {
             if (foundClient) resolvedClientId = foundClient.id;
         }
 
+        const useTemplate = String(req.body.useTemplate || '').toLowerCase() === 'true';
+        if (!uploadedOfferMeta && useTemplate) {
+            if (!resolvedClientId) {
+                return res.status(400).json({ success: false, message: 'Client must be resolved to use template generation' });
+            }
+
+            const templateRecord = await OfferTemplate.findOne({
+                where: { clientId: resolvedClientId, status: { [Op.ne]: 'Deleted' } },
+                order: [['createdAt', 'DESC']]
+            });
+
+            if (!templateRecord?.templateUrl) {
+                return res.status(404).json({ success: false, message: 'Offer template not found for selected client' });
+            }
+
+            const templateRelPath = String(templateRecord.templateUrl).replace(/^\//, '');
+            const templateAbsPath = path.join(__dirname, '..', templateRelPath);
+            if (!fs.existsSync(templateAbsPath)) {
+                return res.status(404).json({ success: false, message: 'Offer template file missing on server' });
+            }
+
+            const templateBytes = fs.readFileSync(templateAbsPath);
+            const pdfDoc = await PDFDocument.load(templateBytes);
+            const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+
+            const defaultFieldMap = {
+                1: [
+                    { key: 'offerDate', x: 0.12, y: 0.165, fontSize: 10 },
+                    { key: 'candidateName', x: 0.12, y: 0.187, fontSize: 11 },
+                    { key: 'address', x: 0.12, y: 0.235, fontSize: 9, maxWidth: 0.44 },
+                    { key: 'joiningDate', x: 0.52, y: 0.355, fontSize: 9 },
+                    { key: 'ctc', x: 0.35, y: 0.52, fontSize: 9 }
+                ]
+            };
+
+            const fieldMap = (templateRecord.fieldMap && Object.keys(templateRecord.fieldMap).length > 0)
+                ? templateRecord.fieldMap
+                : defaultFieldMap;
+
+            const formatDate = (value) => {
+                if (!value) return '';
+                const d = new Date(value);
+                if (Number.isNaN(d.getTime())) return String(value);
+                return d.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+            };
+
+            const values = {
+                offerDate: formatDate(offerDate),
+                candidateName: candidateName || candidate.name || '',
+                address: negotiationNotes || '',
+                joiningDate: formatDate(joiningDate),
+                ctc: offeredCTC ? `₹${offeredCTC}` : ''
+            };
+
+            const pages = pdfDoc.getPages();
+            for (const [pageKey, fields] of Object.entries(fieldMap || {})) {
+                const pageIndex = Math.max(0, parseInt(pageKey, 10) - 1);
+                const page = pages[pageIndex];
+                if (!page || !Array.isArray(fields)) continue;
+                const { width, height } = page.getSize();
+
+                for (const f of fields) {
+                    const raw = values[f.key] ?? '';
+                    if (!raw) continue;
+                    const size = Number(f.fontSize) || 10;
+                    const x = width * (Number(f.x) || 0);
+                    const yTop = height * (Number(f.y) || 0);
+                    let y = height - yTop - size;
+
+                    if (f.key === 'address') {
+                        const maxWidth = width * (Number(f.maxWidth) || 0.4);
+                        const lines = wrapTextToWidth({ text: raw, font, fontSize: size, maxWidth });
+                        for (let li = 0; li < lines.length; li += 1) {
+                            page.drawText(lines[li], { x, y: y - (li * (size + 2)), size, font, color: rgb(0, 0, 0) });
+                        }
+                        continue;
+                    }
+
+                    page.drawText(String(raw), { x, y, size, font, color: rgb(0, 0, 0) });
+                }
+            }
+
+            const generatedBytes = await pdfDoc.save();
+            const offerDirectory = path.join(__dirname, '..', 'uploads', 'offers');
+            fs.mkdirSync(offerDirectory, { recursive: true });
+            const generatedName = `${Date.now()}-offer-${candidate.id}.pdf`;
+            const targetPath = path.join(offerDirectory, generatedName);
+            fs.writeFileSync(targetPath, Buffer.from(generatedBytes));
+            uploadedOfferMeta = {
+                offerLetterUrl: `/uploads/offers/${generatedName}`,
+                offerLetterFileName: templateRecord.templateFileName || 'OfferLetter.pdf',
+                emailAttachmentName: templateRecord.templateFileName || 'OfferLetter.pdf',
+                emailAttachmentContent: Buffer.from(generatedBytes).toString('base64')
+            };
+        }
+
         await candidate.update({
             positionId: resolvedPositionId || candidate.positionId,
             clientId: resolvedClientId || candidate.clientId,
@@ -2332,4 +2548,7 @@ module.exports = {
     getOfferCandidatesSuggestions,
     updateCandidate,
     deleteOffer
+    ,
+    upsertOfferTemplate,
+    getOfferTemplate
 };
