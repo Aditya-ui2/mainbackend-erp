@@ -233,7 +233,7 @@ router.post('/activities', verifyAuthToken, createActivityLog);
  *         name: status
  *         schema:
  *           type: string
- *           enum: [Pending, InProgress, Completed]
+ *           enum: ['Pending', 'InProgress', 'Completed']
  *       - in: query
  *         name: assignedTo
  *         schema:
@@ -361,7 +361,7 @@ router.get('/stats', verifyAuthToken, getDepartmentStats);
  *         name: status
  *         schema:
  *           type: string
- *           enum: [Pending, In Progress, Completed, Overdue]
+ *           enum: ['Pending', 'In Progress', 'Completed', 'Overdue']
  *     responses:
  *       200:
  *         description: List of my tasks
