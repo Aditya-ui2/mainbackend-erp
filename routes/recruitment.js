@@ -110,7 +110,7 @@ router.get('/clients', verifyAuthToken, getRecruitmentClients);
  *                 type: integer
  *               priority:
  *                 type: string
- *                 enum: [Low, Medium, High, Urgent]
+ *                 enum: ['Low', 'Medium', 'High', 'Urgent']
  *               deadline:
  *                 type: string
  *                 format: date
@@ -232,7 +232,7 @@ router.put('/candidates/:id', verifyAuthToken, updateCandidate);
  *             properties:
  *               status:
  *                 type: string
- *                 enum: [Submitted, Shared, Shortlisted, Interview, Selected, Rejected, OnHold]
+ *                 enum: ['Submitted', 'Shared', 'Shortlisted', 'Interview', 'Selected', 'Rejected', 'OnHold']
  *     responses:
  *       200:
  *         description: Status updated
