@@ -43,11 +43,14 @@ app.use(helmet({
     contentSecurityPolicy: {
         directives: {
             ...helmet.contentSecurityPolicy.getDefaultDirectives(),
-            "frame-ancestors": ["'self'", "http://localhost:5173", "http://localhost:5174"],
-            "img-src": ["'self'", "data:", "blob:", "http://localhost:3000"],
-            "media-src": ["'self'", "data:", "blob:", "http://localhost:3000"]
+            "upgrade-insecure-requests": null,
+            "frame-ancestors": ["'self'", "http://localhost:5173", "http://localhost:5174", "http://15.206.67.102"],
+            "img-src": ["'self'", "data:", "blob:", "http://localhost:3000", "http://15.206.67.102:3000"],
+            "media-src": ["'self'", "data:", "blob:", "http://localhost:3000", "http://15.206.67.102:3000"],
+            "script-src": ["'self'", "'unsafe-inline'", "https://cdn.jsdelivr.net"], // Allow Swagger scripts
         },
     },
+    hsts: false, // Disable HSTS as we are on HTTP
     crossOriginEmbedderPolicy: false,
     crossOriginResourcePolicy: { policy: "cross-origin" },
     frameguard: false // Allow framing for CV previews
