@@ -205,7 +205,7 @@ router.post('/positions/:id/distribute', verifyAuthToken, distributeJobToPlatfor
  *         description: Candidate added
  */
 router.post('/candidates', verifyAuthToken, upload.single('resume'), addCandidate);
-router.put('/candidates/:id', verifyAuthToken, updateCandidate);
+router.put('/candidates/:id', verifyAuthToken, upload.single('resume'), updateCandidate);
 
 /**
  * @swagger

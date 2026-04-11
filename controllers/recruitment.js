@@ -58,6 +58,14 @@ const safeJsonParse = (value, fallback) => {
 };
 
 const upsertOfferTemplate = async (req, res) => {
+    console.log('--- UPSERT OFFER TEMPLATE REQUEST ---');
+    console.log('Body:', req.body);
+    console.log('File:', req.file ? {
+        originalname: req.file.originalname,
+        mimetype: req.file.mimetype,
+        size: req.file.size
+    } : 'No file uploaded');
+
     try {
         const requesterRole = String(req.user?.role || req.user?.userType || '').toLowerCase();
         if (requesterRole.includes('client') || requesterRole.includes('customer')) {
@@ -624,7 +632,15 @@ const updateRecruitmentPosition = async (req, res) => {
 
 // Add a candidate
 const addCandidate = async (req, res) => {
+    console.log('--- ADD CANDIDATE REQUEST ---');
+    console.log('Body:', req.body);
+    console.log('File:', req.file ? {
+        originalname: req.file.originalname,
+        mimetype: req.file.mimetype,
+        size: req.file.size
+    } : 'No file uploaded');
     try {
+
         let { name, email, phone, positionId, clientId, skills, experience, currentSalary, expectedSalary, notes, location, noticePeriod, stage, pipelineStatus, rating, source } = req.body;
         
         // Robustness: Handle empty or mock UUID fields
@@ -1553,6 +1569,15 @@ const createOrUpdateOffer = async (req, res) => {
             status,
             negotiationNotes
         } = req.body;
+        
+        console.log('--- CREATE/UPDATE OFFER REQUEST ---');
+        console.log('Candidate ID:', candidateId);
+        console.log('File:', req.file ? {
+            originalname: req.file.originalname,
+            mimetype: req.file.mimetype,
+            size: req.file.size
+        } : 'No file uploaded');
+
 
         let uploadedOfferMeta = null;
         if (req.file) {
@@ -1567,6 +1592,9 @@ const createOrUpdateOffer = async (req, res) => {
                 emailAttachmentName: req.file.originalname,
                 emailAttachmentContent: req.file.buffer.toString('base64')
             };
+            console.log('File saved successfully to:', targetPath);
+        } else {
+            console.log('No file received in request');
         }
 
         let candidate = null;
@@ -1663,7 +1691,8 @@ const createOrUpdateOffer = async (req, res) => {
                 candidateName: candidateName || candidate.name || '',
                 address: negotiationNotes || '',
                 joiningDate: formatDate(joiningDate),
-                ctc: offeredCTC ? `₹${offeredCTC}` : ''
+                ctc: offeredCTC ? `₹${offeredCTC}` : '',
+                client: client || ''
             };
 
             const pages = pdfDoc.getPages();
