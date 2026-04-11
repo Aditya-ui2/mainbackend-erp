@@ -1611,7 +1611,11 @@ const createOrUpdateOffer = async (req, res) => {
         }
 
         if (!candidate) {
-            return res.status(404).json({ success: false, message: 'Candidate not found for offer creation' });
+            console.log('Candidate search failed for ID:', candidateId, 'Email:', email, 'Name:', candidateName);
+            return res.status(404).json({ 
+                success: false, 
+                message: 'Candidate not found. Please ensure you select a candidate from the suggestions dropdown.' 
+            });
         }
 
         const normalizedRequestEmail = typeof email === 'string' ? email.trim() : '';
