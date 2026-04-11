@@ -149,7 +149,7 @@ router.get('/search-s3', resumeBankController.searchS3);
  *         name: status
  *         schema:
  *           type: string
- *           enum: [Available, Shortlisted, Contacted, Interview Scheduled, Hired, Rejected, Not Interested]
+ *           enum: ['Available', 'Shortlisted', 'Contacted', 'Interview Scheduled', 'Hired', 'Rejected', 'Not Interested']
  *       - in: query
  *         name: search
  *         schema:
@@ -167,7 +167,7 @@ router.get('/search-s3', resumeBankController.searchS3);
  *         name: sortOrder
  *         schema:
  *           type: string
- *           enum: [asc, desc]
+ *           enum: ['asc', 'desc']
  *           default: desc
  *     responses:
  *       200:
@@ -229,7 +229,7 @@ router.post('/star', resumeBankController.toggleStarResumes);
  *                   type: string
  *               status:
  *                 type: string
- *                 enum: [Available, Shortlisted, Contacted, Interview Scheduled, Hired, Rejected, Not Interested]
+ *                 enum: ['Available', 'Shortlisted', 'Contacted', 'Interview Scheduled', 'Hired', 'Rejected', 'Not Interested']
  *     responses:
  *       200:
  *         description: Status updated

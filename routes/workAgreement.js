@@ -52,7 +52,7 @@ router.use(protect);
  *                 type: number
  *               status:
  *                 type: string
- *                 enum: [Draft, Active, Expired, Terminated]
+ *                 enum: ['Draft', 'Active', 'Expired', 'Terminated']
  *     responses:
  *       201:
  *         description: Agreement created
@@ -74,7 +74,7 @@ router.post('/create', createWorkAgreement);
  *         name: status
  *         schema:
  *           type: string
- *           enum: [Draft, Active, Expired, Terminated]
+ *           enum: ['Draft', 'Active', 'Expired', 'Terminated']
  *     responses:
  *       200:
  *         description: List of agreements

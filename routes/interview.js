@@ -35,7 +35,7 @@ const {
  *         name: status
  *         schema:
  *           type: string
- *           enum: [Scheduled, In Progress, Completed, Cancelled, Rescheduled, No Show]
+ *           enum: ['Scheduled', 'In Progress', 'Completed', 'Cancelled', 'Rescheduled', 'No Show']
  *       - in: query
  *         name: date
  *         schema:
@@ -45,7 +45,7 @@ const {
  *         name: interviewType
  *         schema:
  *           type: string
- *           enum: [HR Round, Technical Round, Client Interview, Phone Screening, Final Round]
+ *           enum: ['HR Round', 'Technical Round', 'Client Interview', 'Phone Screening', 'Final Round']
  *       - in: query
  *         name: candidateId
  *         schema:
@@ -91,7 +91,7 @@ router.get('/', verifyAuthToken, getInterviews);
  *                 type: string
  *               interviewType:
  *                 type: string
- *                 enum: [HR Round, Technical Round, Client Interview, Phone Screening, Final Round]
+ *                 enum: ['HR Round', 'Technical Round', 'Client Interview', 'Phone Screening', 'Final Round']
  *               interviewDate:
  *                 type: string
  *                 format: date
@@ -103,13 +103,13 @@ router.get('/', verifyAuthToken, getInterviews);
  *                 default: 45
  *               meetingType:
  *                 type: string
- *                 enum: [Video, In-Person, Phone]
+ *                 enum: ['Video', 'In-Person', 'Phone']
  *                 default: Video
  *               interviewerId:
  *                 type: string
  *               interviewerType:
  *                 type: string
- *                 enum: [TeamLeader, DepartmentTeam, Client]
+ *                 enum: ['TeamLeader', 'DepartmentTeam', 'Client']
  *               interviewerName:
  *                 type: string
  *               interviewerEmail:
@@ -193,7 +193,7 @@ router.get('/:id', verifyAuthToken, getInterviewById);
  *             properties:
  *               status:
  *                 type: string
- *                 enum: [Scheduled, In Progress, Completed, Cancelled, Rescheduled, No Show]
+ *                 enum: ['Scheduled', 'In Progress', 'Completed', 'Cancelled', 'Rescheduled', 'No Show']
  *               rescheduleReason:
  *                 type: string
  *               newDate:
@@ -292,7 +292,7 @@ router.get('/:id/feedback-form', verifyAuthToken, getInterviewFeedbackForm);
  *                 type: string
  *               recommendation:
  *                 type: string
- *                 enum: [Strongly Recommend, Recommend, Neutral, Not Recommend, Strongly Not Recommend]
+ *                 enum: ['Strongly Recommend', 'Recommend', 'Neutral', 'Not Recommend', 'Strongly Not Recommend']
  *               notes:
  *                 type: string
  *     responses:

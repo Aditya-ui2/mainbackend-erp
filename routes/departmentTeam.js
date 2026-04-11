@@ -269,7 +269,7 @@ router.get('/tasks', verifyAuthToken, getDepartmentTasks);
  *                 type: string
  *               priority:
  *                 type: string
- *                 enum: [Low, Medium, High]
+ *                 enum: ['Low', 'Medium', 'High']
  *               dueDate:
  *                 type: string
  *                 format: date

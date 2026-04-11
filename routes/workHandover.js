@@ -67,7 +67,7 @@ router.post('/create', createHandover);
  *         name: status
  *         schema:
  *           type: string
- *           enum: [Pending, InProgress, Completed, Cancelled]
+ *           enum: ['Pending', 'InProgress', 'Completed', 'Cancelled']
  *       - in: query
  *         name: clientId
  *         schema:
@@ -124,7 +124,7 @@ router.put('/update/:id', updateHandover);
  *             properties:
  *               status:
  *                 type: string
- *                 enum: [Pending, InProgress, Completed, Cancelled]
+ *                 enum: ['Pending', 'InProgress', 'Completed', 'Cancelled']
  *     responses:
  *       200:
  *         description: Status updated
