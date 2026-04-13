@@ -1634,6 +1634,7 @@ const LeaveRequest = sequelize.define('LeaveRequest', {
 const Attendance = sequelize.define('Attendance', {
     id: { type: DataTypes.UUID, defaultValue: DataTypes.UUIDV4, primaryKey: true },
     memberId: { type: DataTypes.UUID, allowNull: false },
+    clientId: { type: DataTypes.UUID, allowNull: true },
     memberName: { type: DataTypes.STRING, allowNull: false },
     department: { type: DataTypes.ENUM('HR Operations', 'HR Recruitment'), allowNull: false },
     date: { type: DataTypes.DATEONLY, allowNull: false },

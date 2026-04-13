@@ -1,7 +1,7 @@
 const express = require('express');
 const verifyAuthToken = require('../middleware/authMiddleware');
 const { authorize } = require('../middleware/authMiddleware');
-const { onboardClient, signupClient, loginClient, editClient, deleteClient, getAllClients, getClientsForTeamLeader, uploadDocuments, getClientDocuments, getClientDetails, getClientDashboardOverview, createClient } = require('../controllers/client');
+const { onboardClient, signupClient, loginClient, editClient, deleteClient, getAllClients, getClientsForTeamLeader, uploadDocuments, getClientDocuments, getClientDetails, getClientDashboardOverview, createClient, getClientAttendance, getClientPayroll, getClientMasterData } = require('../controllers/client');
 const router = express.Router();
 
 // Client create route (Admin directly)
@@ -35,5 +35,14 @@ router.post('/getClientDocuments', getClientDocuments);
 
 // Unified dashboard overview (recruitment + operations)
 router.get('/dashboard-overview/:clientId', getClientDashboardOverview);
+
+// Client attendance for assigned team members
+router.get('/attendance/:clientId', getClientAttendance);
+
+// Client payroll data filtered by clientId
+router.get('/payroll/:clientId', getClientPayroll);
+
+// Client master data
+router.get('/master-data/:clientId', getClientMasterData);
 
 module.exports = router;

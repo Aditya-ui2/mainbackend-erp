@@ -317,7 +317,11 @@ const normalizeOfferStatus = (value = '') => {
 // Get all KAMs (DepartmentTeam members) with their recruitment positions and stats
 const getRecruitmentClients = async (req, res) => {
     try {
+        const { clientId } = req.query;
+        const where = clientId ? { id: clientId } : {};
+
         const clients = await Client.findAll({
+            where,
             include: [{
                 model: RecruitmentPosition,
                 as: 'recruitmentPositions',
@@ -760,6 +764,11 @@ const updateCandidateStatus = async (req, res) => {
             return res.status(404).json({ success: false, message: 'Candidate not found' });
         }
 
+        const { clientId } = req.body;
+        if (clientId && candidate.clientId !== clientId) {
+            return res.status(403).json({ success: false, message: 'Access denied. You can only update candidates belonging to your company.' });
+        }
+
         const updateData = {};
         if (status) {
             updateData.status = status;
@@ -877,10 +886,11 @@ const updateCandidate = async (req, res) => {
 const getCandidatesByPosition = async (req, res) => {
     try {
         const { positionId } = req.params;
-        const { status } = req.query;
+        const { status, clientId } = req.query;
 
         const where = { positionId };
         if (status) where.status = status;
+        if (clientId) where.clientId = clientId;
 
         const candidates = await Candidate.findAll({
             where,
@@ -1219,12 +1229,12 @@ const getRecruitmentStats = async (req, res) => {
 // Get all recruitment positions with filtering
 const getAllPositions = async (req, res) => {
     try {
-        const { status, priority, client, search, sortBy, sortOrder } = req.query;
+        const { status, priority, client: clientId, search, sortBy, sortOrder } = req.query;
 
         const where = {};
         if (status) where.status = status;
         if (priority) where.priority = priority;
-        if (client) where.clientId = client;
+        if (clientId) where.clientId = clientId;
         if (search) {
             where[Op.or] = [
                 { title: { [Op.iLike]: `%${search}%` } },
@@ -1328,14 +1338,21 @@ const getCandidateById = async (req, res) => {
 const deleteRecruitmentPosition = async (req, res) => {
     try {
         const { id } = req.params;
+        const { clientId } = req.query;
+
+        const position = await RecruitmentPosition.findByPk(id);
+        if (!position) {
+            return res.status(404).json({ success: false, message: 'Position not found' });
+        }
+
+        if (clientId && position.clientId !== clientId) {
+            return res.status(403).json({ success: false, message: 'Access denied. You can only delete positions belonging to your company.' });
+        }
 
         // Delete associated candidates first
         await Candidate.destroy({ where: { positionId: id } });
 
         const deleted = await RecruitmentPosition.destroy({ where: { id } });
-        if (!deleted) {
-            return res.status(404).json({ success: false, message: 'Position not found' });
-        }
 
         res.status(200).json({ success: true, message: 'Position and associated candidates deleted' });
     } catch (error) {
@@ -1347,9 +1364,10 @@ const deleteRecruitmentPosition = async (req, res) => {
 // Get all candidates with filtering (for pipeline view)
 const getAllCandidates = async (req, res) => {
     try {
-        const { status, positionId, search, stage, pipelineStatus, page = 1, limit = 100 } = req.query;
+        const { status, positionId, clientId, search, stage, pipelineStatus, page = 1, limit = 100 } = req.query;
 
         const where = {};
+        if (clientId) where.clientId = clientId;
         
         // Define known ENUM values to prevent database validation errors (500)
         const VALID_STATUSES = ['Submitted', 'Shortlisted', 'Interview', 'Selected', 'Rejected', 'Joined'];
@@ -1498,18 +1516,26 @@ const getOfferCandidatesSuggestions = async (req, res) => {
 
 const getOffers = async (req, res) => {
     try {
+        const { clientId } = req.query;
+        const where = {
+            [Op.and]: [
+                ...(clientId ? [{ clientId }] : []),
+                {
+                    [Op.or]: [
+                        { stage: 'Offer Sent' },
+                        { offeredCTC: { [Op.ne]: null } },
+                        { offerDate: { [Op.ne]: null } },
+                        { offerExpiryDate: { [Op.ne]: null } },
+                        { joiningDate: { [Op.ne]: null } },
+                        { negotiationNotes: { [Op.ne]: null } },
+                        { offerStatus: { [Op.in]: ['Pending Approval', 'Sent', 'Negotiating', 'Accepted', 'Rejected', 'Expired'] } }
+                    ]
+                }
+            ]
+        };
+
         const candidates = await Candidate.findAll({
-            where: {
-                [Op.or]: [
-                    { stage: 'Offer Sent' },
-                    { offeredCTC: { [Op.ne]: null } },
-                    { offerDate: { [Op.ne]: null } },
-                    { offerExpiryDate: { [Op.ne]: null } },
-                    { joiningDate: { [Op.ne]: null } },
-                    { negotiationNotes: { [Op.ne]: null } },
-                    { offerStatus: { [Op.in]: ['Pending Approval', 'Sent', 'Negotiating', 'Accepted', 'Rejected', 'Expired'] } }
-                ]
-            },
+            where,
             include: [
                 { model: RecruitmentPosition, as: 'position', attributes: ['id', 'title'] },
                 { model: Client, as: 'client', attributes: ['id', 'companyName', 'name'] }
@@ -2072,9 +2098,13 @@ const uploadResumes = async (req, res) => {
 // Accept / shortlist candidate (simple)
 const acceptCandidateSimple = async (req, res) => {
     try {
-        const { candidateId } = req.body;
+        const { candidateId, clientId } = req.body;
         const candidate = await Candidate.findByPk(candidateId);
         if (!candidate) return res.status(404).json({ success: false, message: 'Candidate not found' });
+
+        if (clientId && candidate.clientId !== clientId) {
+            return res.status(403).json({ success: false, message: 'Access denied. You can only accept candidates belonging to your company.' });
+        }
 
         await candidate.update({ status: 'Shortlisted', shortlistedAt: new Date(), stage: 'Shortlisted' });
         res.status(200).json({ success: true, message: 'Candidate accepted/shortlisted', data: candidate });

@@ -171,13 +171,21 @@ const clientIsolation = (req, res, next) => {
 
     // For clients — ensure they only access their own data
     if (hasRoleAccess(userRole, ['client'])) {
-        const requestedClientId = req.params.clientId || req.body.clientId || req.query.clientId;
-        if (requestedClientId && requestedClientId !== req.user.id) {
+        const userId = req.user.id;
+        const requestedClientId = req.params.clientId || req.body.clientId || req.query.clientId || req.query.client;
+        
+        if (requestedClientId && requestedClientId !== userId) {
             return res.status(403).json({ 
                 success: false, 
                 message: 'Access denied. You can only access your own data.' 
             });
         }
+        
+        // Ensure controllers use the logged-in client's ID
+        // Even if the frontend didn't send it, we force it for clients
+        req.query.clientId = userId;
+        req.query.client = userId;
+        req.body.clientId = userId;
     }
 
     next();

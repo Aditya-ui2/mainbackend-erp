@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const verifyAuthToken = require('../middleware/authMiddleware');
+const { verifyAuthToken, clientIsolation } = require('../middleware/authMiddleware');
 const multer = require('multer');
 
 // Configure multer for file uploads
@@ -78,8 +78,8 @@ const { distributeJobToPlatforms } = require('../controllers/jobDistribution');
  *       401:
  *         description: Unauthorized
  */
-router.get('/kams', verifyAuthToken, getKamsWithRecruitment);
-router.get('/clients', verifyAuthToken, getRecruitmentClients);
+router.get('/kams', verifyAuthToken, clientIsolation, getKamsWithRecruitment);
+router.get('/clients', verifyAuthToken, clientIsolation, getRecruitmentClients);
 
 /**
  * @swagger
@@ -255,7 +255,7 @@ router.put('/candidates/:id', verifyAuthToken, upload.single('resume'), updateCa
  *       200:
  *         description: Candidate details with resume and interview history
  */
-router.get('/candidates/:id', verifyAuthToken, getCandidateById); 
+router.get('/candidates/:id', verifyAuthToken, clientIsolation, getCandidateById); 
 
 router.put('/candidates/:id/status', verifyAuthToken, updateCandidateStatus);
 
@@ -277,7 +277,7 @@ router.put('/candidates/:id/status', verifyAuthToken, updateCandidateStatus);
  *       200:
  *         description: List of candidates
  */
-router.get('/positions/:positionId/candidates', verifyAuthToken, getCandidatesByPosition);
+router.get('/positions/:positionId/candidates', verifyAuthToken, clientIsolation, getCandidatesByPosition);
 
 /**
  * @swagger
@@ -300,27 +300,27 @@ router.get('/positions/:positionId/candidates', verifyAuthToken, getCandidatesBy
  *                 candidates:
  *                   type: object
  */
-router.get('/stats', verifyAuthToken, getRecruitmentStats);
+router.get('/stats', verifyAuthToken, clientIsolation, getRecruitmentStats);
 router.get('/my-performance', verifyAuthToken, getMyPerformanceStats);
-router.get('/offers', verifyAuthToken, getOffers);
+router.get('/offers', verifyAuthToken, clientIsolation, getOffers);
 router.post('/offers', verifyAuthToken, upload.single('offerLetter'), createOrUpdateOffer);
 router.put('/offers/:candidateId', verifyAuthToken, upload.single('offerLetter'), createOrUpdateOffer);
 router.get('/offers/candidate-suggestions', verifyAuthToken, getOfferCandidatesSuggestions);
 router.delete('/offers/:candidateId', verifyAuthToken, deleteOffer);
 
 router.post('/offer-templates', verifyAuthToken, upload.single('template'), upsertOfferTemplate);
-router.get('/offer-templates', verifyAuthToken, getOfferTemplate);
+router.get('/offer-templates', verifyAuthToken, clientIsolation, getOfferTemplate);
 // Get all positions with filtering
-router.get('/positions', verifyAuthToken, getAllPositions);
+router.get('/positions', verifyAuthToken, clientIsolation, getAllPositions);
 
 // Delete a position
 router.delete('/positions/:id', verifyAuthToken, deleteRecruitmentPosition);
 
 // Get all candidates with filtering (pipeline view)
-router.get('/candidates', verifyAuthToken, getAllCandidates);
+router.get('/candidates', verifyAuthToken, clientIsolation, getAllCandidates);
 
 // Client-facing: Get recruitment progress for a specific client
-router.get('/client-progress/:clientId', verifyAuthToken, getClientRecruitmentProgress);
+router.get('/client-progress/:clientId', verifyAuthToken, clientIsolation, getClientRecruitmentProgress);
 
 // ==================== NEW ROUTES FOR FRONTEND COMPATIBILITY ====================
 
@@ -328,10 +328,10 @@ router.get('/client-progress/:clientId', verifyAuthToken, getClientRecruitmentPr
 router.get('/getRequests', verifyAuthToken, getRequests);
 
 // Get requests for client (simple version)
-router.get('/getRequests-client', verifyAuthToken, getClientRequestsSimple);
+router.get('/getRequests-client', verifyAuthToken, clientIsolation, getClientRequestsSimple);
 
 // Get single request details
-router.get('/request/:requestId', verifyAuthToken, getRequestDetails);
+router.get('/request/:requestId', verifyAuthToken, clientIsolation, getRequestDetails);
 
 // Create recruitment request (alternative format)
 router.post('/request', verifyAuthToken, createRequest);
