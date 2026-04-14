@@ -401,6 +401,11 @@ router.post('/attendance/check-out', verifyAuthToken, mf.checkOut);
 router.get('/my-attendance', verifyAuthToken, mf.getMyAttendance);
 router.get('/dept-attendance', verifyAuthToken, mf.getDeptAttendance);
 
+// Regularization
+router.get('/regularizations', verifyAuthToken, mf.getDeptRegularizationRequests);
+router.post('/regularizations', verifyAuthToken, mf.applyRegularization);
+router.put('/regularizations/:id/approve', verifyAuthToken, mf.approveRejectRegularization);
+
 // Performance
 router.get('/performance', verifyAuthToken, mf.getPerformanceStats);
 

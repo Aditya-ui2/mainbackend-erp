@@ -1,4 +1,4 @@
-const { DepartmentTeam, LeaveRequest, Attendance, DailyReport, Announcement, DeptDocument, Training, Payslip, DeptChat, DepartmentTask, DepartmentNote } = require('../models/sequelizeModels');
+const { DepartmentTeam, LeaveRequest, Attendance, DailyReport, Announcement, DeptDocument, Training, Payslip, DeptChat, DepartmentTask, DepartmentNote, RegularizationRequest } = require('../models/sequelizeModels');
 const { Op } = require('sequelize');
 const { addNotification } = require('./notification');
 
@@ -626,6 +626,90 @@ const deleteNote = async (req, res) => {
     }
 };
 
+// ============== REGULARIZATION ==============
+const getDeptRegularizationRequests = async (req, res) => {
+    try {
+        const where = { department: req.query.department || req.user.department };
+        if (req.query.status) where.status = req.query.status;
+        const requests = await RegularizationRequest.findAll({
+            where,
+            order: [['createdAt', 'DESC']]
+        });
+        res.json({ success: true, requests });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
+
+const applyRegularization = async (req, res) => {
+    try {
+        const { date, requestType, proposedCheckIn, proposedCheckOut, reason, attendanceId } = req.body;
+        const request = await RegularizationRequest.create({
+            memberId: req.user.id,
+            memberName: req.user.name,
+            department: req.user.department,
+            attendanceId,
+            date,
+            requestType,
+            proposedCheckIn,
+            proposedCheckOut,
+            reason,
+            status: 'Pending'
+        });
+        res.status(201).json({ success: true, request, message: 'Regularization request submitted' });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
+
+const approveRejectRegularization = async (req, res) => {
+    try {
+        const { status, approverComment } = req.body;
+        const request = await RegularizationRequest.findByPk(req.params.id);
+        if (!request) return res.status(404).json({ success: false, message: 'Request not found' });
+
+        await request.update({
+            status,
+            approverComment,
+            approvedBy: req.user.id,
+            approverName: req.user.name
+        });
+
+        // If approved, update the actual attendance record
+        if (status === 'Approved') {
+            const [attendance, created] = await Attendance.findOrCreate({
+                where: {
+                    memberId: request.memberId,
+                    date: request.date
+                },
+                defaults: {
+                    memberName: request.memberName,
+                    department: request.department,
+                    status: 'Present'
+                }
+            });
+
+            const updates = { status: 'Present' };
+            if (request.proposedCheckIn) updates.checkIn = request.proposedCheckIn;
+            if (request.proposedCheckOut) updates.checkOut = request.proposedCheckOut;
+
+            // Recalculate work hours if both times exist
+            const cin = request.proposedCheckIn || attendance.checkIn;
+            const cout = request.proposedCheckOut || attendance.checkOut;
+            if (cin && cout) {
+                const diff = (new Date(cout) - new Date(cin)) / (1000 * 60 * 60);
+                updates.workHours = parseFloat(diff.toFixed(2));
+            }
+
+            await attendance.update(updates);
+        }
+
+        res.json({ success: true, request, message: `Request ${status.toLowerCase()} successfully` });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
+
 module.exports = {
     getMyProfile, updateMyProfile,
     getLeaveRequests, applyLeave, getDeptLeaveRequests, approveRejectLeave,
@@ -639,4 +723,5 @@ module.exports = {
     getChatMessages, sendChatMessage,
     getCalendarEvents,
     getNotes, createNote, updateNote, deleteNote,
+    getDeptRegularizationRequests, applyRegularization, approveRejectRegularization,
 };

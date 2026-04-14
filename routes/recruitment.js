@@ -52,7 +52,10 @@ const {
     updateCandidate,
     deleteOffer,
     upsertOfferTemplate,
-    getOfferTemplate
+    getOfferTemplate,
+    verifyCandidateKYC,
+    attachFinalOfferLetter,
+    generateCandidateCredentials
 } = require('../controllers/recruitment');
 
 const { distributeJobToPlatforms } = require('../controllers/jobDistribution');
@@ -362,6 +365,11 @@ router.post('/close-request', verifyAuthToken, closeRequest);
 
 // Generate meet link
 router.post('/meet-link', verifyAuthToken, generateMeetLinkForInterview);
+
+// KYC and Offer Letter
+router.post('/candidate/verify-kyc', verifyAuthToken, verifyCandidateKYC);
+router.post('/candidate/attach-final-offer', verifyAuthToken, upload.single('offerLetter'), attachFinalOfferLetter);
+router.post('/candidate/generate-credentials', verifyAuthToken, generateCandidateCredentials);
 
 module.exports = router;
 // RESTART TRIGGER FOR ENDPOINTS

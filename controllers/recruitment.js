@@ -3,6 +3,7 @@ const { TeamLeader, Client, RecruitmentPosition, Candidate, Interview, OfferTemp
 const fs = require('fs');
 const path = require('path');
 const sendEmail = require('../utils/emailService');
+const { hashPassword } = require('../utils/bcryptUtils');
 const { PDFDocument, StandardFonts, rgb } = require('pdf-lib');
 
 const escapeLike = (value = '') => String(value).replace(/[\\%_]/g, '\\$&');
@@ -2589,6 +2590,161 @@ const deleteOffer = async (req, res) => {
     }
 };
 
+
+const verifyCandidateKYC = async (req, res) => {
+    try {
+        const { candidateId, docType, status, comment } = req.body;
+        const candidate = await Candidate.findByPk(candidateId);
+        if (!candidate) {
+            return res.status(404).json({ success: false, message: 'Candidate not found' });
+        }
+
+        // Initialize kycDocuments if null
+        const kycDocuments = candidate.kycDocuments || {};
+        
+        if (!kycDocuments[docType]) {
+            kycDocuments[docType] = {};
+        }
+
+        kycDocuments[docType].verified = status === 'verified';
+        kycDocuments[docType].verifiedAt = new Date();
+        kycDocuments[docType].comment = comment;
+
+        // Use changed() or set explicitly for JSONB updates if needed, 
+        // but simple object update with await candidate.update works in Sequelize usually
+        await candidate.update({ kycDocuments });
+
+        res.status(200).json({ 
+            success: true, 
+            message: `KYC for ${docType} has been ${status === 'verified' ? 'verified' : 'rejected'}`, 
+            data: candidate 
+        });
+    } catch (error) {
+        console.error('Error verifying KYC:', error);
+        res.status(500).json({ success: false, message: 'Failed to verify KYC', error: error.message });
+    }
+};
+
+const attachFinalOfferLetter = async (req, res) => {
+    try {
+        const { candidateId } = req.body;
+        const candidate = await Candidate.findByPk(candidateId);
+        if (!candidate) {
+            return res.status(404).json({ success: false, message: 'Candidate not found' });
+        }
+
+        if (!req.file) {
+            return res.status(400).json({ success: false, message: 'No offer letter file provided' });
+        }
+
+        const uploadDir = path.join(__dirname, '..', 'uploads', 'offers');
+        if (!fs.existsSync(uploadDir)) {
+            fs.mkdirSync(uploadDir, { recursive: true });
+        }
+
+        const fileName = `${Date.now()}-${req.file.originalname.replace(/\s+/g, '_')}`;
+        const filePath = path.join(uploadDir, fileName);
+        
+        fs.writeFileSync(filePath, req.file.buffer);
+
+        await candidate.update({
+            offerLetterUrl: `/uploads/offers/${fileName}`,
+            offerLetterFileName: req.file.originalname,
+            stage: 'Offer Sent',
+            status: 'Selected'
+        });
+
+        res.status(200).json({ 
+            success: true, 
+            message: 'Final offer letter attached and candidate status updated successfully', 
+            data: candidate 
+        });
+    } catch (error) {
+        console.error('Error attaching offer letter:', error);
+        res.status(500).json({ success: false, message: 'Failed to attach offer letter', error: error.message });
+    }
+};
+
+const generateCandidateCredentials = async (req, res) => {
+    try {
+        const { candidateId } = req.body;
+        const candidate = await Candidate.findByPk(candidateId);
+        
+        if (!candidate) {
+            return res.status(404).json({ success: false, message: 'Candidate not found' });
+        }
+
+        // Generate a random 8-character password
+        const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+        let password = "";
+        for (let i = 0; i < 8; i++) {
+            password += charset.charAt(Math.floor(Math.random() * charset.length));
+        }
+
+        const hashedPassword = await hashPassword(password);
+
+        await candidate.update({
+            password: hashedPassword
+        });
+
+        // Debug Log
+        console.log(`[ONBOARDING] Generated Credentials for ${candidate.name}:`);
+        console.log(`Email: ${candidate.email}`);
+        console.log(`Password: ${password}`);
+
+        // Send Email
+        let emailSent = false;
+        let emailError = null;
+
+        try {
+            const htmlContent = `
+                <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: auto; border: 1px solid #eee; padding: 20px; border-radius: 10px;">
+                    <div style="text-align: center; margin-bottom: 20px;">
+                        <h2 style="color: #1B4DA0;">Mabicons ERP - Access Credentials</h2>
+                    </div>
+                    <p>Dear <strong>${candidate.name}</strong>,</p>
+                    <p>Welcome to <strong>Mabicons</strong>! Your ERP login credentials have been generated successfully.</p>
+                    <div style="background-color: #f9f9f9; padding: 15px; border-radius: 5px; margin: 20px 0; border: 1px solid #ddd;">
+                        <p style="margin: 0;"><strong>Login URL:</strong> <a href="https://erp.mabicons.com">erp.mabicons.com</a></p>
+                        <p style="margin: 10px 0 0 0;"><strong>Email:</strong> ${candidate.email}</p>
+                        <p style="margin: 10px 0 0 0;"><strong>Password:</strong> <span style="font-family: monospace; font-weight: bold; font-size: 1.1em; color: #1B4DA0;">${password}</span></p>
+                    </div>
+                    <p>You can now log in to the ERP using these credentials to manage your onboarding process and profile.</p>
+                    <p style="margin-top: 30px;">Best Regards,<br/><strong>Mabicons Recruitment Team</strong></p>
+                </div>
+            `;
+
+            await sendEmail({
+                email: candidate.email,
+                name: candidate.name,
+                subject: 'Your Mabicons ERP Login Credentials',
+                htmlContent: htmlContent
+            });
+            emailSent = true;
+        } catch (err) {
+            console.error('[ONBOARDING] Email notification failed:', err.message);
+            emailError = err.message || 'Email service error';
+        }
+
+        res.status(200).json({ 
+            success: true, 
+            message: emailSent 
+                ? 'Credentials generated and email sent successfully' 
+                : `Credentials generated, but email failed: ${emailError}.`,
+            data: { 
+                email: candidate.email,
+                password: password, // Return plaintext password for mailto link
+                emailSent,
+                emailError 
+            } 
+        });
+
+    } catch (error) {
+        console.error('Error generating credentials:', error);
+        res.status(500).json({ success: false, message: 'Failed to generate credentials', error: error.message });
+    }
+};
+
 module.exports = {
     getRecruitmentClients,
     getKamsWithRecruitment,
@@ -2620,8 +2776,10 @@ module.exports = {
     createOrUpdateOffer,
     getOfferCandidatesSuggestions,
     updateCandidate,
-    deleteOffer
-    ,
+    deleteOffer,
     upsertOfferTemplate,
-    getOfferTemplate
+    getOfferTemplate,
+    verifyCandidateKYC,
+    attachFinalOfferLetter,
+    generateCandidateCredentials
 };

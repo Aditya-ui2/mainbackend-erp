@@ -799,6 +799,16 @@ const Candidate = sequelize.define('Candidate', {
         type: DataTypes.STRING,
         allowNull: true
     },
+    password: {
+        type: DataTypes.STRING,
+        allowNull: true,
+        comment: 'Password for candidate portal login'
+    },
+    kycDocuments: {
+        type: DataTypes.JSONB,
+        defaultValue: {},
+        comment: 'Stores KYC document info { aadhar: { url, verified, verifiedAt }, ... }'
+    },
     addedById: {
         type: DataTypes.UUID,
         allowNull: true,
@@ -1280,7 +1290,7 @@ DepartmentTeam.init({
         defaultValue: 'Team Member'
     },
     department: {
-        type: DataTypes.ENUM('HR Operations', 'HR Recruitment'),
+        type: DataTypes.ENUM('HR Operations', 'HR Recruitment', 'Operations', 'KAM Operations'),
         allowNull: false
     },
     managerId: {
@@ -1618,8 +1628,8 @@ const LeaveRequest = sequelize.define('LeaveRequest', {
     id: { type: DataTypes.UUID, defaultValue: DataTypes.UUIDV4, primaryKey: true },
     memberId: { type: DataTypes.UUID, allowNull: false },
     memberName: { type: DataTypes.STRING, allowNull: false },
-    department: { type: DataTypes.ENUM('HR Operations', 'HR Recruitment'), allowNull: false },
-    leaveType: { type: DataTypes.ENUM('Casual', 'Sick', 'Earned', 'Half Day', 'Work From Home'), allowNull: false },
+    department: { type: DataTypes.ENUM('HR Operations', 'HR Recruitment', 'Operations', 'KAM Operations'), allowNull: false },
+    leaveType: { type: DataTypes.ENUM('Casual Leave', 'Sick Leave', 'Earned Leave', 'Half Day', 'Work From Home', 'Compensatory Off', 'Maternity Leave', 'Casual', 'Sick', 'Earned'), allowNull: false },
     startDate: { type: DataTypes.DATEONLY, allowNull: false },
     endDate: { type: DataTypes.DATEONLY, allowNull: false },
     reason: { type: DataTypes.TEXT, allowNull: false },
@@ -1859,6 +1869,24 @@ const SharePointSyncLog = sequelize.define('SharePointSyncLog', {
     timestamps: true,
 });
 
+// ============== REGULARIZATION REQUEST MODEL ==============
+const RegularizationRequest = sequelize.define('RegularizationRequest', {
+    id: { type: DataTypes.UUID, defaultValue: DataTypes.UUIDV4, primaryKey: true },
+    memberId: { type: DataTypes.UUID, allowNull: false },
+    memberName: { type: DataTypes.STRING, allowNull: false },
+    department: { type: DataTypes.ENUM('HR Operations', 'HR Recruitment'), allowNull: false },
+    attendanceId: { type: DataTypes.UUID, allowNull: true },
+    date: { type: DataTypes.DATEONLY, allowNull: false },
+    requestType: { type: DataTypes.STRING, allowNull: false }, // 'Missed In', 'Missed Out', 'Full Day', 'Half Day'
+    proposedCheckIn: { type: DataTypes.DATE },
+    proposedCheckOut: { type: DataTypes.DATE },
+    reason: { type: DataTypes.TEXT, allowNull: false },
+    status: { type: DataTypes.ENUM('Pending', 'Approved', 'Rejected'), defaultValue: 'Pending' },
+    approvedBy: { type: DataTypes.UUID },
+    approverName: { type: DataTypes.STRING },
+    approverComment: { type: DataTypes.TEXT },
+}, { tableName: 'RegularizationRequests', timestamps: true });
+
 module.exports = {
     sequelize,
     SuperAdmin,
@@ -1895,4 +1923,5 @@ module.exports = {
     SharePointInterview,
     SharePointClient,
     SharePointSyncLog,
+    RegularizationRequest,
 };
