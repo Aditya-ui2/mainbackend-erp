@@ -396,9 +396,6 @@ const { sequelize } = require('./models/sequelizeModels');
     }
 })();
 
-// Export io instance to use in other files if needed
-module.exports = { io };
-
 
 app.post('/test', (req, res) => {
     console.log("🔥 TEST API HIT");

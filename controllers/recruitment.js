@@ -3,7 +3,8 @@ const { TeamLeader, Client, RecruitmentPosition, Candidate, Interview, OfferTemp
 const fs = require('fs');
 const path = require('path');
 const sendEmail = require('../utils/emailService');
-const { hashPassword } = require('../utils/bcryptUtils');
+const { hashPassword, comparePasswords } = require('../utils/bcryptUtils');
+const { generateToken, generateRefreshToken } = require('../utils/jwtUtils');
 const { PDFDocument, StandardFonts, rgb } = require('pdf-lib');
 
 const escapeLike = (value = '') => String(value).replace(/[\\%_]/g, '\\$&');
@@ -2665,6 +2666,8 @@ const attachFinalOfferLetter = async (req, res) => {
     }
 };
 
+const firebaseAdmin = require('../utils/firebaseAdmin');
+
 const generateCandidateCredentials = async (req, res) => {
     try {
         const { candidateId } = req.body;
@@ -2683,14 +2686,50 @@ const generateCandidateCredentials = async (req, res) => {
 
         const hashedPassword = await hashPassword(password);
 
+        // --- FIREBASE INTEGRATION ---
+        let firebaseUid = null;
+        try {
+            if (firebaseAdmin.apps.length) {
+                // Try to create or update user in Firebase Auth
+                let userRecord;
+                try {
+                    userRecord = await firebaseAdmin.auth().getUserByEmail(candidate.email);
+                    // Update password if user exists
+                    await firebaseAdmin.auth().updateUser(userRecord.uid, {
+                        password: password,
+                        displayName: candidate.name
+                    });
+                    console.log(`[FIREBASE] Updated existing user: ${candidate.email}`);
+                } catch (authError) {
+                    if (authError.code === 'auth/user-not-found') {
+                        userRecord = await firebaseAdmin.auth().createUser({
+                            email: candidate.email,
+                            password: password,
+                            displayName: candidate.name,
+                            emailVerified: false
+                        });
+                        console.log(`[FIREBASE] Created new user: ${candidate.email}`);
+                    } else {
+                        throw authError;
+                    }
+                }
+                firebaseUid = userRecord.uid;
+            }
+        } catch (firebaseError) {
+            console.error('[FIREBASE] Sync failed:', firebaseError.message);
+            // We continue with local DB update even if Firebase fails
+        }
+
         await candidate.update({
-            password: hashedPassword
+            password: hashedPassword,
+            firebaseUid: firebaseUid // Save the UID if generated
         });
 
         // Debug Log
         console.log(`[ONBOARDING] Generated Credentials for ${candidate.name}:`);
         console.log(`Email: ${candidate.email}`);
         console.log(`Password: ${password}`);
+        if (firebaseUid) console.log(`Firebase UID: ${firebaseUid}`);
 
         // Send Email
         let emailSent = false;
@@ -2726,22 +2765,93 @@ const generateCandidateCredentials = async (req, res) => {
             emailError = err.message || 'Email service error';
         }
 
+        // --- FIREBASE FIRESTORE SYNC (for Email Extension) ---
+        try {
+            if (firebaseAdmin.apps.length) {
+                const db = firebaseAdmin.firestore();
+                await db.collection('mail').add({
+                    to: candidate.email,
+                    message: {
+                        subject: 'Welcome to Mabicons - Your Access Credentials',
+                        html: `
+                            <p>Dear ${candidate.name},</p>
+                            <p>Your ERP login has been created.</p>
+                            <p><strong>Email:</strong> ${candidate.email}</p>
+                            <p><strong>Password:</strong> ${password}</p>
+                            <p>Login at: <a href="https://erp.mabicons.com/candidate-login">erp.mabicons.com</a></p>
+                        `
+                    },
+                    candidateId: candidate.id,
+                    createdAt: firebaseAdmin.firestore.FieldValue.serverTimestamp()
+                });
+                console.log(`[FIRESTORE] Email trigger document added for: ${candidate.email}`);
+            }
+        } catch (firestoreError) {
+            console.error('[FIRESTORE] Sync failed:', firestoreError.message);
+        }
+
         res.status(200).json({ 
             success: true, 
-            message: emailSent 
-                ? 'Credentials generated and email sent successfully' 
-                : `Credentials generated, but email failed: ${emailError}.`,
+            message: 'Credentials generated and synced with Firebase Console',
             data: { 
                 email: candidate.email,
-                password: password, // Return plaintext password for mailto link
-                emailSent,
-                emailError 
+                password: password,
+                firebaseUid
             } 
         });
 
     } catch (error) {
         console.error('Error generating credentials:', error);
         res.status(500).json({ success: false, message: 'Failed to generate credentials', error: error.message });
+    }
+};
+
+const loginCandidate = async (req, res) => {
+    try {
+        const { email, password } = req.body;
+
+        if (!email || !password) {
+            return res.status(400).json({ success: false, message: 'Email and password are required' });
+        }
+
+        const candidate = await Candidate.findOne({ where: { email } });
+        if (!candidate) {
+            return res.status(404).json({ success: false, message: 'Candidate not found' });
+        }
+
+        if (!candidate.password) {
+            return res.status(401).json({ success: false, message: 'Credentials not generated for this candidate yet' });
+        }
+
+        const isPasswordValid = await comparePasswords(password, candidate.password);
+        if (!isPasswordValid) {
+            return res.status(401).json({ success: false, message: 'Invalid credentials' });
+        }
+
+        const payload = { 
+            id: candidate.id, 
+            email: candidate.email, 
+            role: 'Candidate',
+            name: candidate.name 
+        };
+        const token = generateToken(payload);
+        const refreshToken = generateRefreshToken(payload);
+
+        res.status(200).json({
+            success: true,
+            message: 'Login successful',
+            token,
+            refreshToken,
+            data: {
+                id: candidate.id,
+                name: candidate.name,
+                email: candidate.email,
+                role: 'Candidate'
+            }
+        });
+    } catch (error) {
+        console.error('Error logging in candidate:', error);
+        res.status(500).json({ success: false, message: 'Server error during login' });
     }
 };
 
@@ -2754,11 +2864,11 @@ module.exports = {
     getAllPositions,
     getAllCandidates,
     addCandidate,
+    getCandidateById,
     updateCandidateStatus,
     getCandidatesByPosition,
     getRecruitmentStats,
     getClientRecruitmentProgress,
-    getMyPerformanceStats,
     getRequests,
     uploadResumes,
     acceptCandidateSimple,
@@ -2771,7 +2881,7 @@ module.exports = {
     closeRequest,
     generateMeetLinkForInterview,
     createRequest,
-    getCandidateById,
+    getMyPerformanceStats,
     getOffers,
     createOrUpdateOffer,
     getOfferCandidatesSuggestions,
@@ -2781,5 +2891,6 @@ module.exports = {
     getOfferTemplate,
     verifyCandidateKYC,
     attachFinalOfferLetter,
-    generateCandidateCredentials
+    generateCandidateCredentials,
+    loginCandidate
 };

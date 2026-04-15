@@ -55,7 +55,8 @@ const {
     getOfferTemplate,
     verifyCandidateKYC,
     attachFinalOfferLetter,
-    generateCandidateCredentials
+    generateCandidateCredentials,
+    loginCandidate
 } = require('../controllers/recruitment');
 
 const { distributeJobToPlatforms } = require('../controllers/jobDistribution');
@@ -366,10 +367,14 @@ router.post('/close-request', verifyAuthToken, closeRequest);
 // Generate meet link
 router.post('/meet-link', verifyAuthToken, generateMeetLinkForInterview);
 
-// KYC and Offer Letter
+router.post('/candidate/login', loginCandidate);
 router.post('/candidate/verify-kyc', verifyAuthToken, verifyCandidateKYC);
 router.post('/candidate/attach-final-offer', verifyAuthToken, upload.single('offerLetter'), attachFinalOfferLetter);
 router.post('/candidate/generate-credentials', verifyAuthToken, generateCandidateCredentials);
+
+router.get('/test', (req, res) => {
+    res.json({ status: 'Recruitment Module Active', timestamp: new Date().toISOString() });
+});
 
 module.exports = router;
 // RESTART TRIGGER FOR ENDPOINTS
