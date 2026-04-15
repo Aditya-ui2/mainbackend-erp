@@ -158,10 +158,8 @@ const acceptTask = async (requestedTask, assignedUserId, assignedUserType) => {
             status: 'Active',
             category: 'Deadline',
             clientId: requestedTask.clientId,
-            assignedTo: {
-                userType: assignedUserType,
-                userId: assignedUserId
-            },
+            assignedToType: assignedUserType,
+            assignedToId: assignedUserId,
             dueDate: requestedTask.dueDate,
             priority: requestedTask.priority,
             parentTaskId: requestedTask.id
@@ -189,10 +187,8 @@ const acceptTask = async (requestedTask, assignedUserId, assignedUserType) => {
             description: requestedTask.description,
             clientId: requestedTask.clientId,
             frequency: requestedTask.frequency,
-            assignedTo: {
-                userType: assignedUserType,
-                userId: assignedUserId
-            },
+            assignedToType: assignedUserType,
+            assignedToId: assignedUserId,
             priority: requestedTask.priority,
             active: true
         });
@@ -332,10 +328,8 @@ const createTaskByTL = async (req, res) => {
                 description,
                 category,
                 clientId: clientId,
-                assignedTo: {
-                    userType: assignedUserType,
-                    userId: assignedUserId
-                },
+                assignedToType: assignedUserType,
+                assignedToId: assignedUserId,
                 dueDate,
                 priority,
                 status: 'Active'
@@ -366,10 +360,8 @@ const createTaskByTL = async (req, res) => {
                 description,
                 clientId: clientId,
                 frequency,
-                assignedTo: {
-                    userType: assignedUserType,
-                    userId: assignedUserId
-                },
+                assignedToType: assignedUserType,
+                assignedToId: assignedUserId,
                 priority,
                 active: true
             });
@@ -530,12 +522,11 @@ const getTasksByAssignedUser = async (req, res) => {
             return res.status(400).json({ message: 'User ID is required.' });
         }
 
-        // Find tasks assigned to the specific userId (using JSONB query)
+        // Find tasks assigned to the specific userId (using simple column query)
         const tasks = await Task.findAll({
-            where: sequelize.where(
-                sequelize.fn('jsonb_extract_path_text', sequelize.col('assignedTo'), 'userId'),
-                userId
-            ),
+            where: {
+                assignedToId: userId
+            },
             include: [{
                 model: Client,
                 as: 'client',
