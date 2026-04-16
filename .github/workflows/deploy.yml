@@ -23,7 +23,8 @@ jobs:
           port: 22
           script: |
             cd ~/backend-erp
-            git pull origin main
+            git fetch origin main
+            git reset --hard origin/main
             npm install
             # Kill any process currently occupying port 3000 to prevent 'Port in use' errors
             fuser -k 3000/tcp || true
