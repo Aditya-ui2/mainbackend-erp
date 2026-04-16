@@ -1,5 +1,5 @@
 const { Op, fn, col, literal } = require('sequelize');
-const { TeamLeader, Client, RecruitmentPosition, Candidate, Interview, OfferTemplate, DepartmentTask, ResumeBank, DepartmentTeam, DepartmentNote } = require('../models/sequelizeModels');
+const { TeamLeader, Client, RecruitmentPosition, Candidate, Interview, OfferTemplate, DepartmentTask, ResumeBank, DepartmentTeam, DepartmentNote, SharePointCandidate } = require('../models/sequelizeModels');
 const fs = require('fs');
 const path = require('path');
 const sendEmail = require('../utils/emailService');
