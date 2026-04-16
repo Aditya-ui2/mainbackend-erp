@@ -286,14 +286,15 @@ io.on('connection', (socket) => {
 
 // Routes
 app.get('/', (req, res) => {
-    res.send("You have landed on the test page");
+    res.send("You have landed on the test page - V4_" + new Date().toISOString());
 });
 
 app.get('/verify-deploy', (req, res) => {
     res.json({ 
         status: 'DEPLOY_ACTIVE', 
         time: new Date().toISOString(), 
-        build: 'V3_ONBOARDING_FIX' 
+        build: 'V3_ONBOARDING_FIX',
+        path: __dirname 
     });
 });
 
