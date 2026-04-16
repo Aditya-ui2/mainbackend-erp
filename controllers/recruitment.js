@@ -1572,7 +1572,9 @@ const getOffers = async (req, res) => {
                 offerLetterUrl: candidate.offerLetterUrl || '',
                 offerLetterFileName: candidate.offerLetterFileName || '',
                 photo: candidate.photo || '',
-                bgvStatus: candidate.bgvStatus || 'Not Started'
+                bgvStatus: candidate.bgvStatus || 'Not Started',
+                tempUsername: candidate.username || '',
+                tempPassword: candidate.password || ''
             }));
 
         res.status(200).json({ success: true, data });
