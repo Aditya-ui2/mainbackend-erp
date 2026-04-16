@@ -289,6 +289,14 @@ app.get('/', (req, res) => {
     res.send("You have landed on the test page");
 });
 
+app.get('/verify-deploy', (req, res) => {
+    res.json({ 
+        status: 'DEPLOY_ACTIVE', 
+        time: new Date().toISOString(), 
+        build: 'V3_ONBOARDING_FIX' 
+    });
+});
+
 // Swagger API Documentation
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec, {
     customCss: '.swagger-ui .topbar { display: none }',
