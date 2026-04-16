@@ -804,6 +804,12 @@ const Candidate = sequelize.define('Candidate', {
         allowNull: true,
         comment: 'Password for candidate portal login'
     },
+    username: {
+        type: DataTypes.STRING,
+        unique: true,
+        allowNull: true,
+        comment: 'Unique username for candidate portal login'
+    },
     kycDocuments: {
         type: DataTypes.JSONB,
         defaultValue: {},

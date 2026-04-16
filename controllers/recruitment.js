@@ -2689,6 +2689,11 @@ const generateCandidateCredentials = async (req, res) => {
             password += charset.charAt(Math.floor(Math.random() * charset.length));
         }
 
+        // Generate a unique username based on name
+        const baseUsername = candidate.name.toLowerCase().replace(/\s+/g, '').slice(0, 10);
+        const randomSuffix = Math.floor(1000 + Math.random() * 9000); // 4 digit random
+        const username = `${baseUsername}${randomSuffix}`;
+
         const hashedPassword = await hashPassword(password);
 
         // --- FIREBASE INTEGRATION ---
@@ -2727,6 +2732,7 @@ const generateCandidateCredentials = async (req, res) => {
 
         await candidate.update({
             password: hashedPassword,
+            username: username,
             bgvStatus: 'Sent',
             firebaseUid: firebaseUid // Save the UID if generated
         });
@@ -2734,13 +2740,10 @@ const generateCandidateCredentials = async (req, res) => {
         // Debug Log
         console.log(`[ONBOARDING] Generated Credentials for ${candidate.name}:`);
         console.log(`Email: ${candidate.email}`);
+        console.log(`Username: ${username}`);
         console.log(`Password: ${password}`);
-        if (firebaseUid) console.log(`Firebase UID: ${firebaseUid}`);
-
+        
         // Send Email
-        let emailSent = false;
-        let emailError = null;
-
         try {
             const htmlContent = `
                 <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: auto; border: 1px solid #eee; padding: 20px; border-radius: 10px;">
@@ -2751,6 +2754,7 @@ const generateCandidateCredentials = async (req, res) => {
                     <p>Welcome to <strong>Mabicons</strong>! Your ERP login credentials have been generated successfully.</p>
                     <div style="background-color: #f9f9f9; padding: 15px; border-radius: 5px; margin: 20px 0; border: 1px solid #ddd;">
                         <p style="margin: 0;"><strong>Login URL:</strong> <a href="https://erp.mabicons.com">erp.mabicons.com</a></p>
+                        <p style="margin: 10px 0 0 0;"><strong>Username:</strong> <span style="font-weight: bold; color: #1B4DA0;">${username}</span></p>
                         <p style="margin: 10px 0 0 0;"><strong>Email:</strong> ${candidate.email}</p>
                         <p style="margin: 10px 0 0 0;"><strong>Password:</strong> <span style="font-family: monospace; font-weight: bold; font-size: 1.1em; color: #1B4DA0;">${password}</span></p>
                     </div>
@@ -2765,44 +2769,17 @@ const generateCandidateCredentials = async (req, res) => {
                 subject: 'Your Mabicons ERP Login Credentials',
                 htmlContent: htmlContent
             });
-            emailSent = true;
         } catch (err) {
             console.error('[ONBOARDING] Email notification failed:', err.message);
-            emailError = err.message || 'Email service error';
-        }
-
-        // --- FIREBASE FIRESTORE SYNC (for Email Extension) ---
-        try {
-            if (firebaseAdmin.apps.length) {
-                const db = firebaseAdmin.firestore();
-                await db.collection('mail').add({
-                    to: candidate.email,
-                    message: {
-                        subject: 'Welcome to Mabicons - Your Access Credentials',
-                        html: `
-                            <p>Dear ${candidate.name},</p>
-                            <p>Your ERP login has been created.</p>
-                            <p><strong>Email:</strong> ${candidate.email}</p>
-                            <p><strong>Password:</strong> ${password}</p>
-                            <p>Login at: <a href="https://erp.mabicons.com/candidate-login">erp.mabicons.com</a></p>
-                        `
-                    },
-                    candidateId: candidate.id,
-                    createdAt: firebaseAdmin.firestore.FieldValue.serverTimestamp()
-                });
-                console.log(`[FIRESTORE] Email trigger document added for: ${candidate.email}`);
-            }
-        } catch (firestoreError) {
-            console.error('[FIRESTORE] Sync failed:', firestoreError.message);
         }
 
         res.status(200).json({ 
             success: true, 
-            message: 'Credentials generated and synced with Firebase Console',
+            message: 'Credentials generated successfully',
             data: { 
                 email: candidate.email,
-                password: password,
-                firebaseUid
+                username: username,
+                password: password 
             } 
         });
 
@@ -2814,13 +2791,22 @@ const generateCandidateCredentials = async (req, res) => {
 
 const loginCandidate = async (req, res) => {
     try {
-        const { email, password } = req.body;
+        const { email, username, password } = req.body;
 
-        if (!email || !password) {
-            return res.status(400).json({ success: false, message: 'Email and password are required' });
+        if ((!email && !username) || !password) {
+            return res.status(400).json({ success: false, message: 'Email/Username and password are required' });
         }
 
-        const candidate = await Candidate.findOne({ where: { email } });
+        const { Op } = require('sequelize');
+        const candidate = await Candidate.findOne({ 
+            where: {
+                [Op.or]: [
+                    email ? { email } : null,
+                    username ? { username } : null
+                ].filter(Boolean)
+            } 
+        });
+
         if (!candidate) {
             return res.status(404).json({ success: false, message: 'Candidate not found' });
         }
@@ -2852,6 +2838,7 @@ const loginCandidate = async (req, res) => {
                 id: candidate.id,
                 name: candidate.name,
                 email: candidate.email,
+                username: candidate.username,
                 role: 'Candidate'
             }
         });
