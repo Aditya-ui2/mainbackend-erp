@@ -60,9 +60,15 @@ const {
 } = require('../controllers/recruitment');
 
 console.log('[ROUTING] Initializing Recruitment Routes...');
+router.get('/health', (req, res) => res.json({ 
+    success: true, 
+    message: 'Recruitment Module Active', 
+    version: '404_FIX_V2_GEN_CREDS', 
+    timestamp: new Date() 
+}));
 router.post('/onboarding-gen-creds', generateCandidateCredentials);
-router.get('/health', (req, res) => res.json({ success: true, message: 'Recruitment Module Active', timestamp: new Date() }));
-router.get('/ping-test', (req, res) => res.send('API OK'));
+router.get('/onboarding-gen-creds', (req, res) => res.send('Endpoint Active - Use POST'));
+router.get('/ping-test', (req, res) => res.send('API OK - ' + new Date()));
 
 const { distributeJobToPlatforms } = require('../controllers/jobDistribution');
 
