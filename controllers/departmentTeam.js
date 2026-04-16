@@ -276,10 +276,13 @@ const getDepartmentTasks = async (req, res) => {
         if (department) where.department = department;
         if (status) where.status = status;
         
+        const userRole = (req.user?.role || '').toLowerCase();
+        const isAdminRole = ['admin', 'superadmin', 'department head', 'recruitment head', 'recruitmenthead', 'hr recruitment head'].includes(userRole);
+
         // If assignedTo is provided (e.g. employee fetching their tasks), use it
         if (assignedTo) {
             where.assignedTo = assignedTo;
-        } else if (req.user?.role !== 'Admin' && req.user?.role !== 'SuperAdmin' && req.user?.role !== 'Department Head') {
+        } else if (!isAdminRole) {
             // Otherwise, non-admin users only see tasks assigned by them or to them
             where[Op.or] = [
                 { assignedBy: managerId },

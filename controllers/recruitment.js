@@ -576,6 +576,23 @@ const createRecruitmentPosition = async (req, res) => {
             deadline
         });
 
+        // Notify Admin Sachin if posted by a client
+        if (req.user?.userType?.toLowerCase().includes('client') || req.body.postedByClient) {
+            const { addNotification } = require('./notification');
+            const sachinId = '60de4380-0140-49ff-b26d-a8d06333af11';
+            try {
+                await addNotification(
+                    sachinId,
+                    'DepartmentTeam',
+                    `🆕 New Job Posting: ${req.user?.name || 'A client'} has posted a new position "${title}" for ${req.body.client || 'their company'}.`,
+                    'candidate',
+                    'high'
+                );
+            } catch (notifyErr) {
+                console.error('Failed to notify Admin Sachin:', notifyErr);
+            }
+        }
+
         res.status(201).json({
             success: true,
             message: 'Position created successfully',
@@ -1231,12 +1248,13 @@ const getRecruitmentStats = async (req, res) => {
 // Get all recruitment positions with filtering
 const getAllPositions = async (req, res) => {
     try {
-        const { status, priority, client: clientId, search, sortBy, sortOrder } = req.query;
+        const { status, priority, client: clientId, search, sortBy, sortOrder, assignedToId } = req.query;
 
         const where = {};
         if (status) where.status = status;
         if (priority) where.priority = priority;
         if (clientId) where.clientId = clientId;
+        if (assignedToId) where.assignedToId = assignedToId;
         if (search) {
             where[Op.or] = [
                 { title: { [Op.iLike]: `%${search}%` } },
@@ -1366,10 +1384,13 @@ const deleteRecruitmentPosition = async (req, res) => {
 // Get all candidates with filtering (for pipeline view)
 const getAllCandidates = async (req, res) => {
     try {
-        const { status, positionId, clientId, search, stage, pipelineStatus, page = 1, limit = 100 } = req.query;
+        const { status, positionId, clientId, search, stage, pipelineStatus, assignedToId, page = 1, limit = 100 } = req.query;
 
         const where = {};
+        const positionWhere = {};
+        
         if (clientId) where.clientId = clientId;
+        if (assignedToId) positionWhere.assignedToId = assignedToId;
         
         // Define known ENUM values to prevent database validation errors (500)
         const VALID_STATUSES = ['Submitted', 'Shortlisted', 'Interview', 'Selected', 'Rejected', 'Joined'];
@@ -1443,7 +1464,8 @@ const getAllCandidates = async (req, res) => {
                     where: {
                         status: {
                             [Op.ne]: 'Closed'
-                        }
+                        },
+                        ...positionWhere
                     },
                     required: true
                 },

@@ -604,6 +604,18 @@ const RecruitmentPosition = sequelize.define('RecruitmentPosition', {
         type: DataTypes.STRING,
         allowNull: true
     },
+    assignedToId: {
+        type: DataTypes.UUID,
+        allowNull: true,
+        references: {
+            model: 'DepartmentTeams',
+            key: 'id'
+        }
+    },
+    assignedToName: {
+        type: DataTypes.STRING,
+        allowNull: true
+    },
     status: {
         type: DataTypes.ENUM('Open', 'Closed', 'Hold'),
         defaultValue: 'Open'
