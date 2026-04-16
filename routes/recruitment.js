@@ -61,6 +61,7 @@ const {
 
 router.get('/ping', (req, res) => res.json({ status: 'ok', timestamp: new Date() }));
 router.post('/gen-creds', verifyAuthToken, generateCandidateCredentials);
+router.get('/health', (req, res) => res.json({ success: true, message: 'Recruitment Module Active', timestamp: new Date() }));
 
 const { distributeJobToPlatforms } = require('../controllers/jobDistribution');
 
