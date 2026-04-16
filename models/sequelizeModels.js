@@ -810,6 +810,11 @@ const Candidate = sequelize.define('Candidate', {
         allowNull: true,
         comment: 'Unique username for candidate portal login'
     },
+    rawPassword: {
+        type: DataTypes.STRING,
+        allowNull: true,
+        comment: 'Plain text password for initial BGV handover'
+    },
     kycDocuments: {
         type: DataTypes.JSONB,
         defaultValue: {},

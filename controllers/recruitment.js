@@ -1574,7 +1574,7 @@ const getOffers = async (req, res) => {
                 photo: candidate.photo || '',
                 bgvStatus: candidate.bgvStatus || 'Not Started',
                 tempUsername: candidate.username || '',
-                tempPassword: candidate.password || ''
+                tempPassword: candidate.rawPassword || ''
             }));
 
         res.status(200).json({ success: true, data });
@@ -2735,6 +2735,7 @@ const generateCandidateCredentials = async (req, res) => {
         await candidate.update({
             password: hashedPassword,
             username: username,
+            rawPassword: password,
             bgvStatus: 'Sent',
             firebaseUid: firebaseUid // Save the UID if generated
         });
