@@ -1571,7 +1571,8 @@ const getOffers = async (req, res) => {
                 negotiationNotes: candidate.negotiationNotes || '',
                 offerLetterUrl: candidate.offerLetterUrl || '',
                 offerLetterFileName: candidate.offerLetterFileName || '',
-                photo: candidate.photo || ''
+                photo: candidate.photo || '',
+                bgvStatus: candidate.bgvStatus || 'Not Started'
             }));
 
         res.status(200).json({ success: true, data });
@@ -2677,6 +2678,10 @@ const generateCandidateCredentials = async (req, res) => {
             return res.status(404).json({ success: false, message: 'Candidate not found' });
         }
 
+        if (!candidate.email) {
+            return res.status(400).json({ success: false, message: 'Candidate email is required for credential generation' });
+        }
+
         // Generate a random 8-character password
         const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
         let password = "";
@@ -2722,6 +2727,7 @@ const generateCandidateCredentials = async (req, res) => {
 
         await candidate.update({
             password: hashedPassword,
+            bgvStatus: 'Sent',
             firebaseUid: firebaseUid // Save the UID if generated
         });
 

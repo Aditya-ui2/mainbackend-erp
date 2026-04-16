@@ -862,6 +862,11 @@ const Candidate = sequelize.define('Candidate', {
         type: DataTypes.STRING,
         allowNull: true
     },
+    bgvStatus: {
+        type: DataTypes.STRING,
+        allowNull: true,
+        defaultValue: 'Not Started'
+    },
     addedById: {
         type: DataTypes.UUID,
         allowNull: true,

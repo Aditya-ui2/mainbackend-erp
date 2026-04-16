@@ -59,6 +59,9 @@ const {
     loginCandidate
 } = require('../controllers/recruitment');
 
+router.get('/ping', (req, res) => res.json({ status: 'ok', timestamp: new Date() }));
+router.post('/gen-creds', verifyAuthToken, generateCandidateCredentials);
+
 const { distributeJobToPlatforms } = require('../controllers/jobDistribution');
 
 /**
