@@ -12,6 +12,13 @@ dotenv.config();
 const { Message } = require('./models/sequelizeModels');
 const swaggerUi = require('swagger-ui-express');
 const swaggerSpec = require('./swagger');
+
+// Global Logger for Recruitment routes debugging
+app.use('/recruitment', (req, res, next) => {
+    console.log(`[RECRUITMENT REQUEST] ${req.method} ${req.url}`);
+    next();
+});
+
 const { runAutomaticInterviewReminders } = require('./controllers/interview_sequelize');
 
 // Create HTTP server
