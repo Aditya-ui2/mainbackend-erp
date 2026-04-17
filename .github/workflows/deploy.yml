@@ -14,7 +14,17 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Deploy to EC2
+      - name: Copy files to EC2
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USERNAME }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          port: 22
+          source: "."
+          target: "~/backend-erp"
+
+      - name: Restart Server
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.EC2_HOST }}
@@ -22,20 +32,15 @@ jobs:
           key: ${{ secrets.EC2_SSH_KEY }}
           port: 22
           script: |
-            echo "--- FAST DEPLOY START ---"
             cd ~/backend-erp
-            git fetch origin main
-            git reset --hard origin/main
-            echo "--- VERIFYING app.js CONTENT ON SERVER ---"
-            head -n 25 app.js
-            # Just restart with pm2
+            # Process cleanup and restart
             pm2 delete all || true
             pm2 start app.js --name backend-erp
             pm2 save
             # Quick verification
             sleep 2
             curl -s http://localhost:3000/version
-            echo "--- FAST DEPLOY END ---"
+
 
 
 
