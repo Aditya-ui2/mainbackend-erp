@@ -15,7 +15,7 @@ const swaggerSpec = require('./swagger');
 
 // TOP-LEVEL EMERGENCY ROUTES
 app.get('/ping', (req, res) => res.send('pong'));
-app.get('/version', (req, res) => res.json({ build: 'BUILD_8899_DEPLOY_SYNC_VERIFY_4' }));
+app.get('/version', (req, res) => res.json({ build: 'BUILD_VERSION_V5_SYNCED_TO_102' }));
 app.get('/recruitment/candidate/generate-credentials', (req, res) => res.json({ success: true, message: 'GET matches - use POST for real request' }));
 app.post('/recruitment/candidate/generate-credentials', (req, res) => {
     res.json({ success: true, message: 'EMERGENCY POST ROUTE ACTIVE' });
