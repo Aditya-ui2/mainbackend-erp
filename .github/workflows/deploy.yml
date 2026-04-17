@@ -22,18 +22,24 @@ jobs:
           key: ${{ secrets.EC2_SSH_KEY }}
           port: 22
           script: |
+            echo "Checking deployment path..."
+            pwd
+            ls -al app.js
             cd ~/backend-erp
             git fetch origin main
             git reset --hard origin/main
             npm install
-            # Kill any process currently occupying port 3000 to prevent 'Port in use' errors
+            # Cleanup
             sudo fuser -k 3000/tcp || true
-            sleep 2
-            # Restart or Start the process
+            pm2 stop all || true
             pm2 delete backend-erp || pm2 delete app || true
+            # Start fresh
             pm2 start app.js --name backend-erp
             pm2 save
-            # Verification
+            # Verification logs
             sleep 5
+            pm2 status
             curl -v http://localhost:3000/ping
+            curl -v http://localhost:3000/version
+
 
