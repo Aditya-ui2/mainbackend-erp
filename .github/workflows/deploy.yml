@@ -22,25 +22,21 @@ jobs:
           key: ${{ secrets.EC2_SSH_KEY }}
           port: 22
           script: |
-            echo "--- AGGRESSIVE DEPLOY START ---"
+            echo "--- FAST DEPLOY START ---"
             cd ~/backend-erp
             git fetch origin main
             git reset --hard origin/main
-            git clean -fd
             echo "--- VERIFYING app.js CONTENT ON SERVER ---"
-            head -n 30 app.js
-            npm ci || npm install
-            # Cleanup all processes
-            sudo fuser -k 3000/tcp || true
+            head -n 25 app.js
+            # Just restart with pm2
             pm2 delete all || true
-            # Start fresh
             pm2 start app.js --name backend-erp
             pm2 save
-            # Verification logs
-            sleep 5
-            pm2 status
-            curl -v http://localhost:3000/version
-            echo "--- AGGRESSIVE DEPLOY END ---"
+            # Quick verification
+            sleep 2
+            curl -s http://localhost:3000/version
+            echo "--- FAST DEPLOY END ---"
+
 
 
 
