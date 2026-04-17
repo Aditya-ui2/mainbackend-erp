@@ -60,21 +60,28 @@ const {
 } = require('../controllers/recruitment');
 
 console.log('[ROUTING] Initializing Recruitment Routes...');
-router.get('/health', (req, res) => res.json({ 
-    success: true, 
-    message: 'Recruitment Module Active', 
-    version: '404_FIX_V3_TOP_LEVEL', 
-    timestamp: new Date() 
-}));
-
-// TOP-LEVEL ROUTES TO AVOID 404
+// TOP-LEVEL ROUTES TO AVOID 404 (Handling all singular/plural permutations)
+router.post('/candidate/generate-credentials', verifyAuthToken, generateCandidateCredentials);
+router.post('/candidate/generate-credential', verifyAuthToken, generateCandidateCredentials);
+router.post('/candidates/generate-credentials', verifyAuthToken, generateCandidateCredentials);
+router.post('/candidates/generate-credential', verifyAuthToken, generateCandidateCredentials);
 router.post('/candidate/login', loginCandidate);
 router.post('/candidate/verify-kyc', verifyAuthToken, verifyCandidateKYC);
-router.post('/candidate/generate-credentials', verifyAuthToken, generateCandidateCredentials);
-router.post('/candidates/generate-credentials', verifyAuthToken, generateCandidateCredentials);
 router.post('/onboarding-gen-creds', generateCandidateCredentials);
+
+router.get('/health', (req, res) => {
+    console.log('[HEALTH CHECK] Recruitment Module reporting...');
+    res.json({ 
+        success: true, 
+        message: 'Recruitment Module Active', 
+        version: '404_FIX_V4_AGGRESSIVE', 
+        timestamp: new Date(),
+        routes: ['/candidate/generate-credentials', '/candidate/login', '/onboarding-gen-creds'] // Debug info
+    });
+});
 router.get('/onboarding-gen-creds', (req, res) => res.send('Endpoint Active - Use POST'));
 router.get('/ping-test', (req, res) => res.send('API OK - ' + new Date()));
+
 
 const { distributeJobToPlatforms } = require('../controllers/jobDistribution');
 

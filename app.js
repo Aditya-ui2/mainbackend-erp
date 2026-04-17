@@ -340,8 +340,11 @@ app.use((req, res) => {
 });
 
 // Change app.listen to server.listen
-server.listen(PORT, '0.0.0.0', () => {
+server.listen(PORT, () => {
     console.log(`--- Express Server Running on Port ${PORT} ---`);
+    console.log(`[DIAGNOSTIC] Recruitment routes mounted on /recruitment`);
+}).on('error', (err) => {
+    console.error(`[CRITICAL] Server failed to start:`, err.message);
 });
 
 dbConnect();
