@@ -27,8 +27,13 @@ jobs:
             git reset --hard origin/main
             npm install
             # Kill any process currently occupying port 3000 to prevent 'Port in use' errors
-            fuser -k 3000/tcp || true
+            sudo fuser -k 3000/tcp || true
+            sleep 2
             # Restart or Start the process
-            pm2 delete backend-erp || true
+            pm2 delete backend-erp || pm2 delete app || true
             pm2 start app.js --name backend-erp
             pm2 save
+            # Verification
+            sleep 5
+            curl -v http://localhost:3000/ping
+
