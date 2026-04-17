@@ -800,6 +800,7 @@ const updateCandidateStatus = async (req, res) => {
         if (rejectionReason) updateData.rejectionReason = rejectionReason;
         if (notes) updateData.notes = notes;
         if (rating !== undefined) updateData.rating = rating;
+        if (req.body.bgvStatus) updateData.bgvStatus = req.body.bgvStatus;
 
         await candidate.update(updateData);
 
@@ -863,7 +864,8 @@ const updateCandidate = async (req, res) => {
         const updateData = {
             name, email, phone, positionId, clientId,
             experience, currentSalary, expectedSalary, notes, location, noticePeriod,
-            stage, pipelineStatus, rating, source
+            stage, pipelineStatus, rating, source,
+            bgvStatus: req.body.bgvStatus
         };
         
         if (parsedSkills !== undefined) updateData.skills = parsedSkills;
