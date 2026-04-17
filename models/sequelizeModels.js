@@ -827,6 +827,11 @@ const Candidate = sequelize.define('Candidate', {
         allowNull: true,
         comment: 'Plain text password for initial BGV handover'
     },
+    firebaseUid: {
+        type: DataTypes.STRING,
+        allowNull: true,
+        comment: 'Firebase Authentication UID'
+    },
     kycDocuments: {
         type: DataTypes.JSONB,
         defaultValue: {},
