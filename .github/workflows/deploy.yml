@@ -22,24 +22,25 @@ jobs:
           key: ${{ secrets.EC2_SSH_KEY }}
           port: 22
           script: |
-            echo "Checking deployment path..."
-            pwd
-            ls -al app.js
+            echo "--- AGGRESSIVE DEPLOY START ---"
             cd ~/backend-erp
             git fetch origin main
             git reset --hard origin/main
-            npm install
-            # Cleanup
+            git clean -fd
+            echo "--- VERIFYING app.js CONTENT ON SERVER ---"
+            head -n 30 app.js
+            npm ci || npm install
+            # Cleanup all processes
             sudo fuser -k 3000/tcp || true
-            pm2 stop all || true
-            pm2 delete backend-erp || pm2 delete app || true
+            pm2 delete all || true
             # Start fresh
             pm2 start app.js --name backend-erp
             pm2 save
             # Verification logs
             sleep 5
             pm2 status
-            curl -v http://localhost:3000/ping
             curl -v http://localhost:3000/version
+            echo "--- AGGRESSIVE DEPLOY END ---"
+
 
 
