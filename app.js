@@ -13,19 +13,12 @@ const { Message } = require('./models/sequelizeModels');
 const swaggerUi = require('swagger-ui-express');
 const swaggerSpec = require('./swagger');
 
-// Basic Connectivity Check
+// TOP-LEVEL EMERGENCY ROUTES
 app.get('/ping', (req, res) => res.send('pong'));
-
-// EMERGENCY DIRECT ROUTE FOR CREDENTIALS
-const { generateCandidateCredentials } = require('./controllers/recruitment');
-app.post('/recruitment/candidate/generate-credentials', generateCandidateCredentials);
-app.post('/recruitment/candidates/generate-credentials', generateCandidateCredentials);
-app.post('/recruitment/onboarding-gen-creds-emergency', generateCandidateCredentials);
-
-app.post('/recruitment/candidate/generate-credentials', (req, res, next) => {
-    console.log('[DEBUG] EMERGENCY DIRECT ROUTE HIT');
-    next();
-}, generateCandidateCredentials);
+app.get('/recruitment/candidate/generate-credentials', (req, res) => res.json({ success: true, message: 'GET matches - use POST for real request' }));
+app.post('/recruitment/candidate/generate-credentials', (req, res) => {
+    res.json({ success: true, message: 'EMERGENCY POST ROUTE ACTIVE' });
+});
 
 // Global Logger for Recruitment routes debugging
 app.use('/recruitment', (req, res, next) => {
