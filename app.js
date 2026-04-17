@@ -13,6 +13,9 @@ const { Message } = require('./models/sequelizeModels');
 const swaggerUi = require('swagger-ui-express');
 const swaggerSpec = require('./swagger');
 
+// Basic Connectivity Check
+app.get('/ping', (req, res) => res.send('pong'));
+
 // Global Logger for Recruitment routes debugging
 app.use('/recruitment', (req, res, next) => {
     console.log(`[RECRUITMENT REQUEST] ${req.method} ${req.url}`);
