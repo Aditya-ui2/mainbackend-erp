@@ -2711,6 +2711,19 @@ const generateCandidateCredentials = async (req, res) => {
             return res.status(400).json({ success: false, message: 'Candidate email is required for credential generation' });
         }
 
+        // Check if credentials already generated (one-time only)
+        if (candidate.username && candidate.password) {
+            return res.status(400).json({ 
+                success: false, 
+                message: 'Credentials already generated for this candidate',
+                data: {
+                    email: candidate.email,
+                    username: candidate.username,
+                    alreadyGenerated: true
+                }
+            });
+        }
+
         // Generate a random 8-character password
         const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
         let password = "";
