@@ -2772,13 +2772,21 @@ const generateCandidateCredentials = async (req, res) => {
             // We continue with local DB update even if Firebase fails
         }
 
-        await candidate.update({
-            password: hashedPassword,
-            username: username,
-            rawPassword: password,
-            bgvStatus: 'Sent',
-            firebaseUid: firebaseUid // Save the UID if generated
-        });
+        // Save credentials to database
+        try {
+            console.log(`[ONBOARDING] Saving credentials to DB for candidate ID: ${candidate.id}`);
+            await candidate.update({
+                password: hashedPassword,
+                username: username,
+                rawPassword: password,
+                bgvStatus: 'Sent',
+                firebaseUid: firebaseUid // Save the UID if generated
+            });
+            console.log(`[ONBOARDING] ✅ Database update successful for ${candidate.name}`);
+        } catch (dbError) {
+            console.error('[ONBOARDING] ❌ Database update FAILED:', dbError.message);
+            throw dbError;
+        }
 
         // Debug Log
         console.log(`[ONBOARDING] Generated Credentials for ${candidate.name}:`);
