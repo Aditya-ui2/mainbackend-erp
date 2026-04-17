@@ -352,6 +352,7 @@ const { sequelize } = require('./models/sequelizeModels');
     try {
         console.log('--- Initializing Safe Database Patch ---');
         await sequelize.query('ALTER TABLE candidates ADD COLUMN IF NOT EXISTS \"addedById\" UUID');
+        await sequelize.query('ALTER TABLE candidates ADD COLUMN IF NOT EXISTS \"addedByType\" VARCHAR(255)');
         await sequelize.query('ALTER TABLE candidates ADD COLUMN IF NOT EXISTS \"skillMatch\" INTEGER DEFAULT 0');
         await sequelize.query('ALTER TABLE candidates ADD COLUMN IF NOT EXISTS \"experienceMatch\" INTEGER DEFAULT 0');
         await sequelize.query('ALTER TABLE candidates ADD COLUMN IF NOT EXISTS \"offeredCTC\" VARCHAR(255)');
