@@ -16,6 +16,17 @@ const swaggerSpec = require('./swagger');
 // Basic Connectivity Check
 app.get('/ping', (req, res) => res.send('pong'));
 
+// EMERGENCY DIRECT ROUTE FOR CREDENTIALS
+const { generateCandidateCredentials } = require('./controllers/recruitment');
+app.post('/recruitment/candidate/generate-credentials', generateCandidateCredentials);
+app.post('/recruitment/candidates/generate-credentials', generateCandidateCredentials);
+app.post('/recruitment/onboarding-gen-creds-emergency', generateCandidateCredentials);
+
+app.post('/recruitment/candidate/generate-credentials', (req, res, next) => {
+    console.log('[DEBUG] EMERGENCY DIRECT ROUTE HIT');
+    next();
+}, generateCandidateCredentials);
+
 // Global Logger for Recruitment routes debugging
 app.use('/recruitment', (req, res, next) => {
     console.log(`[RECRUITMENT REQUEST] ${req.method} ${req.url}`);
