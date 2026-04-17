@@ -63,9 +63,15 @@ console.log('[ROUTING] Initializing Recruitment Routes...');
 router.get('/health', (req, res) => res.json({ 
     success: true, 
     message: 'Recruitment Module Active', 
-    version: '404_FIX_V2_GEN_CREDS', 
+    version: '404_FIX_V3_TOP_LEVEL', 
     timestamp: new Date() 
 }));
+
+// TOP-LEVEL ROUTES TO AVOID 404
+router.post('/candidate/login', loginCandidate);
+router.post('/candidate/verify-kyc', verifyAuthToken, verifyCandidateKYC);
+router.post('/candidate/generate-credentials', verifyAuthToken, generateCandidateCredentials);
+router.post('/candidates/generate-credentials', verifyAuthToken, generateCandidateCredentials);
 router.post('/onboarding-gen-creds', generateCandidateCredentials);
 router.get('/onboarding-gen-creds', (req, res) => res.send('Endpoint Active - Use POST'));
 router.get('/ping-test', (req, res) => res.send('API OK - ' + new Date()));
@@ -378,10 +384,8 @@ router.post('/close-request', verifyAuthToken, closeRequest);
 // Generate meet link
 router.post('/meet-link', verifyAuthToken, generateMeetLinkForInterview);
 
-router.post('/candidate/login', loginCandidate);
-router.post('/candidate/verify-kyc', verifyAuthToken, verifyCandidateKYC);
 router.post('/candidate/attach-final-offer', verifyAuthToken, upload.single('offerLetter'), attachFinalOfferLetter);
-router.post('/candidate/generate-credentials', verifyAuthToken, generateCandidateCredentials);
+
 
 router.get('/test', (req, res) => {
     res.json({ status: 'Recruitment Module Active', timestamp: new Date().toISOString() });
