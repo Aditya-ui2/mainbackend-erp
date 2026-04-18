@@ -2624,7 +2624,7 @@ const deleteOffer = async (req, res) => {
 
 const verifyCandidateKYC = async (req, res) => {
     try {
-        const { candidateId, docType, status, comment } = req.body;
+        const { candidateId, docType, status, comment, rejectionReason } = req.body;
         const candidate = await Candidate.findByPk(candidateId);
         if (!candidate) {
             return res.status(404).json({ success: false, message: 'Candidate not found' });
@@ -2640,10 +2640,81 @@ const verifyCandidateKYC = async (req, res) => {
         kycDocuments[docType].verified = status === 'verified';
         kycDocuments[docType].verifiedAt = new Date();
         kycDocuments[docType].comment = comment;
+        if (status === 'rejected' && rejectionReason) {
+            kycDocuments[docType].rejectionReason = rejectionReason;
+        }
 
         // Use changed() or set explicitly for JSONB updates if needed, 
         // but simple object update with await candidate.update works in Sequelize usually
         await candidate.update({ kycDocuments });
+
+        // Send email notification when document is rejected
+        if (status === 'rejected' && candidate.email) {
+            const docTypeLabels = {
+                pan: 'PAN Card',
+                aadhar: 'Aadhar Card',
+                payslips: 'Payslips',
+                bank_statement: 'Bank Statement',
+                degree: 'Degree Certificate',
+                marksheet: 'Marksheet',
+                appointment_letter: 'Appointment Letter',
+                relieving_letter: 'Relieving Letter'
+            };
+            
+            const docLabel = docTypeLabels[docType] || docType;
+            const reason = rejectionReason || 'The document could not be verified. Please ensure you upload a clear, valid document.';
+            
+            try {
+                await sendEmail({
+                    to: candidate.email,
+                    subject: `Action Required: Re-upload ${docLabel} - Mabicons ERP`,
+                    html: `
+                        <div style="font-family: 'Segoe UI', Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 40px 20px; color: #1A1A2E;">
+                            <div style="text-align: center; margin-bottom: 30px;">
+                                <h1 style="color: #1B4DA0; margin: 0; font-size: 24px;">Document Re-upload Required</h1>
+                            </div>
+                            
+                            <p style="font-size: 16px; line-height: 1.6;">Dear ${candidate.name || 'Candidate'},</p>
+                            
+                            <p style="font-size: 16px; line-height: 1.6;">
+                                During our verification process, we found an issue with your <strong>${docLabel}</strong> document.
+                            </p>
+                            
+                            <div style="background: #FEF3C7; border-left: 4px solid #F59E0B; padding: 16px 20px; margin: 24px 0; border-radius: 0 8px 8px 0;">
+                                <p style="margin: 0; font-weight: 600; color: #92400E;">Reason for Rejection:</p>
+                                <p style="margin: 8px 0 0 0; color: #78350F;">${reason}</p>
+                            </div>
+                            
+                            <p style="font-size: 16px; line-height: 1.6;">
+                                Please log in to your candidate portal and re-upload a valid <strong>${docLabel}</strong> at your earliest convenience.
+                            </p>
+                            
+                            <div style="text-align: center; margin: 32px 0;">
+                                <a href="https://erp.mabicons.com/candidate-login" 
+                                   style="display: inline-block; background: #1B4DA0; color: white; padding: 14px 32px; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 14px;">
+                                    Go to Candidate Portal
+                                </a>
+                            </div>
+                            
+                            <p style="font-size: 14px; color: #64748B; line-height: 1.6;">
+                                If you have any questions, please contact our recruitment team.
+                            </p>
+                            
+                            <hr style="border: none; border-top: 1px solid #E2E8F0; margin: 30px 0;" />
+                            
+                            <p style="font-size: 14px; color: #94A3B8; margin: 0;">
+                                Best Regards,<br/>
+                                <strong style="color: #1B4DA0;">Mabicons Recruitment Team</strong>
+                            </p>
+                        </div>
+                    `
+                });
+                console.log(`Rejection email sent to ${candidate.email} for ${docType}`);
+            } catch (emailError) {
+                console.error('Failed to send rejection email:', emailError);
+                // Don't fail the main request if email fails
+            }
+        }
 
         res.status(200).json({ 
             success: true, 
