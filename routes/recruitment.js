@@ -9,11 +9,17 @@ const upload = multer({
     storage,
     limits: { fileSize: 10 * 1024 * 1024 }, // 10MB limit
     fileFilter: (req, file, cb) => {
-        const allowedTypes = ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'];
+        const allowedTypes = [
+            'application/pdf', 
+            'application/msword', 
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            'image/jpeg',
+            'image/png'
+        ];
         if (allowedTypes.includes(file.mimetype)) {
             cb(null, true);
         } else {
-            cb(new Error('Only PDF and DOC files are allowed'), false);
+            cb(new Error('Only PDF, DOC, JPG and PNG files are allowed'), false);
         }
     }
 });
@@ -54,9 +60,12 @@ const {
     upsertOfferTemplate,
     getOfferTemplate,
     verifyCandidateKYC,
+    uploadCandidateKYC,
+    getCandidateProfile,
     attachFinalOfferLetter,
     generateCandidateCredentials,
-    loginCandidate
+    loginCandidate,
+    submitCandidateKYC
 } = require('../controllers/recruitment');
 
 console.log('[ROUTING] Initializing Recruitment Routes...');
@@ -66,7 +75,10 @@ router.post('/candidate/generate-credential', verifyAuthToken, generateCandidate
 router.post('/candidates/generate-credentials', verifyAuthToken, generateCandidateCredentials);
 router.post('/candidates/generate-credential', verifyAuthToken, generateCandidateCredentials);
 router.post('/candidate/login', loginCandidate);
+router.get('/candidate/profile', verifyAuthToken, getCandidateProfile);
+router.post('/candidate/upload-kyc', verifyAuthToken, upload.single('document'), uploadCandidateKYC);
 router.post('/candidate/verify-kyc', verifyAuthToken, verifyCandidateKYC);
+router.post('/candidate/submit-kyc', verifyAuthToken, submitCandidateKYC);
 router.post('/onboarding-gen-creds', generateCandidateCredentials);
 
 router.get('/health', (req, res) => {
