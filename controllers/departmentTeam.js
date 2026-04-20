@@ -27,69 +27,79 @@ const getTeamMembers = async (req, res) => {
             where.department = deptMap[department] || department;
         }
         
-        // If not a Head/SuperAdmin, only show direct reports
-        if (req.user?.role !== 'Department Head' && req.user?.role !== 'SuperAdmin' && managerId) {
+        // For task assignment, return ALL team members (don't filter by manager)
+        // Query param: ?directReportsOnly=true to get only direct reports
+        const showOnlyDirectReports = req.query.directReportsOnly === 'true';
+        if (showOnlyDirectReports && req.user?.role !== 'Department Head' && req.user?.role !== 'SuperAdmin' && managerId) {
             where.managerId = managerId;
         }
 
         const members = await DepartmentTeam.findAll({
             where,
+            attributes: ['id', 'name', 'email', 'role', 'phone', 'avatar', 'status'],
             include: [{
                 model: DepartmentTeam,
                 as: 'manager',
                 attributes: ['id', 'name', 'email']
             }],
-            order: [['createdAt', 'DESC']]
+            order: [['createdAt', 'DESC']],
+            raw: true
         });
 
-        // 7-day window for "This Week Hires"
-        const weekAgo = new Date();
-        weekAgo.setDate(weekAgo.getDate() - 7);
+        // Optionally fetch stats (slower, so make it optional)
+        const includeStats = req.query.includeStats !== 'false';
+        let result = members;
 
-        // Fetch stats for each member
-        const membersWithStats = await Promise.all(members.map(async (member) => {
-            const m = member.toJSON();
-            
-            // Parallelize counts for better performance
-            const [activePositions, candidatesPipeline, interviewsScheduled, thisWeekHires] = await Promise.all([
-                RecruitmentPosition.count({ 
-                    where: { 
-                        [Op.or]: [
-                            { departmentTeamId: member.id },
-                            { teamLeaderId: member.id }
-                        ],
-                        status: 'Open'
-                    } 
-                }),
-                Candidate.count({ where: { addedById: member.id } }),
-                Interview.count({ 
-                    where: { interviewerId: member.id, status: 'Scheduled' } 
-                }),
-                Candidate.count({ 
-                    where: { 
-                        addedById: member.id, 
-                        [Op.or]: [
-                            { status: 'Selected' },
-                            { stage: 'Joined' }
-                        ],
-                        updatedAt: { [Op.gte]: weekAgo }
-                    } 
-                })
-            ]);
+        if (includeStats && members.length > 0) {
+            const weekAgo = new Date();
+            weekAgo.setDate(weekAgo.getDate() - 7);
 
-            return {
-                ...m,
-                stats: {
-                    activePositions,
-                    candidatesPipeline,
-                    interviewsScheduled,
-                    thisWeekHires,
-                    offersExtended: 0 // Default for now until Offer model is integrated
+            result = await Promise.all(members.map(async (member) => {
+                try {
+                    const [activePositions, candidatesPipeline, interviewsScheduled, thisWeekHires] = await Promise.all([
+                        RecruitmentPosition.count({ 
+                            where: { 
+                                [Op.or]: [
+                                    { departmentTeamId: member.id },
+                                    { teamLeaderId: member.id }
+                                ],
+                                status: 'Open'
+                            } 
+                        }),
+                        Candidate.count({ where: { addedById: member.id } }),
+                        Interview.count({ 
+                            where: { interviewerId: member.id, status: 'Scheduled' } 
+                        }),
+                        Candidate.count({ 
+                            where: { 
+                                addedById: member.id, 
+                                [Op.or]: [
+                                    { status: 'Selected' },
+                                    { stage: 'Joined' }
+                                ],
+                                updatedAt: { [Op.gte]: weekAgo }
+                            } 
+                        })
+                    ]);
+
+                    return {
+                        ...member,
+                        stats: {
+                            activePositions,
+                            candidatesPipeline,
+                            interviewsScheduled,
+                            thisWeekHires,
+                            offersExtended: 0
+                        }
+                    };
+                } catch (err) {
+                    console.error('Error fetching stats for member:', member.id, err);
+                    return member;
                 }
-            };
-        }));
+            }));
+        }
 
-        res.status(200).json({ success: true, members: membersWithStats });
+        res.status(200).json({ success: true, members: result });
     } catch (error) {
         console.error('Error fetching team members:', error);
         res.status(500).json({ success: false, message: 'Failed to fetch team members', error: error.message });
@@ -307,6 +317,23 @@ const createDepartmentTask = async (req, res) => {
     try {
         const { title, description, department, assignedTo, priority, dueDate, positionId, candidateId } = req.body;
         const assignedBy = req.user?.id;
+
+        // Validate required fields
+        if (!title || !description || !department || !assignedTo || !priority) {
+            return res.status(400).json({ 
+                success: false, 
+                message: 'Missing required fields: title, description, department, assignedTo, priority' 
+            });
+        }
+
+        // Validate UUID format for assignedTo
+        const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+        if (!uuidRegex.test(assignedTo)) {
+            return res.status(400).json({ 
+                success: false, 
+                message: `Invalid assignedTo ID format. Expected UUID format, got: "${assignedTo}"` 
+            });
+        }
 
         // Get assignee name (DepartmentTeam is Sequelize/PostgreSQL)
         const assignee = await DepartmentTeam.findByPk(assignedTo);
