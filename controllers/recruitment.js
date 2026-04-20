@@ -2646,7 +2646,9 @@ const verifyCandidateKYC = async (req, res) => {
 
         // Use changed() or set explicitly for JSONB updates if needed, 
         // but simple object update with await candidate.update works in Sequelize usually
-        await candidate.update({ kycDocuments });
+        candidate.set('kycDocuments', kycDocuments);
+        candidate.changed('kycDocuments', true);
+        await candidate.save();
 
         // Send email notification when document is rejected
         if (status === 'rejected' && candidate.email) {
@@ -2724,6 +2726,77 @@ const verifyCandidateKYC = async (req, res) => {
     } catch (error) {
         console.error('Error verifying KYC:', error);
         res.status(500).json({ success: false, message: 'Failed to verify KYC', error: error.message });
+    }
+};
+
+const uploadCandidateKYC = async (req, res) => {
+    try {
+        const { docType, side } = req.body;
+        const file = req.file;
+
+        if (!file) {
+            return res.status(400).json({ success: false, message: 'No file uploaded' });
+        }
+
+        const candidateId = req.user.id;
+        const candidate = await Candidate.findByPk(candidateId);
+        if (!candidate) {
+            return res.status(404).json({ success: false, message: 'Candidate not found' });
+        }
+
+        // Create upload directory if it doesn't exist
+        const uploadDir = path.join(__dirname, '..', 'uploads', 'kyc');
+        if (!fs.existsSync(uploadDir)) {
+            fs.mkdirSync(uploadDir, { recursive: true });
+        }
+
+        // Generate filename: candidateId-docType-side-timestamp.ext
+        const ext = path.extname(file.originalname);
+        const fileName = `${candidateId}-${docType}${side ? `-${side}` : ''}-${Date.now()}${ext}`;
+        const filePath = path.join(uploadDir, fileName);
+
+        // Save file
+        fs.writeFileSync(filePath, file.buffer);
+
+        // Update candidate record
+        const kycDocuments = candidate.kycDocuments || {};
+        const docKey = side ? `${docType}_${side}` : docType;
+
+        // PHYSICAL DELETION: If a document already exists for this key, delete the old file from disk
+        if (kycDocuments[docKey] && kycDocuments[docKey].url) {
+            try {
+                const oldRelativePath = kycDocuments[docKey].url; // e.g., /uploads/kyc/filename.pdf
+                const oldFullPath = path.join(__dirname, '..', oldRelativePath);
+                
+                if (fs.existsSync(oldFullPath)) {
+                    fs.unlinkSync(oldFullPath);
+                    console.log(`[CLEANUP] Deleted old KYC file: ${oldFullPath}`);
+                }
+            } catch (cleanupError) {
+                console.error('[CLEANUP ERROR] Failed to delete old KYC file:', cleanupError);
+                // We continue anyway so the new upload isn't blocked by a cleanup failure
+            }
+        }
+
+        kycDocuments[docKey] = {
+            url: `/uploads/kyc/${fileName}`,
+            fileName: file.originalname,
+            uploadedAt: new Date(),
+            verified: false // Reset verification status on re-upload
+        };
+
+        candidate.set('kycDocuments', { ...kycDocuments });
+        candidate.changed('kycDocuments', true);
+        await candidate.save();
+
+        res.status(200).json({
+            success: true,
+            message: 'Document uploaded successfully',
+            url: `/uploads/kyc/${fileName}`
+        });
+    } catch (error) {
+        console.error('Error uploading KYC:', error);
+        res.status(500).json({ success: false, message: 'Failed to upload document', error: error.message });
     }
 };
 
@@ -2970,6 +3043,56 @@ const loginCandidate = async (req, res) => {
     }
 };
 
+const getCandidateProfile = async (req, res) => {
+    try {
+        const candidateId = req.user.id;
+        const candidate = await Candidate.findByPk(candidateId, {
+            attributes: { exclude: ['password', 'rawPassword'] },
+            include: [
+                { model: RecruitmentPosition, as: 'position', attributes: ['id', 'title'] },
+                { model: Client, as: 'client', attributes: ['id', 'companyName'] }
+            ]
+        });
+
+        if (!candidate) {
+            return res.status(404).json({ success: false, message: 'Candidate not found' });
+        }
+
+        res.status(200).json({ success: true, data: candidate });
+    } catch (error) {
+        console.error('Error fetching candidate profile:', error);
+        res.status(500).json({ success: false, message: 'Failed to fetch profile' });
+    }
+};
+
+const submitCandidateKYC = async (req, res) => {
+    try {
+        const candidateId = req.user.id;
+        const candidate = await Candidate.findByPk(candidateId);
+        
+        if (!candidate) {
+            return res.status(404).json({ success: false, message: 'Candidate not found' });
+        }
+
+        // Add activity log entry
+        console.log(`[KYC SUBMISSION] Candidate ${candidate.name} (ID: ${candidateId}) is submitting documents.`);
+
+        await candidate.update({ 
+            bgvStatus: 'KYC Submitted',
+            // Optional: You could also log the timestamp in metadata if needed
+        });
+
+        res.status(200).json({ 
+            success: true, 
+            message: 'Profile submitted successfully for verification', 
+            data: { bgvStatus: 'KYC Submitted' } 
+        });
+    } catch (error) {
+        console.error('Error submitting KYC profile:', error);
+        res.status(500).json({ success: false, message: 'Failed to submit profile', error: error.message });
+    }
+};
+
 module.exports = {
     getRecruitmentClients,
     getKamsWithRecruitment,
@@ -3005,7 +3128,10 @@ module.exports = {
     upsertOfferTemplate,
     getOfferTemplate,
     verifyCandidateKYC,
+    uploadCandidateKYC,
+    submitCandidateKYC,
     attachFinalOfferLetter,
     generateCandidateCredentials,
-    loginCandidate
+    loginCandidate,
+    getCandidateProfile
 };
