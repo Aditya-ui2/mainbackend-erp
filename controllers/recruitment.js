@@ -579,7 +579,7 @@ const createRecruitmentPosition = async (req, res) => {
         // Notify Admin Sachin if posted by a client
         if (req.user?.userType?.toLowerCase().includes('client') || req.body.postedByClient) {
             const { addNotification } = require('./notification');
-            const sachinId = 'b330b023-9bf1-43be-acb0-a2b6e80f6cfe';
+            const sachinId = '60de4380-0140-49ff-b26d-a8d06333af11';
             try {
                 await addNotification(
                     sachinId,
@@ -2307,7 +2307,7 @@ const getMyPerformanceStats = async (req, res) => {
 
         // Check if user is a manager/head to perform team aggregation
         let memberIds = [userId];
-        const isHead = req.user.role === 'Department Head' || req.user.role === 'Admin' || req.user.id === 'b330b023-9bf1-43be-acb0-a2b6e80f6cfe';
+        const isHead = req.user.role === 'Department Head' || req.user.role === 'Admin' || req.user.id === '60de4380-0140-49ff-b26d-a8d06333af11';
         
         if (isHead) {
             const teamMembers = await DepartmentTeam.findAll({ 

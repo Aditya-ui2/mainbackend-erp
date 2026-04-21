@@ -240,7 +240,7 @@ const submitDailyReport = async (req, res) => {
         }
 
         // Notify Sachin (Recruitment Head)
-        const sachinId = 'b330b023-9bf1-43be-acb0-a2b6e80f6cfe';
+        const sachinId = '60de4380-0140-49ff-b26d-a8d06333af11';
         try {
             await addNotification(
                 sachinId,
