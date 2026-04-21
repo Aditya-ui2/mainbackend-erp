@@ -1541,14 +1541,14 @@ DepartmentTask.init({
         allowNull: false
     },
     assignedBy: {
-        type: DataTypes.UUID,
+        type: DataTypes.STRING,
         allowNull: false
     },
     assignedByName: {
         type: DataTypes.STRING
     },
     assignedTo: {
-        type: DataTypes.UUID,
+        type: DataTypes.STRING,
         allowNull: false
     },
     assignedToName: {

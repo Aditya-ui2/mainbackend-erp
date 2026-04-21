@@ -326,12 +326,11 @@ const createDepartmentTask = async (req, res) => {
             });
         }
 
-        // Validate UUID format for assignedTo
-        const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-        if (!uuidRegex.test(assignedTo)) {
+        // Validate assignedTo exists
+        if (!assignedTo) {
             return res.status(400).json({ 
                 success: false, 
-                message: `Invalid assignedTo ID format. Expected UUID format, got: "${assignedTo}"` 
+                message: 'assignedTo is required' 
             });
         }
 
