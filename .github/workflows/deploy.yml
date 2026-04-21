@@ -14,17 +14,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Copy files to EC2
-        uses: appleboy/scp-action@v0.1.7
-        with:
-          host: ${{ secrets.EC2_HOST }}
-          username: ${{ secrets.EC2_USERNAME }}
-          key: ${{ secrets.EC2_SSH_KEY }}
-          port: 22
-          source: "."
-          target: "~/backend-erp"
-
-      - name: Restart Server
+      - name: Deploy to EC2
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.EC2_HOST }}
@@ -33,15 +23,12 @@ jobs:
           port: 22
           script: |
             cd ~/backend-erp
-            # Process cleanup and restart
-            pm2 delete all || true
+            git fetch origin main
+            git reset --hard origin/main
+            npm install
+            # Kill any process currently occupying port 3000 to prevent 'Port in use' errors
+            fuser -k 3000/tcp || true
+            # Restart or Start the process
+            pm2 delete backend-erp || true
             pm2 start app.js --name backend-erp
             pm2 save
-            # Quick verification
-            sleep 2
-            curl -s http://localhost:3000/version
-
-
-
-
-
