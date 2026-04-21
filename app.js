@@ -15,7 +15,7 @@ const swaggerSpec = require('./swagger');
 
 // TOP-LEVEL EMERGENCY ROUTES
 app.get('/ping', (req, res) => res.send('pong'));
-app.get('/version', (req, res) => res.json({ build: 'V7_TASK_REFRESH_FORCE' }));
+app.get('/version', (req, res) => res.json({ build: 'V7_PATH_DEBUG', path: __dirname }));
 // NOTE: /recruitment/candidate/generate-credentials is handled by recruitmentRoutes
 
 // Global Logger for Recruitment routes debugging
