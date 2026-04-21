@@ -25,10 +25,14 @@ jobs:
             cd ~/backend-erp
             git fetch origin main
             git reset --hard origin/main
+            git clean -fd
+            echo "Current Commit: $(git rev-parse HEAD)"
             npm install
             # Kill any process currently occupying port 3000 to prevent 'Port in use' errors
             fuser -k 3000/tcp || true
-            # Restart or Start the process
+            # Clean restart PM2
+            pm2 stop backend-erp || true
             pm2 delete backend-erp || true
             pm2 start app.js --name backend-erp
             pm2 save
+            pm2 flush
