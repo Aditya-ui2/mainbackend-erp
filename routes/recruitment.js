@@ -359,7 +359,6 @@ router.delete('/positions/:id', verifyAuthToken, deleteRecruitmentPosition);
 // Get all candidates with filtering (pipeline view)
 router.get('/candidates', verifyAuthToken, clientIsolation, getAllCandidates);
 
-// Client-facing: Get recruitment progress for a specific client
 router.get('/client-progress/:clientId', verifyAuthToken, clientIsolation, getClientRecruitmentProgress);
 
 // ==================== NEW ROUTES FOR FRONTEND COMPATIBILITY ====================

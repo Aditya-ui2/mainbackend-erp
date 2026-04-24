@@ -271,6 +271,15 @@ const scheduleInterview = async (req, res) => {
             sanInterviewerId = isValidUUID(req.user?.id) ? req.user.id : null;
         }
 
+        // --- PREVENT FK VIOLATION: Verify interviewer exists in DepartmentTeams ---
+        if (sanInterviewerId) {
+            const interviewerExists = await DepartmentTeam.findByPk(sanInterviewerId);
+            if (!interviewerExists) {
+                console.warn(`[INTERVIEW] Interviewer ID ${sanInterviewerId} not found in DepartmentTeams. Setting to null to avoid FK violation.`);
+                sanInterviewerId = null;
+            }
+        }
+
         // --- FULLY RESILIENT ID RESOLUTION / AUTO-CREATION ---
         const resolvedIds = await resolveInterviewIds(req.body);
         const { candidateId, positionId, clientId } = resolvedIds;

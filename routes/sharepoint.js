@@ -68,7 +68,7 @@ router.use(protect);
  *       500:
  *         description: Connection failed
  */
-router.get('/test', authorize('superadmin', 'admin', 'kam'), testConnection);
+router.get('/test', authorize('superadmin', 'admin', 'kam', 'teamleader'), testConnection);
 
 /**
  * @swagger
@@ -82,7 +82,7 @@ router.get('/test', authorize('superadmin', 'admin', 'kam'), testConnection);
  *       200:
  *         description: List of SharePoint lists
  */
-router.get('/lists', authorize('superadmin', 'admin', 'kam'), getLists);
+router.get('/lists', authorize('superadmin', 'admin', 'kam', 'teamleader'), getLists);
 
 /**
  * @swagger
@@ -102,7 +102,7 @@ router.get('/lists', authorize('superadmin', 'admin', 'kam'), getLists);
  *       200:
  *         description: List items
  */
-router.get('/lists/:listId/items', authorize('superadmin', 'admin', 'kam'), getListItems);
+router.get('/lists/:listId/items', authorize('superadmin', 'admin', 'kam', 'teamleader'), getListItems);
 
 /**
  * @swagger
@@ -122,7 +122,7 @@ router.get('/lists/:listId/items', authorize('superadmin', 'admin', 'kam'), getL
  *       200:
  *         description: Candidates synced successfully
  */
-router.get('/sync/candidates', syncLimiter, authorize('superadmin', 'admin', 'kam'), syncCandidates);
+router.get('/sync/candidates', syncLimiter, authorize('superadmin', 'admin', 'kam', 'teamleader'), syncCandidates);
 
 /**
  * @swagger
@@ -142,7 +142,7 @@ router.get('/sync/candidates', syncLimiter, authorize('superadmin', 'admin', 'ka
  *       200:
  *         description: Interviews synced successfully
  */
-router.get('/sync/interviews', syncLimiter, authorize('superadmin', 'admin', 'kam'), syncInterviews);
+router.get('/sync/interviews', syncLimiter, authorize('superadmin', 'admin', 'kam', 'teamleader'), syncInterviews);
 
 /**
  * @swagger
@@ -162,7 +162,7 @@ router.get('/sync/interviews', syncLimiter, authorize('superadmin', 'admin', 'ka
  *       200:
  *         description: Clients synced successfully
  */
-router.get('/sync/clients', syncLimiter, authorize('superadmin', 'admin', 'kam'), syncClients);
+router.get('/sync/clients', syncLimiter, authorize('superadmin', 'admin', 'kam', 'teamleader'), syncClients);
 
 /**
  * @swagger
@@ -187,7 +187,7 @@ router.get('/sync/clients', syncLimiter, authorize('superadmin', 'admin', 'kam')
  *                 clients:
  *                   type: object
  */
-router.post('/sync/all', syncLimiter, authorize('superadmin', 'admin'), syncAll);
+router.post('/sync/all', syncLimiter, authorize('superadmin', 'admin', 'teamleader'), syncAll);
 
 /**
  * @swagger
@@ -222,7 +222,7 @@ router.post('/sync/all', syncLimiter, authorize('superadmin', 'admin'), syncAll)
  *       200:
  *         description: Candidate updated in SharePoint
  */
-router.put('/candidates/:sharePointId', authorize('superadmin', 'admin', 'kam'), updateCandidate);
+router.put('/candidates/:sharePointId', authorize('superadmin', 'admin', 'kam', 'teamleader'), updateCandidate);
 
 // ═══════════════════════════════════════════
 // LOCAL DATABASE ENDPOINTS (saved SharePoint data)
@@ -263,7 +263,7 @@ router.put('/candidates/:sharePointId', authorize('superadmin', 'admin', 'kam'),
  *       200:
  *         description: Saved candidates with pagination
  */
-router.get('/data/candidates', authorize('superadmin', 'admin', 'kam', 'employee'), getSavedCandidates);
+router.get('/data/candidates', authorize('superadmin', 'admin', 'kam', 'employee', 'teamleader'), getSavedCandidates);
 
 /**
  * @swagger
@@ -277,7 +277,7 @@ router.get('/data/candidates', authorize('superadmin', 'admin', 'kam', 'employee
  *       200:
  *         description: Saved interviews with pagination
  */
-router.get('/data/interviews', authorize('superadmin', 'admin', 'kam', 'employee'), getSavedInterviews);
+router.get('/data/interviews', authorize('superadmin', 'admin', 'kam', 'employee', 'teamleader'), getSavedInterviews);
 
 /**
  * @swagger
@@ -291,7 +291,7 @@ router.get('/data/interviews', authorize('superadmin', 'admin', 'kam', 'employee
  *       200:
  *         description: Saved SharePoint clients
  */
-router.get('/data/clients', authorize('superadmin', 'admin', 'kam'), getSavedClients);
+router.get('/data/clients', authorize('superadmin', 'admin', 'kam', 'teamleader'), getSavedClients);
 
 /**
  * @swagger

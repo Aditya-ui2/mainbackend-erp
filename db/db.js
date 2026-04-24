@@ -51,7 +51,7 @@ const dbConnect = async () => {
         // Sync all models (creates tables if they don't exist)
         // Use { force: true } only in development to drop and recreate tables
         // Use { alter: true } to alter existing tables to match models
-        await sequelize.sync({ alter: true });
+        await sequelize.sync();
         console.log("All models synchronized successfully!");
         
         // Seed default department team users

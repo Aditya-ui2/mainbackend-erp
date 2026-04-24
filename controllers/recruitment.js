@@ -545,9 +545,7 @@ const createRecruitmentPosition = async (req, res) => {
     try {
         const { title, description, location, type, salary, status, priority, openings, skills, experience, clientId, teamLeaderId, departmentTeamId, deadline } = req.body;
         
-        if (!clientId || clientId === "") {
-            return res.status(400).json({ success: false, message: 'Client ID is required' });
-        }
+        // clientId can be null for internal positions
 
         const ownership = await resolvePositionOwnership({
             departmentTeamId,
@@ -760,15 +758,18 @@ const addCandidate = async (req, res) => {
             addedById
         });
 
-        res.status(201).json({ 
-            success: true, 
-            message: 'Candidate added successfully', 
-            data: candidate,
-            resumeBankSync: !!cvUrl // true if a resume was processed
+        res.status(201).json({
+            success: true,
+            message: 'Candidate added successfully',
+            data: candidate
         });
     } catch (error) {
-        console.error('Error adding candidate:', error);
-        res.status(500).json({ success: false, message: 'Failed to add candidate', error: error.message });
+        console.error('Error in addCandidate:', error);
+        res.status(500).json({ 
+            success: false, 
+            message: 'Internal server error while adding candidate',
+            error: error.message 
+        });
     }
 };
 
@@ -1464,9 +1465,6 @@ const getAllCandidates = async (req, res) => {
                     as: 'position',
                     attributes: ['id', 'title', 'status'],
                     where: {
-                        status: {
-                            [Op.ne]: 'Closed'
-                        },
                         ...positionWhere
                     },
                     required: true
@@ -1477,6 +1475,9 @@ const getAllCandidates = async (req, res) => {
             offset,
             limit: parseInt(limit),
         });
+
+        console.log(`[DEBUG] getAllCandidates returning ${candidates.length} candidates`);
+        candidates.forEach(c => console.log(` - ID: ${c.id}, Name: ${c.name}, Stage: ${c.stage}, Source: ${c.source}`));
 
         res.status(200).json({
             success: true,

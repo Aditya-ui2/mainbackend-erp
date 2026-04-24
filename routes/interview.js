@@ -341,6 +341,7 @@ router.post('/:id/remind', verifyAuthToken, sendInterviewReminder);
  */
 router.delete('/:id/hard', verifyAuthToken, deleteInterview);
 
+router.put('/cancel/:id', verifyAuthToken, cancelInterview);
 router.delete('/:id', verifyAuthToken, cancelInterview);
 
 module.exports = router;

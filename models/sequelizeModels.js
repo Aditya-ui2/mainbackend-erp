@@ -642,7 +642,7 @@ const RecruitmentPosition = sequelize.define('RecruitmentPosition', {
     },
     clientId: {
         type: DataTypes.UUID,
-        allowNull: false,
+        allowNull: true,
         references: {
             model: 'clients',
             key: 'id'
