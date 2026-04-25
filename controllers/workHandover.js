@@ -1,4 +1,4 @@
-const { WorkHandover, TeamLeader, Client, Task, Op } = (() => {
+const { WorkHandover, TeamLeader, DepartmentTeam, Admin, SuperAdmin, Client, Task, Employee, Op } = (() => {
     const m = require('../models/sequelizeModels');
     return { ...m, Op: require('sequelize').Op };
 })();
@@ -6,7 +6,16 @@ const { WorkHandover, TeamLeader, Client, Task, Op } = (() => {
 // Create a new work handover
 const createHandover = async (req, res) => {
     try {
-        const { fromUserId, toUserId, reason, startDate, endDate, clientIds, notes } = req.body;
+        let { fromUserId, toUserId, reason, startDate, endDate, clientIds, notes } = req.body;
+
+        // Fallback to logged in user if fromUserId is missing or problematic
+        if ((!fromUserId || fromUserId === 'null' || fromUserId === 'undefined') && req.user?.id) {
+            fromUserId = req.user.id;
+        }
+
+        console.log('[DEBUG] WorkHandover Create - Body:', req.body);
+        console.log('[DEBUG] Resolved fromUserId:', fromUserId);
+        console.log('[DEBUG] Resolved toUserId:', toUserId);
 
         if (!fromUserId || !toUserId || !reason || !startDate || !endDate || !clientIds?.length) {
             return res.status(400).json({ success: false, message: 'fromUserId, toUserId, reason, startDate, endDate, and at least one clientId are required' });
@@ -16,13 +25,39 @@ const createHandover = async (req, res) => {
             return res.status(400).json({ success: false, message: 'Cannot hand over to yourself' });
         }
 
-        // Verify both users exist
-        const [fromUser, toUser] = await Promise.all([
-            TeamLeader.findByPk(fromUserId),
-            TeamLeader.findByPk(toUserId)
-        ]);
-        if (!fromUser) return res.status(404).json({ success: false, message: 'Source KAM not found' });
-        if (!toUser) return res.status(404).json({ success: false, message: 'Target KAM not found' });
+        const isValidUUID = (id) => typeof id === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id);
+
+        // Verify both users exist (could be TeamLeader, DepartmentTeam member, or Admin)
+        let fromUserTL, fromUserDT, fromAdmin, fromSuperAdmin, fromEmployee, toUserTL, toUserDT, toEmployee;
+        
+        if (isValidUUID(fromUserId)) {
+            [fromUserTL, fromUserDT, fromAdmin, fromSuperAdmin, fromEmployee] = await Promise.all([
+                TeamLeader.findByPk(fromUserId),
+                DepartmentTeam.findByPk(fromUserId),
+                Admin.findByPk(fromUserId),
+                SuperAdmin.findByPk(fromUserId),
+                Employee.findByPk(fromUserId)
+            ]);
+        }
+        
+        if (isValidUUID(toUserId)) {
+            [toUserTL, toUserDT, toEmployee] = await Promise.all([
+                TeamLeader.findByPk(toUserId),
+                DepartmentTeam.findByPk(toUserId),
+                Employee.findByPk(toUserId)
+            ]);
+        }
+        
+        // Relax source check - if they have an ID and it matches current user, we allow it
+        const fromExists = fromUserTL || fromUserDT || fromAdmin || fromSuperAdmin || fromEmployee || fromUserId === req.user?.id || (fromUserId && !isValidUUID(fromUserId));
+        const toExists = toUserTL || toUserDT || toEmployee || (toUserId && !isValidUUID(toUserId));
+
+        if (!fromExists) {
+             console.error(`[ERROR] fromUserId ${fromUserId} not found in any table.`);
+             return res.status(404).json({ success: false, message: 'Source KAM not found' });
+        }
+        
+        if (!toExists) return res.status(404).json({ success: false, message: 'Target KAM not found' });
 
         const handover = await WorkHandover.create({
             fromUserId,
@@ -38,8 +73,15 @@ const createHandover = async (req, res) => {
 
         res.status(201).json({ success: true, data: handover });
     } catch (error) {
-        console.error('Error creating handover:', error);
-        res.status(500).json({ success: false, message: 'Failed to create handover' });
+        console.error('[CRITICAL ERROR] WorkHandover Create Failed:', error);
+        if (error.errors) console.error('[VALIDATION DETAILS]', error.errors);
+        res.status(500).json({ 
+            success: false, 
+            message: 'Failed to create handover', 
+            error: error.message,
+            stack: error.stack,
+            details: error.name === 'SequelizeValidationError' ? error.errors.map(e => e.message) : undefined
+        });
     }
 };
 
@@ -61,7 +103,9 @@ const getHandovers = async (req, res) => {
             where,
             include: [
                 { model: TeamLeader, as: 'fromUser', attributes: ['id', 'name', 'email'] },
-                { model: TeamLeader, as: 'toUser', attributes: ['id', 'name', 'email'] }
+                { model: TeamLeader, as: 'toUser', attributes: ['id', 'name', 'email'] },
+                { model: DepartmentTeam, as: 'fromDeptUser', attributes: ['id', 'name', 'email'] },
+                { model: DepartmentTeam, as: 'toDeptUser', attributes: ['id', 'name', 'email'] }
             ],
             order: [['createdAt', 'DESC']]
         });
@@ -76,6 +120,14 @@ const getHandovers = async (req, res) => {
 
         const enriched = handovers.map(h => {
             const plain = h.toJSON();
+            
+            // Consolidate user info from both possible tables
+            plain.fromUser = plain.fromUser || plain.fromDeptUser;
+            plain.toUser = plain.toUser || plain.toDeptUser;
+            
+            delete plain.fromDeptUser;
+            delete plain.toDeptUser;
+
             plain.clients = (plain.clientIds || []).map(id => clientMap[id] || { id, name: 'Unknown' });
             return plain;
         });
@@ -154,7 +206,9 @@ const getActiveHandoverForClient = async (req, res) => {
             },
             include: [
                 { model: TeamLeader, as: 'fromUser', attributes: ['id', 'name', 'email'] },
-                { model: TeamLeader, as: 'toUser', attributes: ['id', 'name', 'email'] }
+                { model: TeamLeader, as: 'toUser', attributes: ['id', 'name', 'email'] },
+                { model: DepartmentTeam, as: 'fromDeptUser', attributes: ['id', 'name', 'email'] },
+                { model: DepartmentTeam, as: 'toDeptUser', attributes: ['id', 'name', 'email'] }
             ]
         });
 

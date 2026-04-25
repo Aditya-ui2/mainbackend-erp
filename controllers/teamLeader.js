@@ -511,6 +511,22 @@ const getTeamLeaderDetails = async (req, res) => {
     }
 };
 
+const getAllTeamLeaders = async (req, res) => {
+    try {
+        const teamLeaders = await TeamLeader.findAll({
+            attributes: ['id', 'name', 'email', 'phone', 'department'],
+            order: [['name', 'ASC']]
+        });
+        res.status(200).json({
+            success: true,
+            teamLeaders
+        });
+    } catch (error) {
+        console.error('Error fetching all team leaders:', error);
+        res.status(500).json({ success: false, message: 'Server error' });
+    }
+};
+
 module.exports = {
     createTeamLeader,
     loginTeamLeader,
@@ -519,5 +535,6 @@ module.exports = {
     deleteTeamLeaderAndPromoteEmployee,
     getTeamLeaderHierarchy,
     getTeamLeaderTasks,
-    getTeamLeaderDetails
+    getTeamLeaderDetails,
+    getAllTeamLeaders
 };

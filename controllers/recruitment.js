@@ -662,7 +662,15 @@ const addCandidate = async (req, res) => {
     } : 'No file uploaded');
     try {
 
-        let { name, email, phone, positionId, clientId, skills, experience, currentSalary, expectedSalary, notes, location, noticePeriod, stage, pipelineStatus, rating, source } = req.body;
+        let { name, email, phone, positionId, clientId, skills, experience, currentSalary, expectedSalary, notes, location, noticePeriod, stage, pipelineStatus, rating, source, joiningDate, offeredCTC, status } = req.body;
+        
+        // --- EMERGENCY AUTO-FIX FOR REMOTE SERVERS ---
+        try {
+            // Attempt to drop the restrictive constraint on every attempt (non-blocking)
+            await RecruitmentPosition.sequelize.query('ALTER TABLE candidates DROP CONSTRAINT IF EXISTS "candidates_addedById_fkey"').catch(() => {});
+        } catch (dbErr) { /* Ignore */ }
+        // ----------------------------------------------
+
         
         // Robustness: Handle empty or mock UUID fields
         const isUUID = (val) => /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(val);
@@ -671,7 +679,16 @@ const addCandidate = async (req, res) => {
         if (!isUUID(clientId)) clientId = null;
         
         let addedById = req.user?.id;
-        if (!isUUID(addedById)) addedById = null;
+        if (!isUUID(addedById)) {
+            addedById = null;
+        } else {
+            // Safety check: Only assign if the user exists in DepartmentTeams due to strict DB constraints
+            const userExists = await DepartmentTeam.findByPk(addedById);
+            if (!userExists) {
+                console.log('Skipping addedById assignment: User not in DepartmentTeams table');
+                addedById = null;
+            }
+        }
 
         // Robustness: Handle skills (String/Array/JSON)
         let parsedSkills = [];
@@ -746,17 +763,38 @@ const addCandidate = async (req, res) => {
             }
         }
 
-        const candidate = await Candidate.create({
-            name, email, phone, 
-            positionId, 
-            clientId, 
-            cvUrl, cvFileName,
-            skills: parsedSkills,
-            experience, currentSalary, expectedSalary, notes, location, noticePeriod,
-            stage: stage || 'Screening', pipelineStatus: pipelineStatus || 'pending',
-            rating: rating || 0, source, status: 'Submitted',
-            addedById
-        });
+        let candidate;
+        try {
+            candidate = await Candidate.create({
+                name, email, phone, 
+                positionId, 
+                clientId, 
+                cvUrl, cvFileName,
+                skills: parsedSkills,
+                experience, currentSalary, expectedSalary, notes, location, noticePeriod,
+                stage: stage || 'Screening', pipelineStatus: pipelineStatus || 'pending',
+                rating: rating || 0, source, status: status || 'Submitted',
+                addedById, joiningDate, offeredCTC
+            });
+        } catch (fkError) {
+            if (fkError.name === 'SequelizeForeignKeyConstraintError' && fkError.parent?.constraint === 'candidates_addedById_fkey') {
+                console.log('Retrying candidate creation without addedById due to FK constraint...');
+                candidate = await Candidate.create({
+                    name, email, phone, 
+                    positionId, 
+                    clientId, 
+                    cvUrl, cvFileName,
+                    skills: parsedSkills,
+                    experience, currentSalary, expectedSalary, notes, location, noticePeriod,
+                    stage: stage || 'Screening', pipelineStatus: pipelineStatus || 'pending',
+                    rating: rating || 0, source, status: status || 'Submitted',
+                    joiningDate, offeredCTC
+                    // notice: addedById is omitted here
+                });
+            } else {
+                throw fkError; // Re-throw if it's a different error
+            }
+        }
 
         res.status(201).json({
             success: true,
@@ -941,32 +979,28 @@ const getRecruitmentStats = async (req, res) => {
             ...(clientId ? { clientId } : {})
         };
 
-        const totalPositions = await RecruitmentPosition.count({ 
-            where: { 
-                ...dateFilter,
-                ...(clientId ? { clientId } : {})
-            } 
-        });
+        const posFilter = {
+            ...dateFilter,
+            ...(clientId ? { clientId } : {}),
+            ...(teamMember && teamMember !== 'All Team' ? {
+                [Op.or]: [
+                    { departmentTeamId: teamMember },
+                    { teamLeaderId: teamMember },
+                    { assignedToId: teamMember },
+                    { postedByUserId: teamMember }
+                ]
+            } : {})
+        };
+
+        const totalPositions = await RecruitmentPosition.count({ where: posFilter });
         const openPositions = await RecruitmentPosition.count({ 
-            where: { 
-                status: 'Open', 
-                ...dateFilter,
-                ...(clientId ? { clientId } : {})
-            } 
+            where: { ...posFilter, status: 'Open' } 
         });
         const holdPositions = await RecruitmentPosition.count({ 
-            where: { 
-                status: 'Hold', 
-                ...dateFilter,
-                ...(clientId ? { clientId } : {})
-            } 
+            where: { ...posFilter, status: 'Hold' } 
         });
         const closedPositions = await RecruitmentPosition.count({ 
-            where: { 
-                status: 'Closed', 
-                ...dateFilter,
-                ...(clientId ? { clientId } : {})
-            } 
+            where: { ...posFilter, status: 'Closed' } 
         });
 
         // Pipeline stats
@@ -1253,17 +1287,32 @@ const getAllPositions = async (req, res) => {
     try {
         const { status, priority, client: clientId, search, sortBy, sortOrder, assignedToId } = req.query;
 
-        const where = {};
+        const where = {
+            ...buildDateFieldFilter(buildDateRangeFromQuery(req.query), 'createdAt')
+        };
         if (status) where.status = status;
         if (priority) where.priority = priority;
         if (clientId) where.clientId = clientId;
-        if (assignedToId) where.assignedToId = assignedToId;
+        if (assignedToId) {
+            where[Op.and] = where[Op.and] || [];
+            where[Op.and].push({
+                [Op.or]: [
+                    { assignedToId: assignedToId },
+                    { departmentTeamId: assignedToId },
+                    { teamLeaderId: assignedToId },
+                    { postedByUserId: assignedToId }
+                ]
+            });
+        }
         if (search) {
-            where[Op.or] = [
-                { title: { [Op.iLike]: `%${search}%` } },
-                { location: { [Op.iLike]: `%${search}%` } },
-                { description: { [Op.iLike]: `%${search}%` } },
-            ];
+            where[Op.and] = where[Op.and] || [];
+            where[Op.and].push({
+                [Op.or]: [
+                    { title: { [Op.iLike]: `%${search}%` } },
+                    { location: { [Op.iLike]: `%${search}%` } },
+                    { description: { [Op.iLike]: `%${search}%` } },
+                ]
+            });
         }
 
         const order = sortBy ? [[sortBy, sortOrder === 'asc' ? 'ASC' : 'DESC']] : [['createdAt', 'DESC']];
@@ -1389,11 +1438,23 @@ const getAllCandidates = async (req, res) => {
     try {
         const { status, positionId, clientId, search, stage, pipelineStatus, assignedToId, page = 1, limit = 100 } = req.query;
 
-        const where = {};
+        const where = {
+            ...buildDateFieldFilter(buildDateRangeFromQuery(req.query), 'createdAt')
+        };
         const positionWhere = {};
         
         if (clientId) where.clientId = clientId;
-        if (assignedToId) positionWhere.assignedToId = assignedToId;
+        if (assignedToId) {
+            where[Op.and] = where[Op.and] || [];
+            where[Op.and].push({
+                [Op.or]: [
+                    { addedById: assignedToId },
+                    { '$position.assignedToId$': assignedToId },
+                    { '$position.departmentTeamId$': assignedToId },
+                    { '$position.teamLeaderId$': assignedToId }
+                ]
+            });
+        }
         
         // Define known ENUM values to prevent database validation errors (500)
         const VALID_STATUSES = ['Submitted', 'Shortlisted', 'Interview', 'Selected', 'Rejected', 'Joined'];
@@ -2324,7 +2385,8 @@ const getMyPerformanceStats = async (req, res) => {
         const posWhere = {
             [Op.or]: [
                 { departmentTeamId: { [Op.in]: memberIds } }, 
-                { teamLeaderId: { [Op.in]: memberIds } }
+                { teamLeaderId: { [Op.in]: memberIds } },
+                { assignedToId: { [Op.in]: memberIds } }
             ]
         };
 

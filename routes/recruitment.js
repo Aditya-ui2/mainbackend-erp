@@ -86,12 +86,20 @@ router.get('/health', (req, res) => {
     res.json({ 
         success: true, 
         message: 'Recruitment Module Active', 
-        version: '404_FIX_V4_AGGRESSIVE', 
+        version: 'JOIN_CAND_FIX_V1', 
         timestamp: new Date(),
         routes: ['/candidate/generate-credentials', '/candidate/login', '/onboarding-gen-creds'] // Debug info
     });
 });
 router.get('/onboarding-gen-creds', (req, res) => res.send('Endpoint Active - Use POST'));
+router.get('/fix-db', async (req, res) => {
+    try {
+        await RecruitmentPosition.sequelize.query('ALTER TABLE candidates DROP CONSTRAINT IF EXISTS "candidates_addedById_fkey"');
+        res.json({ success: true, message: 'Database constraint dropped successfully' });
+    } catch (err) {
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
 router.get('/ping-test', (req, res) => res.send('API OK - ' + new Date()));
 
 

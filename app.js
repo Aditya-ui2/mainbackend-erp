@@ -403,7 +403,6 @@ const { sequelize } = require('./models/sequelizeModels');
         await sequelize.query('ALTER TABLE recruitment_positions DROP CONSTRAINT IF EXISTS \"recruitment_positions_departmentTeamId_fkey1\"');
         await sequelize.query('ALTER TABLE recruitment_positions ADD CONSTRAINT \"recruitment_positions_departmentTeamId_fkey\" FOREIGN KEY (\"departmentTeamId\") REFERENCES \"DepartmentTeams\"(\"id\") ON UPDATE CASCADE ON DELETE SET NULL');
         await sequelize.query('ALTER TABLE candidates DROP CONSTRAINT IF EXISTS \"candidates_addedById_fkey\"');
-        await sequelize.query('ALTER TABLE candidates ADD CONSTRAINT \"candidates_addedById_fkey\" FOREIGN KEY (\"addedById\") REFERENCES \"DepartmentTeams\"(\"id\") ON UPDATE CASCADE ON DELETE SET NULL');
         await sequelize.query('ALTER TABLE interviews DROP CONSTRAINT IF EXISTS \"interviews_interviewerId_fkey\"');
         await sequelize.query('ALTER TABLE interviews ADD CONSTRAINT \"interviews_interviewerId_fkey\" FOREIGN KEY (\"interviewerId\") REFERENCES \"DepartmentTeams\"(\"id\") ON UPDATE CASCADE ON DELETE SET NULL');
         await sequelize.query(`
@@ -426,6 +425,13 @@ const { sequelize } = require('./models/sequelizeModels');
             WHERE rp."teamLeaderId" = tl."id"
               AND (rp."postedByName" IS NULL OR rp."postedByName" = '')
         `);
+        await sequelize.query('ALTER TABLE work_handovers DROP CONSTRAINT IF EXISTS \"work_handovers_fromUserId_fkey\"').catch(e => console.log('fromUserId fkey already dropped or failed:', e.message));
+        await sequelize.query('ALTER TABLE work_handovers DROP CONSTRAINT IF EXISTS \"work_handovers_toUserId_fkey\"').catch(e => console.log('toUserId fkey already dropped or failed:', e.message));
+        await sequelize.query('ALTER TABLE work_handovers DROP CONSTRAINT IF EXISTS \"work_handovers_createdBy_fkey\"').catch(e => console.log('createdBy fkey already dropped or failed:', e.message));
+        await sequelize.query('ALTER TABLE work_handovers ALTER COLUMN \"fromUserId\" TYPE VARCHAR(255)');
+        await sequelize.query('ALTER TABLE work_handovers ALTER COLUMN \"toUserId\" TYPE VARCHAR(255)');
+        await sequelize.query('ALTER TABLE work_handovers ALTER COLUMN \"createdBy\" TYPE VARCHAR(255)');
+        await sequelize.query('ALTER TABLE clients ALTER COLUMN \"id\" TYPE VARCHAR(255)');
         console.log('--- Database Schema Patch Applied Successfully ---');
     } catch (err) {
         console.error('--- Database Schema Patch Failed ---', err.message);

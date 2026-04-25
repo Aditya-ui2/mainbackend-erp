@@ -17,7 +17,7 @@ const roleMapping = {
         'hr head',
         'hrhead'
     ],
-    kam: ['kam', 'key_account_manager', 'keyaccountmanager'],
+    kam: ['kam', 'key_account_manager', 'keyaccountmanager', 'kamrecruitment', 'kam_recruitment', 'kam recruitment'],
     teamleader: ['teamleader', 'team_leader', 'tl', 'recruitmenthead', 'recruitment head', 'recruitment_head'],
     employee: [
         'employee',

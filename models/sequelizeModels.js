@@ -236,7 +236,7 @@ class Client extends Model {
 
 Client.init({
     id: {
-        type: DataTypes.UUID,
+        type: DataTypes.STRING,
         defaultValue: DataTypes.UUIDV4,
         primaryKey: true
     },
@@ -1157,12 +1157,12 @@ const WorkHandover = sequelize.define('WorkHandover', {
         primaryKey: true
     },
     fromUserId: {
-        type: DataTypes.UUID,
+        type: DataTypes.STRING,
         allowNull: false,
         comment: 'The KAM/TeamLeader who is absent'
     },
     toUserId: {
-        type: DataTypes.UUID,
+        type: DataTypes.STRING,
         allowNull: false,
         comment: 'The KAM/TeamLeader taking over'
     },
@@ -1194,7 +1194,7 @@ const WorkHandover = sequelize.define('WorkHandover', {
         defaultValue: 'Active'
     },
     createdBy: {
-        type: DataTypes.UUID,
+        type: DataTypes.STRING,
         allowNull: false,
         comment: 'Who created the handover (could be the absent KAM or an admin)'
     }
@@ -1372,6 +1372,14 @@ DepartmentTeam.belongsTo(DepartmentTeam, { foreignKey: 'managerId', as: 'manager
 DepartmentTeam.hasMany(RecruitmentPosition, { foreignKey: 'departmentTeamId', as: 'postedPositions' });
 RecruitmentPosition.belongsTo(DepartmentTeam, { foreignKey: 'departmentTeamId', as: 'postedBy' });
 Candidate.belongsTo(DepartmentTeam, { foreignKey: 'addedById', as: 'addedBy' });
+
+// DepartmentTeam <-> WorkHandover (One to Many, from)
+DepartmentTeam.hasMany(WorkHandover, { foreignKey: 'fromUserId', as: 'handoversOut' });
+WorkHandover.belongsTo(DepartmentTeam, { foreignKey: 'fromUserId', as: 'fromDeptUser' });
+
+// DepartmentTeam <-> WorkHandover (One to Many, to)
+DepartmentTeam.hasMany(WorkHandover, { foreignKey: 'toUserId', as: 'handoversIn' });
+WorkHandover.belongsTo(DepartmentTeam, { foreignKey: 'toUserId', as: 'toDeptUser' });
 
 // ============== RESUME BANK MODEL ==============
 class ResumeBank extends Model {}

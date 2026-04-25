@@ -402,7 +402,7 @@ const getAllClients = async (req, res) => {
                 as: 'teamLeader',
                 attributes: ['id', 'name', 'email', 'phone']
             }],
-            attributes: ['id', 'name', 'email', 'companyName', 'corporateAddress', 'contactNumber', 'gstNumber', 'panNumber', 'cinNumber', 'spocName', 'spocContact', 'status', 'createdAt', 'logoUrl', 'category'],
+            attributes: ['id', 'name', 'email', 'companyName', 'corporateAddress', 'contactNumber', 'gstNumber', 'panNumber', 'cinNumber', 'spocName', 'spocContact', 'status', 'createdAt'],
             order: [['createdAt', 'DESC']]
         });
 
@@ -441,7 +441,8 @@ const editClient = async (req, res) => {
             spocContact,
             website,
             authorizedSignatory,
-            ownerDirectorDetails
+            ownerDirectorDetails,
+            teamLeaderId
         } = req.body;
 
         if (!clientId) {
@@ -467,6 +468,7 @@ const editClient = async (req, res) => {
         if (spocName) updateData.spocName = spocName;
         if (spocContact) updateData.spocContact = spocContact;
         if (website) updateData.website = website;
+        if (teamLeaderId) updateData.teamLeaderId = teamLeaderId;
 
         if (authorizedSignatory) {
             const currentSignatory = client.authorizedSignatory || {};
@@ -545,20 +547,43 @@ const getClientsForTeamLeader = async (req, res) => {
             return res.status(400).json({ message: 'Team Leader ID is required.' });
         }
 
-        const clients = await Client.findAll({
+        console.log(`[DEBUG] Fetching clients for teamLeaderId: ${teamLeaderId}`);
+        
+        // 1. Get clients directly assigned to this TL
+        const assignedClients = await Client.findAll({
             where: {
                 teamLeaderId: teamLeaderId,
                 status: 'Accepted'
             }
         });
 
-        if (!clients || clients.length === 0) {
-            return res.status(404).json({ message: 'No clients found for this team leader.' });
-        }
+        // 2. Get clients where this TL has assigned Recruitment Positions
+        const positions = await RecruitmentPosition.findAll({
+            where: { assignedToId: teamLeaderId },
+            attributes: ['clientId'],
+            raw: true
+        });
+        const positionClientIds = [...new Set(positions.map(p => p.clientId).filter(id => !!id))];
+
+        const additionalClients = await Client.findAll({
+            where: {
+                id: positionClientIds,
+                status: 'Accepted'
+            }
+        });
+
+        // Merge and deduplicate
+        const allClientsMap = new Map();
+        assignedClients.forEach(c => allClientsMap.set(c.id, c));
+        additionalClients.forEach(c => allClientsMap.set(c.id, c));
+        
+        const clients = Array.from(allClientsMap.values());
+
+        console.log(`[DEBUG] Found ${clients.length} handover-eligible clients (Direct: ${assignedClients.length}, via Positions: ${additionalClients.length})`);
 
         res.status(200).json({
-            message: 'Clients fetched successfully',
-            clients
+            success: true,
+            data: clients
         });
     } catch (error) {
         console.error('Error fetching clients:', error);
