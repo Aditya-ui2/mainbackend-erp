@@ -294,6 +294,26 @@ Client.init({
         type: DataTypes.STRING,
         allowNull: true
     },
+    // New Onboarding Fields
+    city: { type: DataTypes.STRING },
+    pinCode: { type: DataTypes.STRING },
+    ownerName: { type: DataTypes.STRING },
+    ownerEmail: { type: DataTypes.STRING },
+    agreementType: { type: DataTypes.STRING },
+    agreementEffectiveDate: { type: DataTypes.DATEONLY },
+    feeAmount: { type: DataTypes.STRING },
+    paymentTerms: { type: DataTypes.STRING },
+    shopsLicense: { type: DataTypes.STRING },
+    factoryLicense: { type: DataTypes.STRING },
+    msmeRegistered: { type: DataTypes.STRING },
+    totalEmployees: { type: DataTypes.STRING },
+    payrollCycle: { type: DataTypes.STRING },
+    pfApplicable: { type: DataTypes.STRING },
+    esicApplicable: { type: DataTypes.STRING },
+    leadSource: { type: DataTypes.STRING },
+    onboardingNotes: { type: DataTypes.TEXT },
+    assignKAM: { type: DataTypes.STRING },
+    
     // Store complex objects as JSONB
     ownerDirectorDetails: {
         type: DataTypes.JSONB,
@@ -1891,6 +1911,43 @@ const SharePointClient = sequelize.define('SharePointClient', {
     ]
 });
 
+// ============== CLIENT ACCOUNT MODEL ==============
+const ClientAccount = sequelize.define('ClientAccount', {
+    id: { type: DataTypes.UUID, defaultValue: DataTypes.UUIDV4, primaryKey: true },
+    clientId: { 
+        type: DataTypes.STRING, 
+        allowNull: false,
+        references: { model: 'clients', key: 'id' }
+    },
+    companyName: { type: DataTypes.STRING, allowNull: false },
+    totalOutstanding: { type: DataTypes.DECIMAL(15, 2), defaultValue: 0 },
+    clearedAmount: { type: DataTypes.DECIMAL(15, 2), defaultValue: 0 },
+    overdueAmount: { type: DataTypes.DECIMAL(15, 2), defaultValue: 0 },
+    pendingInvoicesCount: { type: DataTypes.INTEGER, defaultValue: 0 },
+    status: { type: DataTypes.ENUM('Cleared', 'Pending', 'Overdue'), defaultValue: 'Cleared' },
+    accountType: { type: DataTypes.ENUM('Standard', 'Premium'), defaultValue: 'Standard' },
+    lastInvoiceNumber: { type: DataTypes.STRING },
+}, { tableName: 'client_accounts', timestamps: true });
+
+// ============== INVOICE MODEL ==============
+const Invoice = sequelize.define('Invoice', {
+    id: { type: DataTypes.UUID, defaultValue: DataTypes.UUIDV4, primaryKey: true },
+    invoiceNumber: { type: DataTypes.STRING, allowNull: false, unique: true },
+    clientId: { 
+        type: DataTypes.STRING, 
+        allowNull: false,
+        references: { model: 'clients', key: 'id' }
+    },
+    companyName: { type: DataTypes.STRING, allowNull: false },
+    amount: { type: DataTypes.DECIMAL(15, 2), allowNull: false },
+    taxAmount: { type: DataTypes.DECIMAL(15, 2), defaultValue: 0 },
+    totalAmount: { type: DataTypes.DECIMAL(15, 2), allowNull: false },
+    dueDate: { type: DataTypes.DATEONLY, allowNull: false },
+    status: { type: DataTypes.ENUM('Draft', 'Sent', 'Paid', 'Overdue', 'Cancelled'), defaultValue: 'Draft' },
+    items: { type: DataTypes.JSONB, defaultValue: [] },
+    notes: { type: DataTypes.TEXT },
+}, { tableName: 'invoices', timestamps: true });
+
 // ============== SHAREPOINT SYNC LOG ==============
 const SharePointSyncLog = sequelize.define('SharePointSyncLog', {
     id: { type: DataTypes.UUID, defaultValue: DataTypes.UUIDV4, primaryKey: true },
@@ -1927,6 +1984,161 @@ const RegularizationRequest = sequelize.define('RegularizationRequest', {
     approverName: { type: DataTypes.STRING },
     approverComment: { type: DataTypes.TEXT },
 }, { tableName: 'RegularizationRequests', timestamps: true });
+
+// ============ CLIENT REPORT MODEL ============
+const ClientReport = sequelize.define('ClientReport', {
+    id: {
+        type: DataTypes.UUID,
+        defaultValue: DataTypes.UUIDV4,
+        primaryKey: true
+    },
+    reportName: {
+        type: DataTypes.STRING,
+        allowNull: false
+    },
+    reportNumber: {
+        type: DataTypes.STRING,
+        allowNull: false,
+        unique: true
+    },
+    clientId: {
+        type: DataTypes.STRING,
+        allowNull: false,
+        references: {
+            model: 'clients',
+            key: 'id'
+        }
+    },
+    companyName: {
+        type: DataTypes.STRING,
+        allowNull: true
+    },
+    size: {
+        type: DataTypes.STRING,
+        defaultValue: "0.0 MB"
+    },
+    status: {
+        type: DataTypes.ENUM('VERIFIED', 'PENDING', 'DRAFT'),
+        defaultValue: 'PENDING'
+    },
+    fileUrl: {
+        type: DataTypes.STRING,
+        allowNull: true
+    }
+}, {
+    tableName: 'client_reports',
+    timestamps: true
+});
+
+// ============ CLIENT MEETING MODEL ============
+const ClientMeeting = sequelize.define('ClientMeeting', {
+    id: {
+        type: DataTypes.UUID,
+        defaultValue: DataTypes.UUIDV4,
+        primaryKey: true
+    },
+    title: {
+        type: DataTypes.STRING,
+        allowNull: false
+    },
+    clientId: {
+        type: DataTypes.STRING,
+        allowNull: false,
+        references: {
+            model: 'clients',
+            key: 'id'
+        }
+    },
+    companyName: {
+        type: DataTypes.STRING,
+        allowNull: true
+    },
+    meetingDate: {
+        type: DataTypes.DATEONLY,
+        allowNull: false
+    },
+    meetingTime: {
+        type: DataTypes.STRING,
+        allowNull: false
+    },
+    meetingType: {
+        type: DataTypes.ENUM('Virtual', 'In-Person'),
+        defaultValue: 'Virtual'
+    },
+    platform: {
+        type: DataTypes.STRING,
+        allowNull: true
+    },
+    attendees: {
+        type: DataTypes.INTEGER,
+        defaultValue: 1
+    },
+    status: {
+        type: DataTypes.ENUM('Scheduled', 'Completed', 'Cancelled'),
+        defaultValue: 'Scheduled'
+    }
+}, {
+    tableName: 'client_meetings',
+    timestamps: true
+});
+
+// ============ LEAD MODEL ============
+class Lead extends Model {}
+Lead.init({
+    id: {
+        type: DataTypes.UUID,
+        defaultValue: DataTypes.UUIDV4,
+        primaryKey: true
+    },
+    companyName: {
+        type: DataTypes.STRING,
+        allowNull: false
+    },
+    contactPerson: {
+        type: DataTypes.STRING
+    },
+    email: {
+        type: DataTypes.STRING,
+        validate: { isEmail: true }
+    },
+    phone: {
+        type: DataTypes.STRING
+    },
+    value: {
+        type: DataTypes.FLOAT,
+        defaultValue: 0
+    },
+    status: {
+        type: DataTypes.ENUM('Open', 'New', 'Qualified', 'In Progress', 'Follow Up', 'Proposal', 'Negotiation', 'Converted', 'Lost'),
+        defaultValue: 'Open'
+    },
+    segment: {
+        type: DataTypes.STRING,
+        defaultValue: 'General'
+    },
+    owner: {
+        type: DataTypes.STRING
+    },
+    notes: {
+        type: DataTypes.TEXT
+    },
+    lastContactDate: {
+        type: DataTypes.DATE
+    }
+}, {
+    sequelize,
+    modelName: 'Lead',
+    tableName: 'leads',
+    timestamps: true
+});
+
+// ClientAccount <-> Client (One to One)
+ClientAccount.belongsTo(Client, { foreignKey: 'clientId', as: 'client' });
+Client.hasOne(ClientAccount, { foreignKey: 'clientId', as: 'account' });
+
+// Invoice <-> Client (Many to One)
+Invoice.belongsTo(Client, { foreignKey: 'clientId' });
+Client.hasMany(Invoice, { foreignKey: 'clientId' });
 
 module.exports = {
     sequelize,
@@ -1965,4 +2177,9 @@ module.exports = {
     SharePointClient,
     SharePointSyncLog,
     RegularizationRequest,
+    ClientAccount,
+    Invoice,
+    ClientReport,
+    ClientMeeting,
+    Lead,
 };

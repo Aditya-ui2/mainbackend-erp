@@ -174,6 +174,7 @@ const departmentTeamRoutes = require('./routes/departmentTeam');
 const sharePointRoutes = require('./routes/sharepoint');
 const interviewRoutes = require('./routes/interview');
 const resumeBankRoutes = require('./routes/resumeBank');
+const financeRoutes = require('./routes/finance');
 const { uploadFile } = require('./utils/googleDriveServices');
 const { restartCronJobs } = require('./controllers/task_cron');
 
@@ -325,6 +326,11 @@ app.use('/department', departmentTeamRoutes);
 app.use('/sharepoint', sharePointRoutes);
 app.use('/interview', interviewRoutes);
 app.use('/api/resumebank', resumeBankRoutes);
+app.use('/finance', financeRoutes);
+app.use('/reports', require('./routes/clientReport'));
+app.use('/meetings', require('./routes/clientMeeting'));
+app.use('/leads', require('./routes/lead'));
+app.use('/bd', require('./routes/lead'));
 
 // Public job feed routes (no auth - for Google Jobs, Indeed, Jooble, Adzuna crawlers)
 const { getPublicJobsFeedXml, getPublicJobPage, getPublicJobsList } = require('./controllers/jobDistribution');
@@ -431,7 +437,113 @@ const { sequelize } = require('./models/sequelizeModels');
         await sequelize.query('ALTER TABLE work_handovers ALTER COLUMN \"fromUserId\" TYPE VARCHAR(255)');
         await sequelize.query('ALTER TABLE work_handovers ALTER COLUMN \"toUserId\" TYPE VARCHAR(255)');
         await sequelize.query('ALTER TABLE work_handovers ALTER COLUMN \"createdBy\" TYPE VARCHAR(255)');
-        await sequelize.query('ALTER TABLE clients ALTER COLUMN \"id\" TYPE VARCHAR(255)');
+        await sequelize.query('ALTER TABLE clients ALTER COLUMN \"id\" TYPE VARCHAR(255)').catch(e => console.log('clients id type change failed (expected if FKs exist):', e.message));
+        
+        // Add Onboarding Columns to Clients table
+        await sequelize.query('ALTER TABLE clients ADD COLUMN IF NOT EXISTS \"city\" VARCHAR(255)');
+        await sequelize.query('ALTER TABLE clients ADD COLUMN IF NOT EXISTS \"pinCode\" VARCHAR(255)');
+        await sequelize.query('ALTER TABLE clients ADD COLUMN IF NOT EXISTS \"ownerName\" VARCHAR(255)');
+        await sequelize.query('ALTER TABLE clients ADD COLUMN IF NOT EXISTS \"ownerEmail\" VARCHAR(255)');
+        await sequelize.query('ALTER TABLE clients ADD COLUMN IF NOT EXISTS \"agreementType\" VARCHAR(255)');
+        await sequelize.query('ALTER TABLE clients ADD COLUMN IF NOT EXISTS \"agreementEffectiveDate\" DATE');
+        await sequelize.query('ALTER TABLE clients ADD COLUMN IF NOT EXISTS \"feeAmount\" VARCHAR(255)');
+        await sequelize.query('ALTER TABLE clients ADD COLUMN IF NOT EXISTS \"paymentTerms\" VARCHAR(255)');
+        await sequelize.query('ALTER TABLE clients ADD COLUMN IF NOT EXISTS \"shopsLicense\" VARCHAR(255)');
+        await sequelize.query('ALTER TABLE clients ADD COLUMN IF NOT EXISTS \"factoryLicense\" VARCHAR(255)');
+        await sequelize.query('ALTER TABLE clients ADD COLUMN IF NOT EXISTS \"msmeRegistered\" VARCHAR(255)');
+        await sequelize.query('ALTER TABLE clients ADD COLUMN IF NOT EXISTS \"totalEmployees\" VARCHAR(255)');
+        await sequelize.query('ALTER TABLE clients ADD COLUMN IF NOT EXISTS \"payrollCycle\" VARCHAR(255)');
+        await sequelize.query('ALTER TABLE clients ADD COLUMN IF NOT EXISTS \"pfApplicable\" VARCHAR(255)');
+        await sequelize.query('ALTER TABLE clients ADD COLUMN IF NOT EXISTS \"esicApplicable\" VARCHAR(255)');
+        await sequelize.query('ALTER TABLE clients ADD COLUMN IF NOT EXISTS \"leadSource\" VARCHAR(255)');
+        await sequelize.query('ALTER TABLE clients ADD COLUMN IF NOT EXISTS \"onboardingNotes\" TEXT');
+        await sequelize.query('ALTER TABLE clients ADD COLUMN IF NOT EXISTS \"assignKAM\" VARCHAR(255)');
+        
+        // Create Finance Tables
+        await sequelize.query(`
+            CREATE TABLE IF NOT EXISTS "client_accounts" (
+                "id" UUID PRIMARY KEY,
+                "clientId" UUID NOT NULL REFERENCES "clients"("id") ON UPDATE CASCADE ON DELETE CASCADE,
+                "companyName" VARCHAR(255) NOT NULL,
+                "totalOutstanding" DECIMAL(15, 2) DEFAULT 0,
+                "clearedAmount" DECIMAL(15, 2) DEFAULT 0,
+                "overdueAmount" DECIMAL(15, 2) DEFAULT 0,
+                "pendingInvoicesCount" INTEGER DEFAULT 0,
+                "status" VARCHAR(255) DEFAULT 'Cleared',
+                "accountType" VARCHAR(255) DEFAULT 'Standard',
+                "lastInvoiceNumber" VARCHAR(255),
+                "createdAt" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+                "updatedAt" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+            )
+        `);
+        await sequelize.query(`
+            CREATE TABLE IF NOT EXISTS "invoices" (
+                "id" UUID PRIMARY KEY,
+                "invoiceNumber" VARCHAR(255) NOT NULL UNIQUE,
+                "clientId" UUID NOT NULL REFERENCES "clients"("id") ON UPDATE CASCADE ON DELETE CASCADE,
+                "companyName" VARCHAR(255) NOT NULL,
+                "amount" DECIMAL(15, 2) NOT NULL,
+                "taxAmount" DECIMAL(15, 2) DEFAULT 0,
+                "totalAmount" DECIMAL(15, 2) NOT NULL,
+                "dueDate" DATE NOT NULL,
+                "status" VARCHAR(255) DEFAULT 'Draft',
+                "items" JSONB DEFAULT '[]',
+                "notes" TEXT,
+                "createdAt" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+                "updatedAt" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+            )
+        `);
+
+        await sequelize.query(`
+            CREATE TABLE IF NOT EXISTS "client_reports" (
+                "id" UUID PRIMARY KEY,
+                "reportName" VARCHAR(255) NOT NULL,
+                "reportNumber" VARCHAR(255) UNIQUE,
+                "clientId" UUID NOT NULL REFERENCES "clients"("id") ON UPDATE CASCADE ON DELETE CASCADE,
+                "companyName" VARCHAR(255),
+                "size" VARCHAR(255) DEFAULT '0.0 MB',
+                "status" VARCHAR(255) DEFAULT 'PENDING',
+                "fileUrl" TEXT,
+                "createdAt" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+                "updatedAt" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+            )
+        `);
+
+        await sequelize.query(`
+            CREATE TABLE IF NOT EXISTS "client_meetings" (
+                "id" UUID PRIMARY KEY,
+                "title" VARCHAR(255) NOT NULL,
+                "clientId" VARCHAR(255) NOT NULL,
+                "companyName" VARCHAR(255),
+                "meetingDate" DATE NOT NULL,
+                "meetingTime" VARCHAR(255) NOT NULL,
+                "meetingType" VARCHAR(255) DEFAULT 'Virtual',
+                "platform" VARCHAR(255),
+                "attendees" INTEGER DEFAULT 1,
+                "status" VARCHAR(255) DEFAULT 'Scheduled',
+                "createdAt" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+                "updatedAt" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+            )
+        `);
+
+        await sequelize.query(`
+            CREATE TABLE IF NOT EXISTS "leads" (
+                "id" UUID PRIMARY KEY,
+                "companyName" VARCHAR(255) NOT NULL,
+                "contactPerson" VARCHAR(255),
+                "email" VARCHAR(255),
+                "phone" VARCHAR(255),
+                "value" FLOAT DEFAULT 0,
+                "status" VARCHAR(255) DEFAULT 'Open',
+                "segment" VARCHAR(255) DEFAULT 'General',
+                "owner" VARCHAR(255),
+                "notes" TEXT,
+                "lastContactDate" TIMESTAMP WITH TIME ZONE,
+                "createdAt" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+                "updatedAt" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+            )
+        `);
+
         console.log('--- Database Schema Patch Applied Successfully ---');
     } catch (err) {
         console.error('--- Database Schema Patch Failed ---', err.message);

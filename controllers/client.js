@@ -402,7 +402,13 @@ const getAllClients = async (req, res) => {
                 as: 'teamLeader',
                 attributes: ['id', 'name', 'email', 'phone']
             }],
-            attributes: ['id', 'name', 'email', 'companyName', 'corporateAddress', 'contactNumber', 'gstNumber', 'panNumber', 'cinNumber', 'spocName', 'spocContact', 'status', 'createdAt'],
+            attributes: [
+                'id', 'name', 'email', 'companyName', 'corporateAddress', 'contactNumber', 
+                'gstNumber', 'panNumber', 'cinNumber', 'spocName', 'spocContact', 'status', 'createdAt',
+                'city', 'pinCode', 'ownerName', 'ownerEmail', 'agreementType', 'agreementEffectiveDate',
+                'feeAmount', 'paymentTerms', 'shopsLicense', 'factoryLicense', 'msmeRegistered',
+                'totalEmployees', 'payrollCycle', 'pfApplicable', 'esicApplicable', 'leadSource', 'onboardingNotes', 'assignKAM'
+            ],
             order: [['createdAt', 'DESC']]
         });
 
@@ -1195,17 +1201,41 @@ const getClientDashboardOverview = async (req, res) => {
 const createClient = async (req, res) => {
   try {
     const {
-      name,
-      email,
-      contactNumber,
       companyName,
-      corporateAddress
+      gstNumber,
+      cinNumber,
+      registeredAddress,
+      city,
+      pinCode,
+      ownerName,
+      ownerEmail,
+      spocName,
+      spocPhone,
+      agreementType,
+      agreementEffectiveDate,
+      feeAmount,
+      paymentTerms,
+      shopsLicense,
+      factoryLicense,
+      msmeRegistered,
+      totalEmployees,
+      payrollCycle,
+      pfApplicable,
+      esicApplicable,
+      assignKAM,
+      leadSource,
+      onboardingNotes
     } = req.body;
 
-    if (!name || !email || !contactNumber) {
+    // Use owner or spoc details for base client identity
+    const name = ownerName || spocName || companyName;
+    const email = ownerEmail || (spocName ? `${spocName.toLowerCase().replace(/\s+/g, '')}@${companyName.toLowerCase().replace(/\s+/g, '')}.com` : null);
+    const contactNumber = spocPhone || '';
+
+    if (!companyName || !email) {
       return res.status(400).json({
         success: false,
-        message: "name, email, contactNumber required"
+        message: "Company Name and Email are required"
       });
     }
 
@@ -1214,12 +1244,13 @@ const createClient = async (req, res) => {
     if (existing) {
       return res.status(400).json({
         success: false,
-        message: "Client already exists"
+        message: "Client with this email already exists"
       });
     }
 
     // Generate a default password and hash it
-    const defaultPassword = `${companyName.replace(/\s+/g, '')}@123`;
+    const cleanCompanyName = companyName.replace(/[^a-zA-Z0-9]/g, '');
+    const defaultPassword = `${cleanCompanyName}@123`;
     const hashedPassword = await hashPassword(defaultPassword);
 
     const client = await Client.create({
@@ -1228,7 +1259,29 @@ const createClient = async (req, res) => {
       password: hashedPassword,
       contactNumber,
       companyName,
-      corporateAddress,
+      corporateAddress: registeredAddress,
+      city,
+      pinCode,
+      gstNumber,
+      cinNumber,
+      ownerName,
+      ownerEmail,
+      spocName,
+      spocContact: spocPhone,
+      agreementType,
+      agreementEffectiveDate,
+      feeAmount,
+      paymentTerms,
+      shopsLicense,
+      factoryLicense,
+      msmeRegistered,
+      totalEmployees,
+      payrollCycle,
+      pfApplicable,
+      esicApplicable,
+      leadSource,
+      onboardingNotes,
+      assignKAM,
       status: "Accepted"
     });
 
