@@ -1669,7 +1669,8 @@ const getOffers = async (req, res) => {
                 photo: candidate.photo || '',
                 bgvStatus: candidate.bgvStatus || 'Not Started',
                 tempUsername: candidate.username || '',
-                tempPassword: candidate.rawPassword || ''
+                tempPassword: candidate.rawPassword || '',
+                kycDocuments: candidate.kycDocuments || {}
             }));
 
         res.status(200).json({ success: true, data });

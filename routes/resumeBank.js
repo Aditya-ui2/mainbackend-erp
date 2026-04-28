@@ -361,30 +361,4 @@ router.put('/:id', resumeBankController.updateResume);
  */
 router.get('/:id/download', resumeBankController.getDownloadUrl);
 
-/**
- * @swagger
- * /api/resumebank/ai-search:
- *   post:
- *     summary: AI-powered resume search using natural language
- *     tags: [Resume Bank]
- *     security:
- *       - bearerAuth: []
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required:
- *               - query
- *             properties:
- *               query:
- *                 type: string
- *                 description: Natural language search query
- *     responses:
- *       200:
- *         description: Search results retrieved
- */
-router.post('/ai-search', resumeBankController.aiSearchResumes);
-
 module.exports = router;
