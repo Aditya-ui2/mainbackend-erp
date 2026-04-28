@@ -1343,7 +1343,7 @@ DepartmentTeam.init({
         defaultValue: 'Team Member'
     },
     department: {
-        type: DataTypes.ENUM('HR Operations', 'HR Recruitment', 'Operations', 'KAM Operations'),
+        type: DataTypes.ENUM('HR Operations', 'HR Recruitment', 'Operations', 'KAM Operations', 'HR', 'Management', 'CRM'),
         allowNull: false
     },
     managerId: {
@@ -1707,7 +1707,7 @@ const Attendance = sequelize.define('Attendance', {
     memberId: { type: DataTypes.UUID, allowNull: false },
     clientId: { type: DataTypes.UUID, allowNull: true },
     memberName: { type: DataTypes.STRING, allowNull: false },
-    department: { type: DataTypes.ENUM('HR Operations', 'HR Recruitment'), allowNull: false },
+    department: { type: DataTypes.ENUM('HR Operations', 'HR Recruitment', 'HR', 'Management', 'CRM'), allowNull: false },
     date: { type: DataTypes.DATEONLY, allowNull: false },
     checkIn: { type: DataTypes.DATE },
     checkOut: { type: DataTypes.DATE },
@@ -1721,7 +1721,7 @@ const DailyReport = sequelize.define('DailyReport', {
     id: { type: DataTypes.UUID, defaultValue: DataTypes.UUIDV4, primaryKey: true },
     memberId: { type: DataTypes.UUID, allowNull: false },
     memberName: { type: DataTypes.STRING, allowNull: false },
-    department: { type: DataTypes.ENUM('HR Operations', 'HR Recruitment'), allowNull: false },
+    department: { type: DataTypes.ENUM('HR Operations', 'HR Recruitment', 'HR', 'Management', 'CRM'), allowNull: false },
     date: { type: DataTypes.DATEONLY, allowNull: false },
     // Work Timing (MIS)
     checkInTime: { type: DataTypes.STRING, allowNull: true },  // e.g. '09:05'
@@ -1747,7 +1747,7 @@ const DailyReport = sequelize.define('DailyReport', {
 // ============== ANNOUNCEMENT MODEL ==============
 const Announcement = sequelize.define('Announcement', {
     id: { type: DataTypes.UUID, defaultValue: DataTypes.UUIDV4, primaryKey: true },
-    department: { type: DataTypes.ENUM('HR Operations', 'HR Recruitment'), allowNull: false },
+    department: { type: DataTypes.ENUM('HR Operations', 'HR Recruitment', 'HR', 'Management', 'CRM'), allowNull: false },
     title: { type: DataTypes.STRING, allowNull: false },
     content: { type: DataTypes.TEXT, allowNull: false },
     priority: { type: DataTypes.ENUM('Low', 'Medium', 'High', 'Urgent'), defaultValue: 'Medium' },
@@ -1760,7 +1760,7 @@ const Announcement = sequelize.define('Announcement', {
 // ============== DEPARTMENT DOCUMENT MODEL ==============
 const DeptDocument = sequelize.define('DeptDocument', {
     id: { type: DataTypes.UUID, defaultValue: DataTypes.UUIDV4, primaryKey: true },
-    department: { type: DataTypes.ENUM('HR Operations', 'HR Recruitment'), allowNull: false },
+    department: { type: DataTypes.ENUM('HR Operations', 'HR Recruitment', 'HR', 'Management', 'CRM'), allowNull: false },
     name: { type: DataTypes.STRING, allowNull: false },
     description: { type: DataTypes.TEXT },
     fileUrl: { type: DataTypes.STRING, allowNull: false },
@@ -1776,7 +1776,7 @@ const Training = sequelize.define('Training', {
     id: { type: DataTypes.UUID, defaultValue: DataTypes.UUIDV4, primaryKey: true },
     memberId: { type: DataTypes.UUID, allowNull: false },
     memberName: { type: DataTypes.STRING, allowNull: false },
-    department: { type: DataTypes.ENUM('HR Operations', 'HR Recruitment'), allowNull: false },
+    department: { type: DataTypes.ENUM('HR Operations', 'HR Recruitment', 'HR', 'Management', 'CRM'), allowNull: false },
     title: { type: DataTypes.STRING, allowNull: false },
     description: { type: DataTypes.TEXT },
     category: { type: DataTypes.ENUM('Skill Development', 'Certification', 'Workshop', 'Webinar', 'On-the-Job'), defaultValue: 'Skill Development' },
@@ -1794,7 +1794,7 @@ const Payslip = sequelize.define('Payslip', {
     id: { type: DataTypes.UUID, defaultValue: DataTypes.UUIDV4, primaryKey: true },
     memberId: { type: DataTypes.UUID, allowNull: false },
     memberName: { type: DataTypes.STRING, allowNull: false },
-    department: { type: DataTypes.ENUM('HR Operations', 'HR Recruitment'), allowNull: false },
+    department: { type: DataTypes.ENUM('HR Operations', 'HR Recruitment', 'HR', 'Management', 'CRM'), allowNull: false },
     month: { type: DataTypes.STRING, allowNull: false },
     year: { type: DataTypes.INTEGER, allowNull: false },
     basicSalary: { type: DataTypes.FLOAT, defaultValue: 0 },
@@ -1811,7 +1811,7 @@ const Payslip = sequelize.define('Payslip', {
 // ============== DEPARTMENT CHAT MODEL ==============
 const DeptChat = sequelize.define('DeptChat', {
     id: { type: DataTypes.UUID, defaultValue: DataTypes.UUIDV4, primaryKey: true },
-    department: { type: DataTypes.ENUM('HR Operations', 'HR Recruitment'), allowNull: false },
+    department: { type: DataTypes.ENUM('HR Operations', 'HR Recruitment', 'HR', 'Management', 'CRM'), allowNull: false },
     senderId: { type: DataTypes.UUID, allowNull: false },
     senderName: { type: DataTypes.STRING, allowNull: false },
     senderRole: { type: DataTypes.STRING },
@@ -1824,7 +1824,7 @@ const DeptChat = sequelize.define('DeptChat', {
 // ============== DEPARTMENT NOTE MODEL ==============
 const DepartmentNote = sequelize.define('DepartmentNote', {
     id: { type: DataTypes.UUID, defaultValue: DataTypes.UUIDV4, primaryKey: true },
-    department: { type: DataTypes.ENUM('HR Operations', 'HR Recruitment'), allowNull: false },
+    department: { type: DataTypes.ENUM('HR Operations', 'HR Recruitment', 'HR', 'Management', 'CRM'), allowNull: false },
     title: { type: DataTypes.STRING, allowNull: false },
     content: { type: DataTypes.TEXT, allowNull: false },
     category: { type: DataTypes.STRING, defaultValue: 'General' },
@@ -1972,7 +1972,7 @@ const RegularizationRequest = sequelize.define('RegularizationRequest', {
     id: { type: DataTypes.UUID, defaultValue: DataTypes.UUIDV4, primaryKey: true },
     memberId: { type: DataTypes.UUID, allowNull: false },
     memberName: { type: DataTypes.STRING, allowNull: false },
-    department: { type: DataTypes.ENUM('HR Operations', 'HR Recruitment'), allowNull: false },
+    department: { type: DataTypes.ENUM('HR Operations', 'HR Recruitment', 'HR', 'Management', 'CRM'), allowNull: false },
     attendanceId: { type: DataTypes.UUID, allowNull: true },
     date: { type: DataTypes.DATEONLY, allowNull: false },
     requestType: { type: DataTypes.STRING, allowNull: false }, // 'Missed In', 'Missed Out', 'Full Day', 'Half Day'

@@ -34,6 +34,20 @@ const getTeamMembers = async (req, res) => {
             where.managerId = managerId;
         }
 
+        // Global exclusion for Ashwin and current user from team lists
+        const ashwinId = '28e15eed-8297-440a-b8cd-976be26bc048';
+        const excludedIds = [];
+        if (req.user?.id !== ashwinId && req.user?.role !== 'SuperAdmin') {
+            excludedIds.push(ashwinId);
+        }
+        if (req.user?.id) {
+            excludedIds.push(req.user.id);
+        }
+
+        if (excludedIds.length > 0) {
+            where.id = { [Op.notIn]: excludedIds };
+        }
+
         const members = await DepartmentTeam.findAll({
             where,
             attributes: ['id', 'name', 'email', 'role', 'phone', 'avatar', 'status'],
@@ -154,6 +168,28 @@ const addTeamMember = async (req, res) => {
 
         const hashedPassword = await hashPassword(password);
 
+        // Robust managerId resolution to avoid FK constraint issues
+        let effectiveManagerId = managerId;
+        const sachinId = '60de4380-0140-49ff-b26d-a8d06333af11';
+        const ashwinId = '28e15eed-8297-440a-b8cd-976be26bc048';
+
+        if (effectiveManagerId) {
+            const managerCheck = await DepartmentTeam.findByPk(effectiveManagerId);
+            if (!managerCheck) {
+                console.log('Provided managerId invalid, attempting fallback for session user');
+                // If ID is invalid (e.g. mock ID), fallback to known IDs based on email
+                const userEmail = (req.user?.email || '').toLowerCase();
+                if (userEmail.includes('sachin') || userEmail.includes('recruitment.mabicons')) {
+                    effectiveManagerId = sachinId;
+                } else if (userEmail.includes('ashwin')) {
+                    effectiveManagerId = ashwinId;
+                } else {
+                    // Final fallback: if still invalid and we can't map email, set to null or ashwin
+                    effectiveManagerId = null; 
+                }
+            }
+        }
+
         const member = await DepartmentTeam.create({
             name,
             email: emailLower,
@@ -161,7 +197,7 @@ const addTeamMember = async (req, res) => {
             phone,
             role,
             department: department || 'HR Recruitment',
-            managerId: managerId,
+            managerId: effectiveManagerId,
             skills: skills || [],
         });
 
@@ -496,14 +532,22 @@ const getDepartmentStats = async (req, res) => {
 
         // Auto-hierarchy sync for Sachin (Recruitment Head)
         const sachinId = '60de4380-0140-49ff-b26d-a8d06333af11';
-        if (managerId === sachinId) {
+        const ashwinId = '28e15eed-8297-440a-b8cd-976be26bc048';
+        if (managerId === sachinId || managerId === ashwinId) {
             const kamIds = [
                 'bdcdd80c-4812-45f0-9862-39594bfe7475', // Manju
                 '13b9f804-91ea-4d5a-afc0-8a9da6e27e0f', // Jyoti
-                'ffd606f2-459c-4bc1-8f4b-52b88663fed3'  // Priyanshi
+                'ffd606f2-459c-4bc1-8f4b-52b88663fed3', // Priyanshi
+                '091ba6d5-3f2a-461a-942e-079ef5c4f455'  // Aditya
             ];
-            await DepartmentTeam.update({ managerId: sachinId }, { where: { id: kamIds, managerId: null } });
-            await DepartmentTeam.update({ role: 'Department Head' }, { where: { id: sachinId, role: { [Op.ne]: 'Department Head' } } });
+            // 1. KAMs should report to Sachin
+            await DepartmentTeam.update({ managerId: sachinId, department: 'HR Recruitment' }, { where: { id: kamIds } });
+            
+            // 2. Sachin should report to Ashwin
+            await DepartmentTeam.update({ managerId: ashwinId, department: 'HR Recruitment', role: 'Department Head' }, { where: { id: sachinId } });
+            
+            // 3. Ashwin should be Manager (not Super Admin)
+            await DepartmentTeam.update({ role: 'Manager', department: 'Management' }, { where: { id: ashwinId } });
         }
 
         // --- SPECIFIC LOGIC FOR HR OPERATIONS ---

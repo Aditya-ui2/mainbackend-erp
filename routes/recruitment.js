@@ -60,6 +60,7 @@ const {
     upsertOfferTemplate,
     getOfferTemplate,
     verifyCandidateKYC,
+    bulkVerifyCandidateKYC,
     uploadCandidateKYC,
     getCandidateProfile,
     attachFinalOfferLetter,
@@ -78,6 +79,7 @@ router.post('/candidate/login', loginCandidate);
 router.get('/candidate/profile', verifyAuthToken, getCandidateProfile);
 router.post('/candidate/upload-kyc', verifyAuthToken, upload.single('document'), uploadCandidateKYC);
 router.post('/candidate/verify-kyc', verifyAuthToken, verifyCandidateKYC);
+router.post('/candidate/bulk-verify-kyc', verifyAuthToken, bulkVerifyCandidateKYC);
 router.post('/candidate/submit-kyc', verifyAuthToken, submitCandidateKYC);
 router.post('/onboarding-gen-creds', generateCandidateCredentials);
 

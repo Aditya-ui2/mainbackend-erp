@@ -1,8 +1,9 @@
 // Use Sequelize model for ResumeBank
 const { ResumeBank, RecruitmentPosition, DepartmentTeam, sequelize } = require('../models/sequelizeModels');
 const s3Service = require('../utils/s3Service');
-const sharePointService = require('../utils/sharePointService');
+const { sharePointService } = require('../utils/sharePointService');
 const { Op } = require('sequelize');
+const { GoogleGenerativeAI } = require("@google/generative-ai");
 
 /**
  * Sync all resumes from AWS S3
@@ -595,6 +596,80 @@ const getFolders = async (req, res) => {
     }
 };
 
+/**
+ * AI Search resumes using Gemini
+ * POST /api/resumebank/ai-search
+ */
+const aiSearchResumes = async (req, res) => {
+    try {
+        const { query } = req.body;
+        if (!query) {
+            return res.status(400).json({ success: false, message: 'Search query is required' });
+        }
+
+        const API_KEY = process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY;
+        if (!API_KEY) {
+            return res.status(500).json({ success: false, message: 'Gemini API Key not configured on server' });
+        }
+
+        const genAI = new GoogleGenerativeAI(API_KEY);
+        const model = genAI.getGenerativeModel({ model: "gemini-pro" });
+
+        // Get candidates to analyze
+        const resumes = await ResumeBank.findAll({
+            limit: 100,
+            attributes: ['id', 'candidateName', 'fileName', 'roleType', 'skills']
+        });
+
+        const context = resumes.map(r => ({
+            id: r.id,
+            name: r.candidateName || r.fileName,
+            role: r.roleType,
+            skills: r.skills || []
+        }));
+
+        const prompt = `
+          You are an expert recruitment assistant. 
+          Given the following list of candidates from a resume bank and a search query, 
+          identify the best matching candidates.
+          
+          CRITICAL: Return ONLY a JSON array of matching IDs. No text, no explanation.
+          Format: ["id1", "id2", ...]
+
+          Candidate List:
+          ${JSON.stringify(context)}
+
+          User Query: "${query}"
+        `;
+
+        const result = await model.generateContent(prompt);
+        const response = await result.response;
+        const text = response.text();
+        
+        try {
+            const jsonStr = text.substring(text.indexOf("["), text.lastIndexOf("]") + 1);
+            const matchingIds = JSON.parse(jsonStr);
+            
+            // Fetch full objects for the frontend
+            const matchedResumes = await ResumeBank.findAll({
+                where: { id: { [Op.in]: matchingIds } }
+            });
+
+            res.json({
+                success: true,
+                data: matchedResumes,
+                count: matchedResumes.length
+            });
+        } catch (e) {
+            console.error("AI response parsing failed:", text);
+            res.status(500).json({ success: false, message: 'Failed to parse AI response' });
+        }
+    } catch (error) {
+        console.error('AI Search Error:', error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
+
 module.exports = {
     syncResumes,
     syncSharePoint,
@@ -608,5 +683,6 @@ module.exports = {
     getDownloadUrl,
     getStats,
     searchS3,
-    getFolders
+    getFolders,
+    aiSearchResumes
 };

@@ -444,11 +444,30 @@ const editClient = async (req, res) => {
             cinNumber,
             numberOfCompanies,
             spocName,
+            spocEmail,
             spocContact,
             website,
             authorizedSignatory,
             ownerDirectorDetails,
-            teamLeaderId
+            teamLeaderId,
+            city,
+            pinCode,
+            ownerName,
+            ownerEmail,
+            agreementType,
+            agreementEffectiveDate,
+            feeAmount,
+            paymentTerms,
+            shopsLicense,
+            factoryLicense,
+            msmeRegistered,
+            totalEmployees,
+            payrollCycle,
+            pfApplicable,
+            esicApplicable,
+            leadSource,
+            onboardingNotes,
+            assignKAM
         } = req.body;
 
         if (!clientId) {
@@ -472,9 +491,30 @@ const editClient = async (req, res) => {
         if (cinNumber) updateData.cinNumber = cinNumber;
         if (numberOfCompanies !== undefined) updateData.numberOfCompanies = numberOfCompanies;
         if (spocName) updateData.spocName = spocName;
+        if (spocEmail) updateData.spocEmail = spocEmail;
         if (spocContact) updateData.spocContact = spocContact;
         if (website) updateData.website = website;
         if (teamLeaderId) updateData.teamLeaderId = teamLeaderId;
+        
+        // New fields
+        if (city) updateData.city = city;
+        if (pinCode) updateData.pinCode = pinCode;
+        if (ownerName) updateData.ownerName = ownerName;
+        if (ownerEmail) updateData.ownerEmail = ownerEmail;
+        if (agreementType) updateData.agreementType = agreementType;
+        if (agreementEffectiveDate) updateData.agreementEffectiveDate = agreementEffectiveDate;
+        if (feeAmount) updateData.feeAmount = feeAmount;
+        if (paymentTerms) updateData.paymentTerms = paymentTerms;
+        if (shopsLicense) updateData.shopsLicense = shopsLicense;
+        if (factoryLicense) updateData.factoryLicense = factoryLicense;
+        if (msmeRegistered) updateData.msmeRegistered = msmeRegistered;
+        if (totalEmployees) updateData.totalEmployees = totalEmployees;
+        if (payrollCycle) updateData.payrollCycle = payrollCycle;
+        if (pfApplicable) updateData.pfApplicable = pfApplicable;
+        if (esicApplicable) updateData.esicApplicable = esicApplicable;
+        if (leadSource) updateData.leadSource = leadSource;
+        if (onboardingNotes) updateData.onboardingNotes = onboardingNotes;
+        if (assignKAM) updateData.assignKAM = assignKAM;
 
         if (authorizedSignatory) {
             const currentSignatory = client.authorizedSignatory || {};
@@ -495,23 +535,7 @@ const editClient = async (req, res) => {
         res.status(200).json({
             success: true,
             message: 'Client updated successfully',
-            data: {
-                id: client.id,
-                name: client.name,
-                email: client.email,
-                companyName: client.companyName,
-                corporateAddress: client.corporateAddress,
-                contactNumber: client.contactNumber,
-                gstNumber: client.gstNumber,
-                panNumber: client.panNumber,
-                cinNumber: client.cinNumber,
-                spocName: client.spocName,
-                spocContact: client.spocContact,
-                numberOfCompanies: client.numberOfCompanies,
-                website: client.website,
-                authorizedSignatory: client.authorizedSignatory,
-                ownerDirectorDetails: client.ownerDirectorDetails
-            }
+            data: client
         });
     } catch (error) {
         console.error('Error updating client:', error);

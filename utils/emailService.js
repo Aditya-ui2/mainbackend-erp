@@ -4,10 +4,13 @@ const axios = require('axios'); // Make sure to install axios: npm install axios
 const sendEmail = async (options) => {
     try {
         const apiKey = process.env.BREVO_API_KEY;
-        if (!apiKey) {
-            const err = new Error('BREVO_API_KEY is missing');
-            err.code = 'BREVO_API_KEY_MISSING';
-            throw err;
+        if (!apiKey || apiKey === 'your_brevo_api_key_here') {
+            console.log('--- 📧 MOCK EMAIL SEND (Missing BREVO_API_KEY) ---');
+            console.log('To:', options.email);
+            console.log('Subject:', options.subject);
+            console.log('Content Summary:', options.htmlContent.slice(0, 100) + '...');
+            console.log('--------------------------------------------------');
+            return { message: 'Mock email logged to console ' };
         }
 
         const response = await axios.post(

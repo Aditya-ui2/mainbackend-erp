@@ -1,4 +1,5 @@
 const { Op, fn, col, literal } = require('sequelize');
+const { v4: uuidv4 } = require('uuid');
 const { TeamLeader, Client, RecruitmentPosition, Candidate, Interview, OfferTemplate, DepartmentTask, ResumeBank, DepartmentTeam, DepartmentNote, SharePointCandidate } = require('../models/sequelizeModels');
 const fs = require('fs');
 const path = require('path');
@@ -157,7 +158,7 @@ const getOfferTemplate = async (req, res) => {
         });
 
         if (!record) {
-            return res.status(404).json({ success: false, message: 'No offer template found for this client' });
+            return res.status(200).json({ success: true, message: 'No offer template found for this client', data: null });
         }
 
         return res.status(200).json({ success: true, data: record });
@@ -352,9 +353,14 @@ const getKamsWithRecruitment = async (req, res) => {
         const activityDateFilter = buildDateFieldFilter(dateRange, 'updatedAt');
 
         // Fetch all members of the HR Recruitment department
+        const ashwinId = '28e15eed-8297-440a-b8cd-976be26bc048';
+        const excludedRecruitmentIds = [ashwinId];
+        if (req.user?.id) excludedRecruitmentIds.push(req.user.id);
+
         const kams = await DepartmentTeam.findAll({
             where: {
-                department: 'HR Recruitment'
+                department: 'HR Recruitment',
+                id: { [Op.notIn]: excludedRecruitmentIds }
             },
             attributes: ['id', 'name', 'email', 'phone', 'role', 'status'],
         });
@@ -1730,20 +1736,10 @@ const createOrUpdateOffer = async (req, res) => {
             candidate = await Candidate.findOne({ where: { name: { [Op.iLike]: candidateName.trim() } } });
         }
 
-        if (!candidate) {
-            console.log('Candidate search failed for ID:', candidateId, 'Email:', email, 'Name:', candidateName);
-            return res.status(404).json({ 
-                success: false, 
-                message: 'Candidate not found. Please ensure you select a candidate from the suggestions dropdown.' 
-            });
-        }
+        let resolvedPositionId = candidate?.positionId || null;
+        let resolvedClientId = candidate?.clientId || null;
 
-        const normalizedRequestEmail = typeof email === 'string' ? email.trim() : '';
-        const resolvedCandidateEmail = (candidate.email || normalizedRequestEmail || '').trim();
-
-        let resolvedPositionId = candidate.positionId;
-        let resolvedClientId = candidate.clientId;
-
+        // Try to resolve IDs from names if they aren't already set
         if (!resolvedPositionId && position) {
             const foundPosition = await RecruitmentPosition.findOne({ where: { title: { [Op.iLike]: position.trim() } } });
             if (foundPosition) {
@@ -1764,6 +1760,38 @@ const createOrUpdateOffer = async (req, res) => {
             if (foundClient) resolvedClientId = foundClient.id;
         }
 
+        if (!candidate) {
+            console.log('Candidate not found, creating new one on the fly:', { candidateName, email });
+            if (!candidateName || !email) {
+                return res.status(400).json({ 
+                    success: false, 
+                    message: 'Candidate Name and Email are required to create a new candidate record.' 
+                });
+            }
+            
+            let mappedAddedByType = 'Employee';
+            const userRole = String(req.user?.role || req.user?.userType || '').toLowerCase();
+            if (userRole.includes('admin') || userRole.includes('leader') || userRole.includes('head') || userRole.includes('tl')) {
+                mappedAddedByType = 'TeamLeader';
+            } else if (userRole.includes('team') || userRole.includes('member')) {
+                mappedAddedByType = 'DepartmentTeam';
+            }
+
+            candidate = await Candidate.create({
+                id: uuidv4(),
+                name: candidateName,
+                email: email,
+                clientId: resolvedClientId,
+                positionId: resolvedPositionId,
+                status: 'Selected',
+                stage: 'Offer Sent',
+                addedByType: mappedAddedByType,
+                addedById: req.user?.id
+            });
+        }
+
+        const normalizedRequestEmail = typeof email === 'string' ? email.trim() : '';
+        const resolvedCandidateEmail = (candidate.email || normalizedRequestEmail || '').trim();
         const useTemplate = String(req.body.useTemplate || '').toLowerCase() === 'true';
         if (!uploadedOfferMeta && useTemplate) {
             if (!resolvedClientId) {
@@ -1815,7 +1843,7 @@ const createOrUpdateOffer = async (req, res) => {
                 candidateName: candidateName || candidate.name || '',
                 address: negotiationNotes || '',
                 joiningDate: formatDate(joiningDate),
-                ctc: offeredCTC ? `₹${offeredCTC}` : '',
+                ctc: offeredCTC ? `Rs. ${offeredCTC}` : '',
                 client: client || ''
             };
 
@@ -1827,8 +1855,12 @@ const createOrUpdateOffer = async (req, res) => {
                 const { width, height } = page.getSize();
 
                 for (const f of fields) {
-                    const raw = values[f.key] ?? '';
+                    let raw = values[f.key] ?? '';
                     if (!raw) continue;
+                    
+                    // Sanitize for PDF encoding (WinAnsi cannot encode Rupee symbol)
+                    raw = String(raw).replace(/₹/g, 'Rs.');
+
                     const size = Number(f.fontSize) || 10;
                     const x = width * (Number(f.x) || 0);
                     const yTop = height * (Number(f.y) || 0);
@@ -2707,8 +2739,7 @@ const verifyCandidateKYC = async (req, res) => {
             kycDocuments[docType].rejectionReason = rejectionReason;
         }
 
-        // Use changed() or set explicitly for JSONB updates if needed, 
-        // but simple object update with await candidate.update works in Sequelize usually
+        // Use changed() or set explicitly for JSONB updates if needed
         candidate.set('kycDocuments', kycDocuments);
         candidate.changed('kycDocuments', true);
         await candidate.save();
@@ -2738,46 +2769,23 @@ const verifyCandidateKYC = async (req, res) => {
                             <div style="text-align: center; margin-bottom: 30px;">
                                 <h1 style="color: #1B4DA0; margin: 0; font-size: 24px;">Document Re-upload Required</h1>
                             </div>
-                            
                             <p style="font-size: 16px; line-height: 1.6;">Dear ${candidate.name || 'Candidate'},</p>
-                            
-                            <p style="font-size: 16px; line-height: 1.6;">
-                                During our verification process, we found an issue with your <strong>${docLabel}</strong> document.
-                            </p>
-                            
+                            <p style="font-size: 16px; line-height: 1.6;">During our verification process, we found an issue with your <strong>${docLabel}</strong> document.</p>
                             <div style="background: #FEF3C7; border-left: 4px solid #F59E0B; padding: 16px 20px; margin: 24px 0; border-radius: 0 8px 8px 0;">
                                 <p style="margin: 0; font-weight: 600; color: #92400E;">Reason for Rejection:</p>
                                 <p style="margin: 8px 0 0 0; color: #78350F;">${reason}</p>
                             </div>
-                            
-                            <p style="font-size: 16px; line-height: 1.6;">
-                                Please log in to your candidate portal and re-upload a valid <strong>${docLabel}</strong> at your earliest convenience.
-                            </p>
-                            
+                            <p style="font-size: 16px; line-height: 1.6;">Please log in to your candidate portal and re-upload a valid <strong>${docLabel}</strong> at your earliest convenience.</p>
                             <div style="text-align: center; margin: 32px 0;">
-                                <a href="https://erp.mabicons.com/candidate-login" 
-                                   style="display: inline-block; background: #1B4DA0; color: white; padding: 14px 32px; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 14px;">
-                                    Go to Candidate Portal
-                                </a>
+                                <a href="https://erp.mabicons.com/candidate-login" style="display: inline-block; background: #1B4DA0; color: white; padding: 14px 32px; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 14px;">Go to Candidate Portal</a>
                             </div>
-                            
-                            <p style="font-size: 14px; color: #64748B; line-height: 1.6;">
-                                If you have any questions, please contact our recruitment team.
-                            </p>
-                            
                             <hr style="border: none; border-top: 1px solid #E2E8F0; margin: 30px 0;" />
-                            
-                            <p style="font-size: 14px; color: #94A3B8; margin: 0;">
-                                Best Regards,<br/>
-                                <strong style="color: #1B4DA0;">Mabicons Recruitment Team</strong>
-                            </p>
+                            <p style="font-size: 14px; color: #94A3B8; margin: 0;">Best Regards,<br/><strong style="color: #1B4DA0;">Mabicons Recruitment Team</strong></p>
                         </div>
                     `
                 });
-                console.log(`Rejection email sent to ${candidate.email} for ${docType}`);
             } catch (emailError) {
                 console.error('Failed to send rejection email:', emailError);
-                // Don't fail the main request if email fails
             }
         }
 
@@ -2789,6 +2797,37 @@ const verifyCandidateKYC = async (req, res) => {
     } catch (error) {
         console.error('Error verifying KYC:', error);
         res.status(500).json({ success: false, message: 'Failed to verify KYC', error: error.message });
+    }
+};
+
+const bulkVerifyCandidateKYC = async (req, res) => {
+    try {
+        const { candidateId, docTypes, status, comment } = req.body;
+        const candidate = await Candidate.findByPk(candidateId);
+        if (!candidate) {
+            return res.status(404).json({ success: false, message: 'Candidate not found' });
+        }
+
+        const kycDocuments = candidate.kycDocuments || {};
+        docTypes.forEach(docType => {
+            if (!kycDocuments[docType]) kycDocuments[docType] = {};
+            kycDocuments[docType].verified = status === 'verified';
+            kycDocuments[docType].verifiedAt = new Date();
+            if (comment) kycDocuments[docType].comment = comment;
+        });
+
+        candidate.set('kycDocuments', kycDocuments);
+        candidate.changed('kycDocuments', true);
+        await candidate.save();
+
+        res.json({ 
+            success: true, 
+            message: `${docTypes.length} documents verified successfully`,
+            data: candidate.kycDocuments
+        });
+    } catch (error) {
+        console.error('Bulk verification error:', error);
+        res.status(500).json({ success: false, message: error.message });
     }
 };
 
@@ -3004,20 +3043,29 @@ const generateCandidateCredentials = async (req, res) => {
         // Send Email
         try {
             const htmlContent = `
-                <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: auto; border: 1px solid #eee; padding: 20px; border-radius: 10px;">
-                    <div style="text-align: center; margin-bottom: 20px;">
-                        <h2 style="color: #1B4DA0;">Mabicons ERP - Access Credentials</h2>
+                <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; line-height: 1.6; color: #1a1a2e; max-width: 600px; margin: auto; border: 1px solid #e2e8f0; padding: 40px; border-radius: 16px; background-color: #ffffff;">
+                    <div style="text-align: center; margin-bottom: 30px;">
+                        <h2 style="color: #1B4DA0; margin: 0; font-size: 24px; letter-spacing: -0.5px;">Mabicons ERP</h2>
+                        <p style="color: #64748b; font-size: 14px; margin-top: 5px;">Candidate Onboarding Gateway</p>
                     </div>
-                    <p>Dear <strong>${candidate.name}</strong>,</p>
-                    <p>Welcome to <strong>Mabicons</strong>! Your ERP login credentials have been generated successfully.</p>
-                    <div style="background-color: #f9f9f9; padding: 15px; border-radius: 5px; margin: 20px 0; border: 1px solid #ddd;">
-                        <p style="margin: 0;"><strong>Login URL:</strong> <a href="https://erp.mabicons.com">erp.mabicons.com</a></p>
-                        <p style="margin: 10px 0 0 0;"><strong>Username:</strong> <span style="font-weight: bold; color: #1B4DA0;">${username}</span></p>
-                        <p style="margin: 10px 0 0 0;"><strong>Email:</strong> ${candidate.email}</p>
-                        <p style="margin: 10px 0 0 0;"><strong>Password:</strong> <span style="font-family: monospace; font-weight: bold; font-size: 1.1em; color: #1B4DA0;">${password}</span></p>
+                    
+                    <p style="font-size: 16px;">Hi <strong>${candidate.name}</strong>,</p>
+                    
+                    <p>Congratulations! Your recruitment process has moved to the next stage. We have generated your secure access credentials for the Mabicons ERP portal.</p>
+                    
+                    <div style="background-color: #f8fafc; padding: 25px; border-radius: 12px; margin: 25px 0; border: 1px solid #cbd5e1;">
+                        <p style="margin: 0 0 15px 0; font-size: 14px; color: #64748b; font-weight: 600; text-transform: uppercase; tracking: 1px;">Access Details</p>
+                        <p style="margin: 8px 0; font-size: 15px;"><strong>Portal Link:</strong> <a href="http://localhost:5173/candidate-dashboard" style="color: #1B4DA0; text-decoration: none; font-weight: bold;">Click here to Login</a></p>
+                        <p style="margin: 8px 0; font-size: 15px;"><strong>Candidate ID:</strong> <span style="font-weight: bold; color: #1B4DA0; background: #eef2ff; padding: 2px 6px; rounded: 4px;">${username}</span></p>
+                        <p style="margin: 8px 0; font-size: 15px;"><strong>Password:</strong> <span style="font-family: 'Courier New', Courier, monospace; font-weight: bold; font-size: 16px; color: #1B4DA0; background: #eef2ff; padding: 2px 6px; rounded: 4px;">${password}</span></p>
                     </div>
-                    <p>You can now log in to the ERP using these credentials to manage your onboarding process and profile.</p>
-                    <p style="margin-top: 30px;">Best Regards,<br/><strong>Mabicons Recruitment Team</strong></p>
+                    
+                    <p style="font-size: 14px; color: #64748b;">Please use these credentials to log in and complete your background verification (BGV) and other onboarding tasks.</p>
+                    
+                    <div style="margin-top: 40px; padding-top: 20px; border-top: 1px solid #e2e8f0;">
+                        <p style="margin: 0; font-size: 14px; font-weight: bold; color: #1a1a2e;">Mabicons Recruitment Team</p>
+                        <p style="margin: 5px 0 0 0; font-size: 12px; color: #94a3b8;">This is an automated message, please do not reply.</p>
+                    </div>
                 </div>
             `;
 
@@ -3191,6 +3239,7 @@ module.exports = {
     upsertOfferTemplate,
     getOfferTemplate,
     verifyCandidateKYC,
+    bulkVerifyCandidateKYC,
     uploadCandidateKYC,
     submitCandidateKYC,
     attachFinalOfferLetter,
