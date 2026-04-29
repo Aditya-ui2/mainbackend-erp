@@ -89,7 +89,7 @@ app.use(cors({
 app.use('/uploads', (req, res, next) => {
     res.setHeader('X-Frame-Options', 'ALLOWALL'); 
     res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Content-Security-Policy', "frame-ancestors 'self' http://localhost:5173 http://localhost:5174");
+    res.setHeader('Content-Security-Policy', "frame-ancestors 'self' http://localhost:* http://127.0.0.1:*");
     next();
 }, express.static(path.join(__dirname, 'uploads')));
 

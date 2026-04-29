@@ -455,7 +455,7 @@ const getDownloadUrl = async (req, res) => {
                 } else {
                     // FALLBACK: If no unique URL in DB, use the local developer sample
                     console.log('--- S3 Unconfigured: Providing local developer sample ---');
-                    downloadUrl = `http://localhost:3000/uploads/resumes/1774933716922-Aditya rathore 2.pdf`;
+                    downloadUrl = `/uploads/resumes/1774933716922-Aditya rathore 2.pdf`;
                 }
             } else {
                 // S3 pre-signed URL (short-lived, auto-expires)
@@ -483,13 +483,21 @@ const getDownloadUrl = async (req, res) => {
                     downloadUrl = resume.downloadUrl || resume.webUrl;
                 } else {
                     console.log('--- SharePoint Unconfigured: Providing local developer fallback ---');
-                    downloadUrl = `http://localhost:3000/uploads/resumes/1774933716922-Aditya rathore 2.pdf`;
+                    downloadUrl = `/uploads/resumes/1774933716922-Aditya rathore 2.pdf`;
                 }
             }
         }
         
         if (!downloadUrl) {
             return res.status(404).json({ success: false, message: 'Download URL not available for this profile' });
+        }
+
+        // Encode the URL if it's a local path to handle spaces and special characters
+        if (downloadUrl.startsWith('/uploads/')) {
+            // Split path to only encode the filename part while keeping the slashes
+            downloadUrl = downloadUrl.split('/').map(part => encodeURIComponent(part)).join('/');
+            // Fix the leading slash which got encoded to %2F or removed
+            if (!downloadUrl.startsWith('/')) downloadUrl = '/' + downloadUrl;
         }
 
         res.json({ success: true, downloadUrl, fileName: resume.fileName });
