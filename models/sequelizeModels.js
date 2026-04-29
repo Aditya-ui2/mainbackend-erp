@@ -847,6 +847,14 @@ const Candidate = sequelize.define('Candidate', {
         allowNull: true,
         comment: 'Plain text password for initial BGV handover'
     },
+    sharePointId: {
+        type: DataTypes.STRING,
+        allowNull: true
+    },
+    resumeId: {
+        type: DataTypes.UUID,
+        allowNull: true
+    },
     firebaseUid: {
         type: DataTypes.STRING,
         allowNull: true,
@@ -1846,6 +1854,8 @@ const SharePointCandidate = sequelize.define('SharePointCandidate', {
     status: { type: DataTypes.STRING, defaultValue: 'Active' },
     assignedTo: { type: DataTypes.STRING },
     notes: { type: DataTypes.TEXT },
+    resumeUrl: { type: DataTypes.STRING },
+    cvUrl: { type: DataTypes.STRING },
     lastSyncedAt: { type: DataTypes.DATE, defaultValue: DataTypes.NOW },
     sharePointCreatedAt: { type: DataTypes.DATE },
     sharePointModifiedAt: { type: DataTypes.DATE },

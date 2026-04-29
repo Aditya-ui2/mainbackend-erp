@@ -911,7 +911,9 @@ const updateCandidate = async (req, res) => {
             name, email, phone, positionId, clientId,
             experience, currentSalary, expectedSalary, notes, location, noticePeriod,
             stage, pipelineStatus, rating, source,
-            bgvStatus: req.body.bgvStatus
+            bgvStatus: req.body.bgvStatus,
+            addedById: req.body.addedById,
+            addedByType: req.body.addedByType || 'DepartmentTeam'
         };
         
         if (parsedSkills !== undefined) updateData.skills = parsedSkills;
@@ -1538,6 +1540,7 @@ const getAllCandidates = async (req, res) => {
                     required: true
                 },
                 { model: Client, as: 'client', attributes: ['companyName', 'name'] },
+                { model: DepartmentTeam, as: 'addedBy', attributes: ['id', 'name', 'role'] },
             ],
             order: [['createdAt', 'DESC']],
             offset,

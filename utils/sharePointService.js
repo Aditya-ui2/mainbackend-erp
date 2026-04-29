@@ -210,6 +210,8 @@ class SharePointService {
       status: item.fields.Status || 'Active',
       assignedTo: item.fields.AssignedTo,
       notes: item.fields.Notes,
+      resumeUrl: item.fields.Resume || item.fields.ResumeUrl || item.fields.CV || item.fields.CVUrl || item.fields.Attachments,
+      cvUrl: item.fields.CV || item.fields.CVUrl || item.fields.Resume || item.fields.ResumeUrl,
       createdAt: item.createdDateTime,
       modifiedAt: item.lastModifiedDateTime,
     }));
@@ -624,6 +626,42 @@ class SharePointService {
     });
 
     return response;
+  }
+
+  /**
+   * Get attachments for a SharePoint list item
+   */
+  async getListItemAttachments(siteId, listId, itemId) {
+    const token = await this.getAccessToken();
+    
+    try {
+      const response = await axios.get(
+        `https://graph.microsoft.com/v1.0/sites/${siteId}/lists/${listId}/items/${itemId}/attachments`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      return response.data.value;
+    } catch (error) {
+      console.error('Get List Item Attachments Error:', error.response?.data || error.message);
+      throw error;
+    }
+  }
+
+  /**
+   * Get download URL for a list item attachment
+   */
+  async getAttachmentDownloadUrl(siteId, listId, itemId, attachmentName) {
+    const token = await this.getAccessToken();
+    
+    try {
+      const response = await axios.get(
+        `https://graph.microsoft.com/v1.0/sites/${siteId}/lists/${listId}/items/${itemId}/attachments/${attachmentName}`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      return response.data['@microsoft.graph.downloadUrl'];
+    } catch (error) {
+      console.error('Get Attachment Download URL Error:', error.response?.data || error.message);
+      throw error;
+    }
   }
 }
 

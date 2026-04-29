@@ -138,6 +138,8 @@ exports.syncCandidates = async (req, res) => {
       status: c.status,
       assignedTo: c.assignedTo,
       notes: c.notes,
+      resumeUrl: c.resumeUrl,
+      cvUrl: c.cvUrl,
       sharePointCreatedAt: c.createdAt ? new Date(c.createdAt) : null,
       sharePointModifiedAt: c.modifiedAt ? new Date(c.modifiedAt) : null,
     }));
@@ -271,6 +273,7 @@ exports.syncAll = async (req, res) => {
         sharePointId: c.sharePointId, name: c.name, email: c.email, phone: c.phone,
         position: c.position, client: c.client, stage: c.stage, status: c.status,
         assignedTo: c.assignedTo, notes: c.notes,
+        resumeUrl: c.resumeUrl, cvUrl: c.cvUrl,
         sharePointCreatedAt: c.createdAt ? new Date(c.createdAt) : null,
         sharePointModifiedAt: c.modifiedAt ? new Date(c.modifiedAt) : null,
       })),

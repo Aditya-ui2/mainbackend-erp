@@ -1,5 +1,5 @@
 // Use Sequelize model for ResumeBank
-const { ResumeBank, RecruitmentPosition, DepartmentTeam, sequelize } = require('../models/sequelizeModels');
+const { ResumeBank, RecruitmentPosition, DepartmentTeam, Candidate, SharePointCandidate, sequelize } = require('../models/sequelizeModels');
 const s3Service = require('../utils/s3Service');
 const sharePointService = require('../utils/sharePointService');
 const { Op } = require('sequelize');
@@ -427,10 +427,95 @@ const assignToPosition = async (req, res) => {
  */
 const getDownloadUrl = async (req, res) => {
     try {
-        const resume = await ResumeBank.findByPk(req.params.id);
+        const { id } = req.params;
+        const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id);
+        
+        let resume;
+        if (isUUID) {
+            resume = await ResumeBank.findByPk(id);
+            
+            // Fallback: If not found in ResumeBank by ID, it might be a Candidate ID
+            if (!resume) {
+                const candidate = await Candidate.findByPk(id);
+                if (candidate && candidate.email) {
+                    resume = await ResumeBank.findOne({ 
+                        where: { email: candidate.email },
+                        order: [['createdAt', 'DESC']] // Get the latest one if multiple exist
+                    });
+                }
+            }
+        }
         
         if (!resume) {
-            return res.status(404).json({ success: false, message: 'Resume not found' });
+            resume = await ResumeBank.findOne({ where: { sharePointId: id } });
+        }
+
+        // --- NEW: Check SharePointCandidate table as fallback ---
+        let spCandidate = null;
+        if (!resume) {
+            spCandidate = await SharePointCandidate.findOne({ 
+                where: { 
+                    [Op.or]: [
+                        { sharePointId: id },
+                        { email: req.query.email || '' }
+                    ]
+                } 
+            });
+            
+            if (spCandidate) {
+                const url = spCandidate.resumeUrl || spCandidate.cvUrl;
+                
+                // If it's a direct URL, we can return it
+                if (url && typeof url === 'string' && url.startsWith('http')) {
+                    return res.json({ success: true, downloadUrl: url, fileName: spCandidate.name + '_CV' });
+                }
+
+                // If it's a SharePoint Candidate but no direct URL, try to fetch attachments
+                try {
+                    const siteId = await sharePointService.getSiteId();
+                    const lists = await sharePointService.getLists(siteId);
+                    const candidateList = lists.find(l => l.displayName === 'Candidates');
+                    
+                    if (candidateList) {
+                        const attachments = await sharePointService.getListItemAttachments(siteId, candidateList.id, spCandidate.sharePointId);
+                        if (attachments && attachments.length > 0) {
+                            // Take the first attachment as CV
+                            const firstAttachment = attachments[0];
+                            const downloadUrl = await sharePointService.getAttachmentDownloadUrl(siteId, candidateList.id, spCandidate.sharePointId, firstAttachment.name);
+                            if (downloadUrl) {
+                                return res.json({ success: true, downloadUrl, fileName: firstAttachment.name });
+                            }
+                        }
+                    }
+
+                    // Last ditch effort: search SharePoint by name if we have a "filename" in resumeUrl
+                    if (url && url.includes('.') && !url.includes('/')) {
+                        const searchResults = await sharePointService.searchResumes(siteId, 'root', url);
+                        if (searchResults && searchResults.length > 0) {
+                            const match = searchResults.find(r => r.name.toLowerCase() === url.toLowerCase()) || searchResults[0];
+                            const dUrl = await sharePointService.getFileDownloadUrl(siteId, match.driveId, match.sharePointId);
+                            if (dUrl) {
+                                return res.json({ success: true, downloadUrl: dUrl, fileName: match.name });
+                            }
+                        }
+                    }
+                } catch (spErr) {
+                    console.warn('SharePoint candidate attachment fetch failed:', spErr.message);
+                }
+            }
+        }
+        // --------------------------------------------------------
+
+        // Final fallback by email if passed in query
+        if (!resume && req.query.email) {
+            resume = await ResumeBank.findOne({ 
+                where: { email: req.query.email },
+                order: [['createdAt', 'DESC']]
+            });
+        }
+        
+        if (!resume) {
+            return res.status(404).json({ success: false, message: 'Resume record not found in bank' });
         }
 
         // Audit log
