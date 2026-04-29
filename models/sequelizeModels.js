@@ -313,6 +313,15 @@ Client.init({
     leadSource: { type: DataTypes.STRING },
     onboardingNotes: { type: DataTypes.TEXT },
     assignKAM: { type: DataTypes.STRING },
+    industry: { type: DataTypes.STRING },
+    stage: {
+        type: DataTypes.ENUM('Onboarding Complete', 'Finalize', 'Lead Stage'),
+        defaultValue: 'Lead Stage'
+    },
+    probability: {
+        type: DataTypes.INTEGER,
+        defaultValue: 25
+    },
     
     // Store complex objects as JSONB
     ownerDirectorDetails: {
