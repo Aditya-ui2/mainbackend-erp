@@ -407,7 +407,7 @@ const getAllClients = async (req, res) => {
                 'gstNumber', 'panNumber', 'cinNumber', 'spocName', 'spocContact', 'status', 'createdAt',
                 'city', 'pinCode', 'ownerName', 'ownerEmail', 'agreementType', 'agreementEffectiveDate',
                 'feeAmount', 'paymentTerms', 'shopsLicense', 'factoryLicense', 'msmeRegistered',
-                'totalEmployees', 'payrollCycle', 'pfApplicable', 'esicApplicable', 'leadSource', 'onboardingNotes', 'assignKAM'
+                'totalEmployees', 'payrollCycle', 'pfApplicable', 'esicApplicable', 'leadSource', 'onboardingNotes', 'assignKAM', 'stage'
             ],
             order: [['createdAt', 'DESC']]
         });
@@ -515,6 +515,9 @@ const editClient = async (req, res) => {
         if (leadSource) updateData.leadSource = leadSource;
         if (onboardingNotes) updateData.onboardingNotes = onboardingNotes;
         if (assignKAM) updateData.assignKAM = assignKAM;
+        if (req.body.status) updateData.status = req.body.status;
+        if (req.body.stage) updateData.stage = req.body.stage;
+        if (req.body.probability !== undefined) updateData.probability = req.body.probability;
 
         if (authorizedSignatory) {
             const currentSignatory = client.authorizedSignatory || {};
@@ -1248,7 +1251,11 @@ const createClient = async (req, res) => {
       esicApplicable,
       assignKAM,
       leadSource,
-      onboardingNotes
+      onboardingNotes,
+      status,
+      stage,
+      industry,
+      probability
     } = req.body;
 
     // Use owner or spoc details for base client identity
@@ -1306,7 +1313,10 @@ const createClient = async (req, res) => {
       leadSource,
       onboardingNotes,
       assignKAM,
-      status: "Accepted"
+      industry,
+      probability: probability || 25,
+      status: status || "Requested",
+      stage: stage || "Lead Stage"
     });
 
     res.status(201).json({
