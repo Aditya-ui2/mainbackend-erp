@@ -728,7 +728,8 @@ const addCandidate = async (req, res) => {
             
             fs.writeFileSync(filePath, req.file.buffer);
             
-            cvUrl = `/uploads/resumes/${fileName}`;
+            // Encode the filename for the URL but keep the directory path as is
+            cvUrl = `/uploads/resumes/${encodeURIComponent(fileName)}`;
             cvFileName = req.file.originalname;
 
             // Also add to Resume Bank
