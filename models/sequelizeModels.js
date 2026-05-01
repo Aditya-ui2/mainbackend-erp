@@ -337,7 +337,7 @@ Client.init({
         defaultValue: {}
     },
     status: {
-        type: DataTypes.ENUM('Accepted', 'Requested', 'Rejected'),
+        type: DataTypes.ENUM('Accepted', 'Requested', 'Rejected', 'Active', 'Inactive'),
         defaultValue: 'Requested'
     },
     teamLeaderId: {

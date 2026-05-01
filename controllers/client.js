@@ -109,6 +109,14 @@ const loginClient = async (req, res) => {
             return res.status(404).json({ message: 'Client not found' });
         }
 
+        // Check if client is active
+        if (client.status === 'Inactive') {
+            return res.status(403).json({ 
+                success: false,
+                message: 'Your account is currently inactive. Please contact support to reactivate your access.' 
+            });
+        }
+
         // Validate the password
         const isPasswordValid = await comparePasswords(password, client.password);
         if (!isPasswordValid) {
@@ -206,7 +214,7 @@ const onboardClient = async (req, res) => {
 
                 // Update client
                 await client.update({
-                    status: 'Accepted',
+                    status: 'Active',
                     teamLeaderId: teamLeaderId,
                     password: hashedPassword
                 }, { transaction });
