@@ -121,6 +121,7 @@ router.get('/folders', resumeBankController.getFolders);
  *         description: Search results
  */
 router.get('/search-s3', resumeBankController.searchS3);
+router.get('/deep-search', resumeBankController.deepSearchSharePoint);
 
 /**
  * @swagger

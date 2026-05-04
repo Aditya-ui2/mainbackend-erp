@@ -244,7 +244,9 @@ const getResumes = async (req, res) => {
             where[Op.or] = [
                 { candidateName: { [Op.iLike]: `%${search}%` } },
                 { fileName: { [Op.iLike]: `%${search}%` } },
-                { roleType: { [Op.iLike]: `%${search}%` } }
+                { roleType: { [Op.iLike]: `%${search}%` } },
+                { email: { [Op.iLike]: `%${search}%` } },
+                { phone: { [Op.iLike]: `%${search}%` } }
             ];
         }
         
@@ -688,6 +690,44 @@ const getFolders = async (req, res) => {
     }
 };
 
+/**
+ * Deep search resumes in SharePoint (searches inside file content)
+ * GET /api/resumebank/deep-search
+ */
+const deepSearchSharePoint = async (req, res) => {
+    try {
+        const { query } = req.query;
+        
+        if (!query) {
+            return res.status(400).json({ success: false, message: 'Search query required' });
+        }
+
+        const siteId = await sharePointService.getSiteId();
+        const drives = await sharePointService.getDrives(siteId);
+        const docLib = drives.find(d => d.name === 'Documents' || d.name === 'Shared Documents');
+        
+        if (!docLib) {
+            return res.status(404).json({ success: false, message: 'SharePoint document library not found' });
+        }
+
+        const results = await sharePointService.searchResumes(siteId, docLib.id, query);
+        
+        // Map SharePoint results to existing database records if possible
+        const sharePointIds = results.map(r => r.sharePointId);
+        const dbRecords = await ResumeBank.findAll({
+            where: { sharePointId: { [Op.in]: sharePointIds } }
+        });
+
+        res.json({
+            success: true,
+            results: dbRecords.length > 0 ? dbRecords : results
+        });
+    } catch (error) {
+        console.error('Deep search error:', error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
+
 module.exports = {
     syncResumes,
     syncSharePoint,
@@ -701,5 +741,6 @@ module.exports = {
     getDownloadUrl,
     getStats,
     searchS3,
-    getFolders
+    getFolders,
+    deepSearchSharePoint
 };
