@@ -1620,13 +1620,13 @@ const getOffers = async (req, res) => {
                 ...(clientId ? [{ clientId }] : []),
                 {
                     [Op.or]: [
-                        { stage: 'Offer Sent' },
+                        { stage: { [Op.in]: ['Offer Sent', 'Joined'] } },
                         { offeredCTC: { [Op.ne]: null } },
                         { offerDate: { [Op.ne]: null } },
                         { offerExpiryDate: { [Op.ne]: null } },
                         { joiningDate: { [Op.ne]: null } },
                         { negotiationNotes: { [Op.ne]: null } },
-                        { offerStatus: { [Op.in]: ['Pending Approval', 'Sent', 'Negotiating', 'Accepted', 'Rejected', 'Expired'] } }
+                        { offerStatus: { [Op.in]: ['Pending Approval', 'Sent', 'Negotiating', 'Accepted', 'Rejected', 'Expired', 'Joined'] } }
                     ]
                 }
             ]
@@ -1643,13 +1643,13 @@ const getOffers = async (req, res) => {
 
         const data = candidates
             .filter((candidate) =>
-                candidate.stage === 'Offer Sent' ||
+                ['Offer Sent', 'Joined'].includes(candidate.stage) ||
                 candidate.offeredCTC ||
                 candidate.offerDate ||
                 candidate.offerExpiryDate ||
                 candidate.joiningDate ||
                 candidate.negotiationNotes ||
-                ['Pending Approval', 'Sent', 'Negotiating', 'Accepted', 'Rejected', 'Expired'].includes(candidate.offerStatus)
+                ['Pending Approval', 'Sent', 'Negotiating', 'Accepted', 'Rejected', 'Expired', 'Joined'].includes(candidate.offerStatus)
             )
             .map((candidate) => ({
                 id: candidate.id,
@@ -2406,7 +2406,8 @@ const getMyPerformanceStats = async (req, res) => {
 
         // Check if user is a manager/head to perform team aggregation
         let memberIds = [userId];
-        const isHead = req.user.role === 'Department Head' || req.user.role === 'Admin' || req.user.id === '60de4380-0140-49ff-b26d-a8d06333af11';
+        const userRole = (req.user.role || '').toLowerCase();
+        const isHead = ['department head', 'admin', 'recruitment head', 'recruitmenthead', 'team leader', 'teamleader', 'tl'].includes(userRole) || req.user.id === '60de4380-0140-49ff-b26d-a8d06333af11';
         
         if (isHead) {
             const teamMembers = await DepartmentTeam.findAll({ 

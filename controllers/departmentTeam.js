@@ -60,8 +60,8 @@ const getTeamMembers = async (req, res) => {
             raw: true
         });
 
-        // Optionally fetch stats (slower, so make it optional)
-        const includeStats = req.query.includeStats !== 'false';
+        // Default to false for performance; only fetch stats if explicitly requested
+        const includeStats = req.query.includeStats === 'true';
         let result = members;
 
         if (includeStats && members.length > 0) {

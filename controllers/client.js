@@ -432,7 +432,8 @@ const getAllClients = async (req, res) => {
         console.error('Error retrieving clients:', error);
         res.status(500).json({ 
             success: false,
-            message: 'Error retrieving clients'
+            message: error.message || 'Error retrieving clients',
+            error: process.env.NODE_ENV === 'development' ? error.stack : undefined
         });
     }
 };

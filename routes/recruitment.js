@@ -96,9 +96,36 @@ router.get('/health', (req, res) => {
 router.get('/onboarding-gen-creds', (req, res) => res.send('Endpoint Active - Use POST'));
 router.get('/fix-db', async (req, res) => {
     try {
+        console.log('[FIX-DB] Running database repair...');
+        
+        // 1. Drop problematic constraint
         await RecruitmentPosition.sequelize.query('ALTER TABLE candidates DROP CONSTRAINT IF EXISTS "candidates_addedById_fkey"');
-        res.json({ success: true, message: 'Database constraint dropped successfully' });
+        
+        // 2. Add core missing columns
+        await RecruitmentPosition.sequelize.query('ALTER TABLE candidates ADD COLUMN IF NOT EXISTS "sharePointId" VARCHAR(255)');
+        await RecruitmentPosition.sequelize.query('ALTER TABLE candidates ADD COLUMN IF NOT EXISTS "resumeId" UUID');
+        await RecruitmentPosition.sequelize.query('ALTER TABLE candidates ADD COLUMN IF NOT EXISTS "firebaseUid" VARCHAR(255)');
+        
+        // 3. Add offer-related columns
+        await RecruitmentPosition.sequelize.query('ALTER TABLE candidates ADD COLUMN IF NOT EXISTS "currentSalary" VARCHAR(255)');
+        await RecruitmentPosition.sequelize.query('ALTER TABLE candidates ADD COLUMN IF NOT EXISTS "expectedSalary" VARCHAR(255)');
+        await RecruitmentPosition.sequelize.query('ALTER TABLE candidates ADD COLUMN IF NOT EXISTS "offeredCTC" VARCHAR(255)');
+        await RecruitmentPosition.sequelize.query('ALTER TABLE candidates ADD COLUMN IF NOT EXISTS "offerDate" DATE');
+        await RecruitmentPosition.sequelize.query('ALTER TABLE candidates ADD COLUMN IF NOT EXISTS "offerExpiryDate" DATE');
+        await RecruitmentPosition.sequelize.query('ALTER TABLE candidates ADD COLUMN IF NOT EXISTS "joiningDate" DATE');
+        await RecruitmentPosition.sequelize.query('ALTER TABLE candidates ADD COLUMN IF NOT EXISTS "negotiationNotes" TEXT');
+        await RecruitmentPosition.sequelize.query('ALTER TABLE candidates ADD COLUMN IF NOT EXISTS "offerStatus" VARCHAR(255) DEFAULT \'Draft\'');
+        await RecruitmentPosition.sequelize.query('ALTER TABLE candidates ADD COLUMN IF NOT EXISTS "offerLetterUrl" VARCHAR(255)');
+        await RecruitmentPosition.sequelize.query('ALTER TABLE candidates ADD COLUMN IF NOT EXISTS "offerLetterFileName" VARCHAR(255)');
+        await RecruitmentPosition.sequelize.query('ALTER TABLE candidates ADD COLUMN IF NOT EXISTS "bgvStatus" VARCHAR(255) DEFAULT \'Not Started\'');
+        
+        console.log('[FIX-DB] Database repair completed successfully');
+        res.json({ 
+            success: true, 
+            message: 'Database repair completed: All missing columns added to candidates table.' 
+        });
     } catch (err) {
+        console.error('[FIX-DB] Repair failed:', err);
         res.status(500).json({ success: false, error: err.message });
     }
 });
