@@ -458,6 +458,22 @@ const { sequelize } = require('./models/sequelizeModels');
         await sequelize.query('ALTER TABLE clients ADD COLUMN IF NOT EXISTS \"leadSource\" VARCHAR(255)');
         await sequelize.query('ALTER TABLE clients ADD COLUMN IF NOT EXISTS \"onboardingNotes\" TEXT');
         await sequelize.query('ALTER TABLE clients ADD COLUMN IF NOT EXISTS \"assignKAM\" VARCHAR(255)');
+        await sequelize.query('ALTER TABLE clients ADD COLUMN IF NOT EXISTS \"industry\" VARCHAR(255)');
+        await sequelize.query('ALTER TABLE clients ADD COLUMN IF NOT EXISTS \"probability\" INTEGER DEFAULT 25');
+        
+        // Handle stage column with enum
+        try {
+            await sequelize.query(`
+                DO $$ BEGIN
+                    CREATE TYPE enum_clients_stage AS ENUM('Onboarding Complete', 'Finalize', 'Lead Stage');
+                EXCEPTION
+                    WHEN duplicate_object THEN null;
+                END $$;
+            `);
+            await sequelize.query('ALTER TABLE clients ADD COLUMN IF NOT EXISTS \"stage\" enum_clients_stage DEFAULT \'Lead Stage\'');
+        } catch (e) {
+            console.log('Stage column patch failed:', e.message);
+        }
         
         // Create Finance Tables
         await sequelize.query(`
