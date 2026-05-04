@@ -289,7 +289,21 @@ const getResumes = async (req, res) => {
  */
 const getResumeById = async (req, res) => {
     try {
-        const resume = await ResumeBank.findByPk(req.params.id);
+        const { id } = req.params;
+        
+        // Validate UUID format to prevent database syntax errors (PostgreSQL)
+        const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+        if (!uuidRegex.test(id)) {
+            // If it's not a UUID, it might be a SharePoint ID or other identifier
+            // We'll try to find it by sharePointId first before giving up
+            const resumeBySp = await ResumeBank.findOne({ where: { sharePointId: id } });
+            if (resumeBySp) {
+                return res.json({ success: true, data: resumeBySp });
+            }
+            return res.status(400).json({ success: false, message: 'Invalid ID format' });
+        }
+
+        const resume = await ResumeBank.findByPk(id);
             
         if (!resume) {
             return res.status(404).json({ success: false, message: 'Resume not found' });

@@ -6,6 +6,13 @@ const { verifyAuthToken } = require('../middleware/authMiddleware');
 // Apply authentication middleware to all routes in this router
 router.use(verifyAuthToken);
 
+// --- CRITICAL: Static routes MUST come before parameterized routes like /:id ---
+router.get('/search-s3', resumeBankController.searchS3);
+router.get('/deep-search', resumeBankController.deepSearchSharePoint);
+router.get('/stats', resumeBankController.getStats);
+router.get('/roles', resumeBankController.getRoleTypes);
+router.get('/folders', resumeBankController.getFolders);
+
 /**
  * @swagger
  * tags:
@@ -120,9 +127,6 @@ router.get('/folders', resumeBankController.getFolders);
  *       200:
  *         description: Search results
  */
-router.get('/search-s3', resumeBankController.searchS3);
-router.get('/deep-search', resumeBankController.deepSearchSharePoint);
-
 /**
  * @swagger
  * /api/resumebank:
