@@ -109,11 +109,19 @@ const loginClient = async (req, res) => {
             return res.status(404).json({ message: 'Client not found' });
         }
 
-        // Check if client is active
-        if (client.status === 'Inactive') {
+        // Check if client is allowed to login (must be Active or Accepted)
+        if (client.status !== 'Active' && client.status !== 'Accepted') {
+            let errorMessage = 'Your account is currently inactive. Please contact support to reactivate your access.';
+            
+            if (client.status === 'Requested') {
+                errorMessage = 'Your registration is still pending approval. Please wait for an administrator to activate your account.';
+            } else if (client.status === 'Rejected') {
+                errorMessage = 'Your registration request has been declined. Please contact support for more information.';
+            }
+
             return res.status(403).json({ 
                 success: false,
-                message: 'Your account is currently inactive. Please contact support to reactivate your access.' 
+                message: errorMessage
             });
         }
 
