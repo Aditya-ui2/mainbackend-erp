@@ -239,7 +239,7 @@ class Client extends Model {
 
 Client.init({
     id: {
-        type: DataTypes.UUID,
+        type: DataTypes.STRING,
         defaultValue: DataTypes.UUIDV4,
         primaryKey: true
     },
@@ -376,7 +376,7 @@ const RequestTask = sequelize.define('RequestTask', {
         allowNull: false
     },
     clientId: {
-        type: DataTypes.UUID,
+        type: DataTypes.STRING,
         allowNull: false,
         references: {
             model: 'clients',
@@ -436,7 +436,7 @@ const Task = sequelize.define('Task', {
         defaultValue: 'Deadline'
     },
     clientId: {
-        type: DataTypes.UUID,
+        type: DataTypes.STRING,
         allowNull: true,
         references: {
             model: 'clients',
@@ -493,7 +493,7 @@ const RecurringTask = sequelize.define('RecurringTask', {
         allowNull: false
     },
     clientId: {
-        type: DataTypes.UUID,
+        type: DataTypes.STRING,
         allowNull: false,
         references: {
             model: 'clients',
@@ -673,7 +673,7 @@ const RecruitmentPosition = sequelize.define('RecruitmentPosition', {
         allowNull: true
     },
     clientId: {
-        type: DataTypes.UUID,
+        type: DataTypes.STRING,
         allowNull: true,
         references: {
             model: 'clients',
@@ -772,7 +772,7 @@ const Candidate = sequelize.define('Candidate', {
         }
     },
     clientId: {
-        type: DataTypes.UUID,
+        type: DataTypes.STRING,
         allowNull: true,
         references: {
             model: 'clients',
@@ -1937,7 +1937,7 @@ const SharePointClient = sequelize.define('SharePointClient', {
 const ClientAccount = sequelize.define('ClientAccount', {
     id: { type: DataTypes.UUID, defaultValue: DataTypes.UUIDV4, primaryKey: true },
     clientId: { 
-        type: DataTypes.UUID, 
+        type: DataTypes.STRING, 
         allowNull: false,
         references: { model: 'clients', key: 'id' }
     },
@@ -1956,7 +1956,7 @@ const Invoice = sequelize.define('Invoice', {
     id: { type: DataTypes.UUID, defaultValue: DataTypes.UUIDV4, primaryKey: true },
     invoiceNumber: { type: DataTypes.STRING, allowNull: false, unique: true },
     clientId: { 
-        type: DataTypes.UUID, 
+        type: DataTypes.STRING, 
         allowNull: false,
         references: { model: 'clients', key: 'id' }
     },
@@ -2024,7 +2024,7 @@ const ClientReport = sequelize.define('ClientReport', {
         unique: true
     },
     clientId: {
-        type: DataTypes.UUID,
+        type: DataTypes.STRING,
         allowNull: false,
         references: {
             model: 'clients',
@@ -2064,7 +2064,7 @@ const ClientMeeting = sequelize.define('ClientMeeting', {
         allowNull: false
     },
     clientId: {
-        type: DataTypes.UUID,
+        type: DataTypes.STRING,
         allowNull: false,
         references: {
             model: 'clients',
