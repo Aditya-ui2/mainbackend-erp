@@ -837,7 +837,6 @@ const streamResume = async (req, res) => {
                 res.status(404).send('Resume file not found locally or on SharePoint');
             }
         }
-        }
     } catch (error) {
         console.error('Resume streaming error:', error.message);
         res.status(500).send('Internal server error');
