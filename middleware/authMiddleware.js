@@ -49,16 +49,19 @@ const hasRoleAccess = (userRole, allowedRoles = []) => {
 const verifyAuthToken = (req, res, next) => {
     try {
         const authHeader = req.headers['authorization'];
+        let token;
 
-        // Check if the authorization header is present
-        if (!authHeader) {
-            return res.status(401).json({ message: 'Authorization header is missing' });
+        if (authHeader) {
+            // Extract the token from the header (usually "Bearer <token>")
+            token = authHeader.split(' ')[1];
+        } else if (req.query.token) {
+            // Support token in query string for window.open() or direct links
+            token = req.query.token;
         }
 
-        // Extract the token from the header (usually "Bearer <token>")
-        let token = authHeader.split(' ')[1];
+        // Check if the token is present
         if (!token) {
-            return res.status(401).json({ message: 'Token is missing' });
+            return res.status(401).json({ message: 'Authorization token is missing' });
         }
 
         // Handle accidental quoted token in Authorization header.

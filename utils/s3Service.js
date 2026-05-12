@@ -163,7 +163,8 @@ class S3Service {
       const params = {
         Bucket: this.bucketName,
         Key: fileKey,
-        Expires: expiresIn // URL expires in 1 hour by default
+        Expires: expiresIn, // URL expires in 1 hour by default
+        ResponseContentDisposition: 'inline'
       };
 
       const url = await this.s3.getSignedUrlPromise('getObject', params);

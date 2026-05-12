@@ -90,6 +90,13 @@ app.use('/uploads', (req, res, next) => {
     res.setHeader('X-Frame-Options', 'ALLOWALL'); 
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Content-Security-Policy', "frame-ancestors 'self' http://localhost:* http://127.0.0.1:*");
+    
+    // Force browser to display instead of download if it's a PDF or image
+    const ext = path.extname(req.path).toLowerCase();
+    if (['.pdf', '.jpg', '.jpeg', '.png', '.txt'].includes(ext)) {
+        res.setHeader('Content-Disposition', 'inline');
+    }
+    
     next();
 }, express.static(path.join(__dirname, 'uploads')));
 

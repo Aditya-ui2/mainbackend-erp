@@ -365,5 +365,6 @@ router.put('/:id', resumeBankController.updateResume);
  *         description: Download URL
  */
 router.get('/:id/download', resumeBankController.getDownloadUrl);
+router.get('/:id/view', resumeBankController.streamResume);
 
 module.exports = router;

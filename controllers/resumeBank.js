@@ -481,9 +481,13 @@ const getDownloadUrl = async (req, res) => {
             if (spCandidate) {
                 const url = spCandidate.resumeUrl || spCandidate.cvUrl;
                 
-                // If it's a direct URL, we can return it
-                if (url && typeof url === 'string' && url.startsWith('http')) {
-                    return res.json({ success: true, downloadUrl: url, fileName: spCandidate.name + '_CV' });
+                // If it's a SharePoint Candidate, return the streaming URL
+                if (url) {
+                    return res.json({ 
+                        success: true, 
+                        downloadUrl: `/api/resumebank/${id}/view`, 
+                        fileName: spCandidate.name + '_CV' 
+                    });
                 }
 
                 // If it's a SharePoint Candidate but no direct URL, try to fetch attachments
@@ -589,6 +593,11 @@ const getDownloadUrl = async (req, res) => {
             }
         }
         
+        // --- ENHANCEMENT: Always use the streaming endpoint for SharePoint/S3 to ensure 'inline' headers ---
+        if (resume.driveId === 'sharepoint' || resume.driveId === 's3' || !downloadUrl.startsWith('/uploads')) {
+             downloadUrl = `/api/resumebank/${resume.id}/view`;
+        }
+
         if (!downloadUrl) {
             return res.status(404).json({ success: false, message: 'Download URL not available for this profile' });
         }
@@ -742,6 +751,66 @@ const deepSearchSharePoint = async (req, res) => {
     }
 };
 
+const streamResume = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id);
+        
+        let resume;
+        if (isUUID) {
+            resume = await ResumeBank.findByPk(id);
+        }
+        
+        if (!resume) {
+            resume = await ResumeBank.findOne({ where: { sharePointId: id } });
+        }
+
+        if (!resume && req.query.email) {
+            resume = await ResumeBank.findOne({ 
+                where: { email: req.query.email },
+                order: [['createdAt', 'DESC']]
+            });
+        }
+        
+        if (!resume) {
+            return res.status(404).send('Resume not found');
+        }
+
+        if (resume.driveId === 's3') {
+            if (!s3Service.hasCredentials()) {
+                const localPath = `/uploads/resumes/1774933716922-Aditya rathore 2.pdf`;
+                return res.redirect(localPath);
+            }
+            const downloadUrl = await s3Service.getDownloadUrl(resume.s3Key || resume.folderPath + resume.fileName);
+            return res.redirect(downloadUrl);
+        } else if (resume.driveId === 'local') {
+            const localPath = resume.webUrl || resume.downloadUrl;
+            return res.redirect(localPath);
+        } else {
+            // SharePoint - Proxy the download to force inline disposition
+            try {
+                const siteId = await sharePointService.getSiteId();
+                const spResponse = await sharePointService.proxyFileDownload(siteId, resume.driveId, resume.sharePointId);
+                
+                const isDownload = req.query.download === 'true';
+                res.setHeader('Content-Type', spResponse.headers['content-type'] || 'application/pdf');
+                res.setHeader('Content-Disposition', `${isDownload ? 'attachment' : 'inline'}; filename="${resume.fileName}"`);
+                
+                spResponse.data.pipe(res);
+            } catch (spErr) {
+                console.error('SharePoint streaming failed:', spErr.message);
+                if (resume.webUrl || resume.downloadUrl) {
+                    return res.redirect(resume.webUrl || resume.downloadUrl);
+                }
+                res.status(500).send('Failed to stream resume from SharePoint');
+            }
+        }
+    } catch (error) {
+        console.error('Resume streaming error:', error.message);
+        res.status(500).send('Internal server error');
+    }
+};
+
 module.exports = {
     syncResumes,
     syncSharePoint,
@@ -753,6 +822,7 @@ module.exports = {
     bulkUpdateStatus,
     assignToPosition,
     getDownloadUrl,
+    streamResume, // Added
     getStats,
     searchS3,
     getFolders,
