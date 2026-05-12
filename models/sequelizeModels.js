@@ -1363,7 +1363,7 @@ DepartmentTeam.init({
         defaultValue: 'Team Member'
     },
     department: {
-        type: DataTypes.ENUM('HR Operations', 'HR Recruitment', 'Operations', 'KAM Operations', 'HR', 'Management', 'CRM', 'Finance', 'Sales', 'IT', 'BD'),
+        type: DataTypes.ENUM('HR Operations', 'HR Recruitment', 'Operations', 'KAM Operations', 'HR', 'Management', 'CRM', 'Finance', 'Sales', 'IT', 'BD', 'Marketing'),
         allowNull: false
     },
     managerId: {
