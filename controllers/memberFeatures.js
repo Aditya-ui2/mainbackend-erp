@@ -5,9 +5,24 @@ const { addNotification } = require('./notification');
 // ============== MY PROFILE ==============
 const getMyProfile = async (req, res) => {
     try {
-        const member = await DepartmentTeam.findByPk(req.user.id, {
-            attributes: { exclude: ['password'] }
-        });
+        const id = req.user.id;
+        const email = req.user.email;
+
+        let member;
+        if (id) {
+            member = await DepartmentTeam.findByPk(id, {
+                attributes: { exclude: ['password'] }
+            });
+        }
+        
+        // Fallback to email if ID lookup fails or is missing (useful for mock tokens)
+        if (!member && email) {
+            member = await DepartmentTeam.findOne({
+                where: { email: email.toLowerCase() },
+                attributes: { exclude: ['password'] }
+            });
+        }
+
         if (!member) return res.status(404).json({ success: false, message: 'Member not found' });
         res.json({ success: true, member });
     } catch (error) {
@@ -18,10 +33,22 @@ const getMyProfile = async (req, res) => {
 const updateMyProfile = async (req, res) => {
     try {
         const { name, phone, avatar, skills } = req.body;
-        const member = await DepartmentTeam.findByPk(req.user.id);
+        const id = req.user.id;
+        const email = req.user.email;
+
+        let member;
+        if (id) {
+            member = await DepartmentTeam.findByPk(id);
+        }
+        
+        if (!member && email) {
+            member = await DepartmentTeam.findOne({ where: { email: email.toLowerCase() } });
+        }
+
         if (!member) return res.status(404).json({ success: false, message: 'Member not found' });
+        
         await member.update({ name, phone, avatar, skills });
-        const updated = await DepartmentTeam.findByPk(req.user.id, { attributes: { exclude: ['password'] } });
+        const updated = await DepartmentTeam.findByPk(member.id, { attributes: { exclude: ['password'] } });
         res.json({ success: true, member: updated });
     } catch (error) {
         res.status(500).json({ success: false, message: error.message });

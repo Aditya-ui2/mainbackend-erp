@@ -418,13 +418,9 @@ const getAllClients = async (req, res) => {
                 as: 'teamLeader',
                 attributes: ['id', 'name', 'email', 'phone']
             }],
-            attributes: [
-                'id', 'name', 'email', 'companyName', 'corporateAddress', 'contactNumber', 
-                'gstNumber', 'panNumber', 'cinNumber', 'spocName', 'spocContact', 'status', 'createdAt',
-                'city', 'pinCode', 'ownerName', 'ownerEmail', 'agreementType', 'agreementEffectiveDate',
-                'feeAmount', 'paymentTerms', 'shopsLicense', 'factoryLicense', 'msmeRegistered',
-                'totalEmployees', 'payrollCycle', 'pfApplicable', 'esicApplicable', 'leadSource', 'onboardingNotes', 'assignKAM', 'stage'
-            ],
+            attributes: { 
+                exclude: ['password', 'resetPasswordToken', 'resetPasswordExpires'] 
+            },
             order: [['createdAt', 'DESC']]
         });
 

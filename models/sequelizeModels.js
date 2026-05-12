@@ -1,5 +1,6 @@
 const { Sequelize, DataTypes, Model } = require('sequelize');
 const crypto = require('crypto');
+require('dotenv').config();
 
 // Initialize Sequelize with PostgreSQL
 const sequelize = new Sequelize(
