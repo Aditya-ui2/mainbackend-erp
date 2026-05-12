@@ -22,8 +22,10 @@ const sequelize = new Sequelize(
             ssl: process.env.DB_SSL === 'false' ? false : {
                 require: true,
                 rejectUnauthorized: false
-            }
-        }
+            },
+            prependSearchPath: true
+        },
+        schema: 'public'
     }
 );
 
