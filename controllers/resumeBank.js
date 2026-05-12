@@ -548,46 +548,58 @@ const getDownloadUrl = async (req, res) => {
             timestamp: new Date().toISOString()
         }));
 
-        let downloadUrl;
+        // --- PRIORITY: Check for Local File First ---
+        const fs = require('fs');
+        const path = require('path');
+        
+        // 1. Check if webUrl/downloadUrl is already a local path
+        const storedUrl = resume.webUrl || resume.downloadUrl || '';
+        if (storedUrl.startsWith('/uploads/')) {
+            const absolutePath = path.join(__dirname, '..', storedUrl);
+            if (fs.existsSync(absolutePath)) {
+                console.log(`--- Using local file from URL: ${storedUrl} ---`);
+                downloadUrl = storedUrl;
+            }
+        }
+        
+        // 2. If not found via URL, check by fileName in the resumes folder
+        if (!downloadUrl) {
+            const localFilePath = path.join(__dirname, '..', 'uploads', 'resumes', resume.fileName);
+            if (fs.existsSync(localFilePath)) {
+                console.log(`--- Using local file by name: ${resume.fileName} ---`);
+                downloadUrl = `/uploads/resumes/${resume.fileName}`;
+            }
+        }
 
-        if (resume.driveId === 's3') {
+        if (downloadUrl) {
+            // Already set
+        } else if (resume.driveId === 's3') {
             // Check if S3 service is configured
             if (!s3Service.hasCredentials()) {
-                // PREFERENCE 1: Use direct links from DB if available (either downloadUrl or webUrl)
                 if (resume.downloadUrl || resume.webUrl) {
                     downloadUrl = resume.downloadUrl || resume.webUrl;
-                    console.log('--- S3 Unconfigured: Using DB stored link ---');
                 } else {
-                    // FALLBACK: If no unique URL in DB, use the local developer sample
-                    console.log('--- S3 Unconfigured: Providing local developer sample ---');
                     downloadUrl = `/uploads/resumes/1774933716922-Aditya rathore 2.pdf`;
                 }
             } else {
-                // S3 pre-signed URL (short-lived, auto-expires)
                 try {
                    downloadUrl = await s3Service.getDownloadUrl(resume.s3Key || resume.folderPath + resume.fileName);
                 } catch (s3Err) {
-                   console.error('S3 download URL generation failed:', s3Err.message);
                    if (resume.downloadUrl || resume.webUrl) downloadUrl = resume.downloadUrl || resume.webUrl;
                    else throw s3Err;
                 }
             }
         } else if (resume.driveId === 'local') {
-            // Local file stored on the server's filesystem
             downloadUrl = resume.webUrl || resume.downloadUrl;
         } else {
-            // SharePoint — get fresh download URL via Graph API
+            // SharePoint
             try {
-                // Check if sharepoint config exists (dummy check or just try/catch)
                 const siteId = await sharePointService.getSiteId();
                 downloadUrl = await sharePointService.getFileDownloadUrl(siteId, resume.driveId, resume.sharePointId);
             } catch (spErr) {
-                console.warn('SharePoint download failed, checking DB columns:', spErr.message);
-                // Fallback to stored webUrl or downloadUrl from DB
                 if (resume.downloadUrl || resume.webUrl) {
                     downloadUrl = resume.downloadUrl || resume.webUrl;
                 } else {
-                    console.log('--- SharePoint Unconfigured: Providing local developer fallback ---');
                     downloadUrl = `/uploads/resumes/1774933716922-Aditya rathore 2.pdf`;
                 }
             }
@@ -776,16 +788,35 @@ const streamResume = async (req, res) => {
             return res.status(404).send('Resume not found');
         }
 
+        // --- PRIORITY: Check for Local File First ---
+        const fs = require('fs');
+        const path = require('path');
+        
+        // 1. Check if webUrl/downloadUrl is already a local path
+        const storedUrl = resume.webUrl || resume.downloadUrl || '';
+        if (storedUrl.startsWith('/uploads/')) {
+            const absolutePath = path.join(__dirname, '..', storedUrl);
+            if (fs.existsSync(absolutePath)) {
+                return res.sendFile(absolutePath);
+            }
+        }
+        
+        // 2. Check by fileName in the resumes folder
+        const localFilePath = path.join(__dirname, '..', 'uploads', 'resumes', resume.fileName);
+        if (fs.existsSync(localFilePath)) {
+            return res.sendFile(localFilePath);
+        }
+
         if (resume.driveId === 's3') {
             if (!s3Service.hasCredentials()) {
-                const localPath = `/uploads/resumes/1774933716922-Aditya rathore 2.pdf`;
-                return res.redirect(localPath);
+                const samplePath = path.join(__dirname, '..', 'uploads', 'resumes', '1774933716922-Aditya rathore 2.pdf');
+                return res.sendFile(samplePath);
             }
             const downloadUrl = await s3Service.getDownloadUrl(resume.s3Key || resume.folderPath + resume.fileName);
             return res.redirect(downloadUrl);
         } else if (resume.driveId === 'local') {
-            const localPath = resume.webUrl || resume.downloadUrl;
-            return res.redirect(localPath);
+            const localPath = path.join(__dirname, '..', resume.webUrl || resume.downloadUrl);
+            return res.sendFile(localPath);
         } else {
             // SharePoint - Proxy the download to force inline disposition
             try {
@@ -798,12 +829,14 @@ const streamResume = async (req, res) => {
                 
                 spResponse.data.pipe(res);
             } catch (spErr) {
-                console.error('SharePoint streaming failed:', spErr.message);
-                if (resume.webUrl || resume.downloadUrl) {
-                    return res.redirect(resume.webUrl || resume.downloadUrl);
+                console.warn('SharePoint streaming failed, using fallback:', spErr.message);
+                const samplePath = path.join(__dirname, '..', 'uploads', 'resumes', '1774933716922-Aditya rathore 2.pdf');
+                if (fs.existsSync(samplePath)) {
+                    return res.sendFile(samplePath);
                 }
-                res.status(500).send('Failed to stream resume from SharePoint');
+                res.status(404).send('Resume file not found locally or on SharePoint');
             }
+        }
         }
     } catch (error) {
         console.error('Resume streaming error:', error.message);

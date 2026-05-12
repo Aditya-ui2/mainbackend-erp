@@ -239,7 +239,7 @@ class Client extends Model {
 
 Client.init({
     id: {
-        type: DataTypes.STRING,
+        type: DataTypes.UUID,
         defaultValue: DataTypes.UUIDV4,
         primaryKey: true
     },
@@ -1937,7 +1937,7 @@ const SharePointClient = sequelize.define('SharePointClient', {
 const ClientAccount = sequelize.define('ClientAccount', {
     id: { type: DataTypes.UUID, defaultValue: DataTypes.UUIDV4, primaryKey: true },
     clientId: { 
-        type: DataTypes.STRING, 
+        type: DataTypes.UUID, 
         allowNull: false,
         references: { model: 'clients', key: 'id' }
     },
@@ -1956,7 +1956,7 @@ const Invoice = sequelize.define('Invoice', {
     id: { type: DataTypes.UUID, defaultValue: DataTypes.UUIDV4, primaryKey: true },
     invoiceNumber: { type: DataTypes.STRING, allowNull: false, unique: true },
     clientId: { 
-        type: DataTypes.STRING, 
+        type: DataTypes.UUID, 
         allowNull: false,
         references: { model: 'clients', key: 'id' }
     },
@@ -2024,7 +2024,7 @@ const ClientReport = sequelize.define('ClientReport', {
         unique: true
     },
     clientId: {
-        type: DataTypes.STRING,
+        type: DataTypes.UUID,
         allowNull: false,
         references: {
             model: 'clients',
@@ -2064,7 +2064,7 @@ const ClientMeeting = sequelize.define('ClientMeeting', {
         allowNull: false
     },
     clientId: {
-        type: DataTypes.STRING,
+        type: DataTypes.UUID,
         allowNull: false,
         references: {
             model: 'clients',
