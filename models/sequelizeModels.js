@@ -299,6 +299,7 @@ Client.init({
     },
     // New Onboarding Fields
     city: { type: DataTypes.STRING },
+    state: { type: DataTypes.STRING },
     pinCode: { type: DataTypes.STRING },
     ownerName: { type: DataTypes.STRING },
     ownerEmail: { type: DataTypes.STRING },
@@ -800,6 +801,14 @@ const Candidate = sequelize.define('Candidate', {
         defaultValue: 'pending'
     },
     location: {
+        type: DataTypes.STRING,
+        allowNull: true
+    },
+    city: {
+        type: DataTypes.STRING,
+        allowNull: true
+    },
+    state: {
         type: DataTypes.STRING,
         allowNull: true
     },

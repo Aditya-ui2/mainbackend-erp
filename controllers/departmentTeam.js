@@ -352,7 +352,8 @@ const getDepartmentTasks = async (req, res) => {
 const createDepartmentTask = async (req, res) => {
     try {
         const { title, description, department, assignedTo, priority, dueDate, positionId, candidateId } = req.body;
-        const assignedBy = req.user?.id;
+        const assignedBy = req.user?.id || req.body.assignedBy || 'system';
+        const assignedByName = req.user?.name || req.body.assignedByName || 'System User';
 
         // Validate required fields
         if (!title || !description || !department || !assignedTo || !priority) {
@@ -381,7 +382,7 @@ const createDepartmentTask = async (req, res) => {
             description,
             department,
             assignedBy,
-            assignedByName: req.user?.name || 'Manager',
+            assignedByName,
             assignedTo,
             assignedToName: assignee.name,
             priority,

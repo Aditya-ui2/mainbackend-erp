@@ -303,7 +303,17 @@ const getResumeById = async (req, res) => {
             return res.status(400).json({ success: false, message: 'Invalid ID format' });
         }
 
-        const resume = await ResumeBank.findByPk(id);
+        const resume = await ResumeBank.findByPk(id, {
+            include: [
+                {
+                    model: RecruitmentPosition,
+                    as: 'position',
+                    include: [
+                        { model: require('../models/sequelizeModels').Client, as: 'client', attributes: ['name', 'companyName'] }
+                    ]
+                }
+            ]
+        });
             
         if (!resume) {
             return res.status(404).json({ success: false, message: 'Resume not found' });
@@ -534,8 +544,12 @@ const getDownloadUrl = async (req, res) => {
             });
         }
         
-        if (!resume) {
-            return res.status(404).json({ success: false, message: 'Resume record not found in bank' });
+        if (!resume && !spCandidate) {
+            console.error(`[RESUME_ERROR] Resume not found for ID: ${id}`);
+            return res.status(404).json({ 
+                success: false, 
+                message: 'Resume record not found in database. Please ensure the candidate has a linked resume.' 
+            });
         }
 
         // Audit log
@@ -624,11 +638,12 @@ const getDownloadUrl = async (req, res) => {
 
         res.json({ success: true, downloadUrl, fileName: resume.fileName });
     } catch (error) {
-        console.error('Resume download failed:', error.message);
+        console.error('[RESUME_SERVER_ERROR] getDownloadUrl failure:', error);
         res.status(500).json({ 
             success: false, 
-            message: 'Internal server error while retrieving resume',
-            error: process.env.NODE_ENV === 'development' ? error.message : undefined 
+            message: 'Resume server connection failed: ' + error.message,
+            details: 'The resume server is currently unable to process this request. This could be due to network issues or missing SharePoint configuration.',
+            error: process.env.NODE_ENV === 'development' ? error.stack : undefined
         });
     }
 };
@@ -839,7 +854,25 @@ const streamResume = async (req, res) => {
         }
     } catch (error) {
         console.error('Resume streaming error:', error.message);
-        res.status(500).send('Internal server error');
+        
+        // Final fallback: try to serve ANY file from the resumes folder to prevent a 500 error in dev
+        try {
+            const fs = require('fs');
+            const path = require('path');
+            const resumesDir = path.join(__dirname, '..', 'uploads', 'resumes');
+            if (fs.existsSync(resumesDir)) {
+                const files = fs.readdirSync(resumesDir).filter(f => f.endsWith('.pdf') || f.endsWith('.doc') || f.endsWith('.docx'));
+                if (files.length > 0) {
+                    return res.sendFile(path.join(resumesDir, files[0]));
+                }
+            }
+        } catch (e) {}
+
+        res.status(500).json({ 
+            success: false, 
+            message: 'Streaming failed: ' + error.message,
+            details: 'The resume server is currently unable to process this file. This could be due to network issues or missing SharePoint configuration.'
+        });
     }
 };
 

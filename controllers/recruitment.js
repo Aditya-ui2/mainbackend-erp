@@ -1293,8 +1293,10 @@ const getRecruitmentStats = async (req, res) => {
 
 // Get all recruitment positions with filtering
 const getAllPositions = async (req, res) => {
+    console.log('[API_DEBUG] getAllPositions called by:', req.user?.id, 'Role:', req.user?.role);
     try {
         const { status, priority, client: clientId, search, sortBy, sortOrder, assignedToId } = req.query;
+        console.log('[API_DEBUG] Query params:', req.query);
 
         const where = {
             ...buildDateFieldFilter(buildDateRangeFromQuery(req.query), 'createdAt')
