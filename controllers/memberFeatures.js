@@ -235,11 +235,30 @@ const submitDailyReport = async (req, res) => {
             callsCount, profilesVisited, profilesShared,
             candidatesContacted, interviewsArranged
         } = req.body;
+
+        const userId = req.user.id;
+
+        if (!userId) {
+            console.error('❌ DAILY REPORT ERROR: No user ID found in request object after middleware', req.user);
+            return res.status(401).json({ 
+                success: false, 
+                message: 'Authentication failed: User ID missing from session. Please log out and log in again.' 
+            });
+        }
+
+        if (!summary) {
+            return res.status(400).json({ success: false, message: 'Summary is required' });
+        }
+
         const today = new Date().toISOString().split('T')[0];
-        const existing = await DailyReport.findOne({ where: { memberId: req.user.id, date: today } });
+        const existing = await DailyReport.findOne({ where: { memberId: userId, date: today } });
 
         const reportData = {
-            summary, tasksCompleted, tasksPlanned, blockers, mood,
+            summary, 
+            tasksCompleted: Array.isArray(tasksCompleted) ? tasksCompleted : [], 
+            tasksPlanned: Array.isArray(tasksPlanned) ? tasksPlanned : [], 
+            blockers, 
+            mood: mood || 'Good',
             checkInTime: checkInTime || null,
             checkOutTime: checkOutTime || null,
             workHours: parseFloat(workHours) || 0,
@@ -250,17 +269,26 @@ const submitDailyReport = async (req, res) => {
             interviewsArranged: parseInt(interviewsArranged) || 0,
         };
         
+        const department = req.user.department || 
+            (['kamRecruitment', 'recruitmentHead'].includes(req.user.role) ? 'HR Recruitment' : 
+             (['hrOperations', 'kamOperations'].includes(req.user.role) ? 'HR Operations' : 'CRM'));
+
         let report;
         let message;
         
         if (existing) {
-            await existing.update(reportData);
+            await existing.update({
+                ...reportData,
+                department // Update department too just in case
+            });
             report = existing;
             message = 'Report updated!';
         } else {
             report = await DailyReport.create({
-                memberId: req.user.id, memberName: req.user.name,
-                department: req.user.department, date: today,
+                memberId: userId, 
+                memberName: req.user.name || 'Unknown Member',
+                department: department, 
+                date: today,
                 ...reportData,
             });
             message = 'Report submitted!';
@@ -269,10 +297,11 @@ const submitDailyReport = async (req, res) => {
         // Notify Sachin (Recruitment Head)
         const sachinId = '60de4380-0140-49ff-b26d-a8d06333af11';
         try {
+            const truncatedSummary = summary ? (summary.substring(0, 50) + (summary.length > 50 ? '...' : '')) : '';
             await addNotification(
                 sachinId,
                 'DepartmentTeam',
-                `📋 Daily Report: ${req.user.name} submitted their report for ${today}. Summary: ${summary.substring(0, 50)}${summary.length > 50 ? '...' : ''}`,
+                `📋 Daily Report: ${req.user.name} submitted their report for ${today}. Summary: ${truncatedSummary}`,
                 'general',
                 'medium'
             );
@@ -282,6 +311,35 @@ const submitDailyReport = async (req, res) => {
 
         res.status(existing ? 200 : 201).json({ success: true, report, message });
     } catch (error) {
+        console.error('Daily Report Error:', error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
+
+const uploadMISAttachment = async (req, res) => {
+    try {
+        const { id } = req.params;
+        if (!req.file) return res.status(400).json({ success: false, message: 'No file uploaded' });
+
+        const report = await DailyReport.findByPk(id);
+        if (!report) return res.status(404).json({ success: false, message: 'Report not found' });
+
+        // Build file URL (relative to /uploads)
+        const fileUrl = `/uploads/mis/${req.file.filename}`;
+        
+        await report.update({
+            attachmentUrl: fileUrl,
+            attachmentName: req.file.originalname
+        });
+
+        res.json({ 
+            success: true, 
+            message: 'Attachment uploaded successfully',
+            attachmentUrl: fileUrl,
+            attachmentName: req.file.originalname
+        });
+    } catch (error) {
+        console.error('MIS Upload Error:', error);
         res.status(500).json({ success: false, message: error.message });
     }
 };
@@ -742,7 +800,7 @@ module.exports = {
     getLeaveRequests, applyLeave, getDeptLeaveRequests, approveRejectLeave,
     checkIn, checkOut, getMyAttendance, getDeptAttendance,
     getPerformanceStats,
-    submitDailyReport, getMyReports, getDeptReports, getMISReports, addHeadComment,
+    submitDailyReport, uploadMISAttachment, getMyReports, getDeptReports, getMISReports, addHeadComment,
     getAnnouncements, createAnnouncement, deleteAnnouncement,
     getDocuments, uploadDocument, deleteDocument,
     getMyTrainings, updateTraining, assignTraining,

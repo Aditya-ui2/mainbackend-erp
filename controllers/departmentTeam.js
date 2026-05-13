@@ -967,7 +967,12 @@ const seedDemoData = async (req, res) => {
         console.log(`🌱 Seeding Reports for ${employees.length} employees...`);
         const reportPromises = [];
         for (const emp of employees) {
-            reportPromises.push(DailyReport.create({ memberId: emp.id, memberName: emp.name, department: 'HR Operations', content: 'Completed my onboarding tasks and documentation.', status: 'Submitted' }));
+            reportPromises.push(DailyReport.create({ 
+                memberId: emp.id, 
+                memberName: emp.name, 
+                department: 'HR Operations', 
+                summary: 'Completed my onboarding tasks and documentation.'
+            }));
         }
         await Promise.all(reportPromises);
 

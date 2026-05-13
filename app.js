@@ -388,6 +388,8 @@ const { sequelize } = require('./models/sequelizeModels');
         await sequelize.query('ALTER TABLE candidates ADD COLUMN IF NOT EXISTS "username" VARCHAR(255) UNIQUE');
         await sequelize.query('ALTER TABLE candidates ADD COLUMN IF NOT EXISTS "rawPassword" VARCHAR(255)');
         await sequelize.query('ALTER TABLE candidates ADD COLUMN IF NOT EXISTS "firebaseUid" VARCHAR(255)');
+        await sequelize.query('ALTER TABLE candidates ADD COLUMN IF NOT EXISTS "city" VARCHAR(255)');
+        await sequelize.query('ALTER TABLE candidates ADD COLUMN IF NOT EXISTS "state" VARCHAR(255)');
         await sequelize.query('ALTER TABLE interviews ADD COLUMN IF NOT EXISTS \"interviewerId\" UUID');
         await sequelize.query('ALTER TABLE interviews ADD COLUMN IF NOT EXISTS \"interviewerType\" VARCHAR(255)');
         await sequelize.query('ALTER TABLE interviews ADD COLUMN IF NOT EXISTS \"interviewerName\" VARCHAR(255)');
@@ -446,6 +448,17 @@ const { sequelize } = require('./models/sequelizeModels');
         await sequelize.query('ALTER TABLE work_handovers ALTER COLUMN \"createdBy\" TYPE VARCHAR(255)');
         await sequelize.query('ALTER TABLE clients ALTER COLUMN \"id\" TYPE VARCHAR(255)').catch(e => console.log('clients id type change failed (expected if FKs exist):', e.message));
         
+        // Patch for DailyReport department ENUM expansion
+        try {
+            const departments = ['Operations', 'KAM Operations', 'Finance', 'Sales', 'IT', 'BD', 'Marketing'];
+            for (const dept of departments) {
+                await sequelize.query(`ALTER TYPE \"enum_DailyReports_department\" ADD VALUE IF NOT EXISTS '${dept}'`).catch(() => {});
+            }
+            console.log('✅ DailyReport department ENUM expanded');
+        } catch (e) {
+            console.log('DailyReport ENUM patch skipped or failed:', e.message);
+        }
+        
         // Add Onboarding Columns to Clients table
         await sequelize.query('ALTER TABLE clients ADD COLUMN IF NOT EXISTS \"city\" VARCHAR(255)');
         await sequelize.query('ALTER TABLE clients ADD COLUMN IF NOT EXISTS \"pinCode\" VARCHAR(255)');
@@ -455,6 +468,7 @@ const { sequelize } = require('./models/sequelizeModels');
         await sequelize.query('ALTER TABLE clients ADD COLUMN IF NOT EXISTS \"agreementEffectiveDate\" DATE');
         await sequelize.query('ALTER TABLE clients ADD COLUMN IF NOT EXISTS \"feeAmount\" VARCHAR(255)');
         await sequelize.query('ALTER TABLE clients ADD COLUMN IF NOT EXISTS \"paymentTerms\" VARCHAR(255)');
+        await sequelize.query('ALTER TABLE clients ADD COLUMN IF NOT EXISTS \"state\" VARCHAR(255)');
         await sequelize.query('ALTER TABLE clients ADD COLUMN IF NOT EXISTS \"shopsLicense\" VARCHAR(255)');
         await sequelize.query('ALTER TABLE clients ADD COLUMN IF NOT EXISTS \"factoryLicense\" VARCHAR(255)');
         await sequelize.query('ALTER TABLE clients ADD COLUMN IF NOT EXISTS \"msmeRegistered\" VARCHAR(255)');

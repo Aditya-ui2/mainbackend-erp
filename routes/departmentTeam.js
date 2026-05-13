@@ -18,6 +18,30 @@ const {
     getMyStats,
 } = require('../controllers/departmentTeam');
 const verifyAuthToken = require('../middleware/authMiddleware');
+const multer = require('multer');
+const path = require('path');
+
+// Configure multer for MIS attachments
+const misStorage = multer.diskStorage({
+    destination: (req, file, cb) => {
+        cb(null, 'uploads/mis/');
+    },
+    filename: (req, file, cb) => {
+        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+        cb(null, 'mis-' + uniqueSuffix + path.extname(file.originalname));
+    }
+});
+
+const uploadMIS = multer({ 
+    storage: misStorage,
+    limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
+    fileFilter: (req, file, cb) => {
+        const allowed = ['.xlsx', '.xls', '.pdf', '.doc', '.docx'];
+        const ext = path.extname(file.originalname).toLowerCase();
+        if (allowed.includes(ext)) cb(null, true);
+        else cb(new Error('Invalid file type. Only Excel, PDF and Word files are allowed.'));
+    }
+});
 
 /**
  * @swagger
@@ -414,6 +438,7 @@ router.post('/daily-report', verifyAuthToken, mf.submitDailyReport);
 router.get('/my-reports', verifyAuthToken, mf.getMyReports);
 router.get('/dept-reports', verifyAuthToken, mf.getDeptReports);
 router.get('/mis-reports', verifyAuthToken, mf.getMISReports);
+router.post('/daily-report/:id/attachment', verifyAuthToken, uploadMIS.single('file'), mf.uploadMISAttachment);
 router.post('/daily-report/:id/comment', verifyAuthToken, mf.addHeadComment);
 
 // Announcements

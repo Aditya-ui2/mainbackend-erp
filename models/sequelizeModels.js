@@ -538,7 +538,7 @@ const Notification = sequelize.define('Notification', {
         allowNull: false
     },
     userType: {
-        type: DataTypes.ENUM('Admin', 'TeamLeader', 'Employee', 'Client'),
+        type: DataTypes.ENUM('Admin', 'TeamLeader', 'Employee', 'Client', 'DepartmentTeam'),
         allowNull: false
     },
     message: {
@@ -698,7 +698,7 @@ const RecruitmentPosition = sequelize.define('RecruitmentPosition', {
             }
         },
     postedByUserId: {
-        type: DataTypes.UUID,
+        type: DataTypes.STRING,
         allowNull: true
     },
     postedByUserType: {
@@ -1750,7 +1750,7 @@ const DailyReport = sequelize.define('DailyReport', {
     id: { type: DataTypes.UUID, defaultValue: DataTypes.UUIDV4, primaryKey: true },
     memberId: { type: DataTypes.UUID, allowNull: false },
     memberName: { type: DataTypes.STRING, allowNull: false },
-    department: { type: DataTypes.ENUM('HR Operations', 'HR Recruitment', 'HR', 'Management', 'CRM'), allowNull: false },
+    department: { type: DataTypes.ENUM('HR Operations', 'HR Recruitment', 'Operations', 'KAM Operations', 'HR', 'Management', 'CRM', 'Finance', 'Sales', 'IT', 'BD', 'Marketing'), allowNull: false },
     date: { type: DataTypes.DATEONLY, allowNull: false },
     // Work Timing (MIS)
     checkInTime: { type: DataTypes.STRING, allowNull: true },  // e.g. '09:05'
@@ -1771,6 +1771,9 @@ const DailyReport = sequelize.define('DailyReport', {
     headComment: { type: DataTypes.TEXT },
     headCommentBy: { type: DataTypes.STRING, allowNull: true },
     headCommentAt: { type: DataTypes.DATE, allowNull: true },
+    // Attachment support
+    attachmentUrl: { type: DataTypes.STRING, allowNull: true },
+    attachmentName: { type: DataTypes.STRING, allowNull: true },
 }, { tableName: 'DailyReports', timestamps: true });
 
 // ============== ANNOUNCEMENT MODEL ==============

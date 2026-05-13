@@ -44,39 +44,63 @@ const hasRoleAccess = (userRole, allowedRoles = []) => {
 };
 
 /**
+ * Shared logic to resolve missing ID from email
+ */
+const resolveUserId = async (decoded) => {
+    if (!decoded || decoded.id || !decoded.email) return decoded;
+
+    try {
+        const { DepartmentTeam, Admin, SuperAdmin, TeamLeader, Employee } = require('../models/sequelizeModels');
+        
+        // Try DepartmentTeam first
+        const member = await DepartmentTeam.findOne({ where: { email: decoded.email } });
+        if (member) {
+            decoded.id = member.id;
+        } else {
+            const otherModels = [Admin, SuperAdmin, TeamLeader, Employee];
+            for (const Model of otherModels) {
+                const user = await Model.findOne({ where: { email: decoded.email } });
+                if (user) {
+                    decoded.id = user.id;
+                    break;
+                }
+            }
+        }
+    } catch (err) {
+        console.error('Error resolving user ID in middleware:', err);
+    }
+    return decoded;
+};
+
+/**
  * Legacy middleware - kept for backward compatibility
  */
-const verifyAuthToken = (req, res, next) => {
+const verifyAuthToken = async (req, res, next) => {
     try {
         const authHeader = req.headers['authorization'];
         let token;
 
         if (authHeader) {
-            // Extract the token from the header (usually "Bearer <token>")
             token = authHeader.split(' ')[1];
         } else if (req.query.token) {
-            // Support token in query string for window.open() or direct links
             token = req.query.token;
         }
 
-        // Check if the token is present
         if (!token) {
             return res.status(401).json({ message: 'Authorization token is missing' });
         }
 
-        // Handle accidental quoted token in Authorization header.
         token = token.replace(/^"|"$/g, '');
 
-        // Verify the token
-        const decoded = verifyToken(token);
+        let decoded = verifyToken(token);
         if (!decoded) {
             return res.status(401).json({ message: 'Invalid or expired token' });
         }
 
-        // Attach the decoded data to the request object (e.g., req.user)
-        req.user = decoded;
+        // Add fallback for missing ID if email is present
+        decoded = await resolveUserId(decoded);
 
-        // Proceed to the next middleware or route handler
+        req.user = decoded;
         next();
     } catch (error) {
         return res.status(401).json({ message: 'Invalid or expired token' });
@@ -86,7 +110,7 @@ const verifyAuthToken = (req, res, next) => {
 /**
  * @desc    Protect routes - Verify JWT token
  */
-const protect = (req, res, next) => {
+const protect = async (req, res, next) => {
     try {
         const authHeader = req.headers['authorization'];
 
@@ -99,7 +123,7 @@ const protect = (req, res, next) => {
 
         const token = authHeader.startsWith('Bearer ') 
             ? authHeader.split(' ')[1] 
-            : authHeader;
+            : authHeader.replace(/^"|"$/g, '');
 
         if (!token) {
             return res.status(401).json({ 
@@ -108,13 +132,16 @@ const protect = (req, res, next) => {
             });
         }
 
-        const decoded = verifyToken(token);
+        let decoded = verifyToken(token);
         if (!decoded) {
             return res.status(401).json({ 
                 success: false, 
                 message: 'Not authorized, invalid token' 
             });
         }
+
+        // Add fallback for missing ID if email is present
+        decoded = await resolveUserId(decoded);
 
         req.user = decoded;
         next();
