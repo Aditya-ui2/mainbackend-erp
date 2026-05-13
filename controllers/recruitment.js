@@ -549,9 +549,14 @@ const getKamsWithRecruitment = async (req, res) => {
 // Create a new recruitment position
 const createRecruitmentPosition = async (req, res) => {
     try {
-        const { title, description, location, type, salary, status, priority, openings, skills, experience, clientId, teamLeaderId, departmentTeamId, deadline } = req.body;
+        let { title, description, location, type, salary, status, priority, openings, skills, experience, clientId, teamLeaderId, departmentTeamId, deadline } = req.body;
         
-        // clientId can be null for internal positions
+        // Robustness: Handle empty or mock UUID fields
+        const isUUID = (val) => /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(val);
+        
+        if (clientId && !isUUID(clientId)) clientId = null;
+        if (teamLeaderId && !isUUID(teamLeaderId)) teamLeaderId = null;
+        if (departmentTeamId && !isUUID(departmentTeamId)) departmentTeamId = null;
 
         const ownership = await resolvePositionOwnership({
             departmentTeamId,
@@ -623,8 +628,17 @@ const updateRecruitmentPosition = async (req, res) => {
             return res.status(404).json({ success: false, message: 'Position not found' });
         }
 
-        if (updates.clientId === "") {
-            delete updates.clientId; // Or handle as null if allowed
+        // Robustness: Handle empty or mock UUID fields in updates
+        const isUUID = (val) => /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(val);
+        
+        if (updates.clientId !== undefined && (updates.clientId === "" || !isUUID(updates.clientId))) {
+            updates.clientId = null;
+        }
+        if (updates.teamLeaderId !== undefined && (updates.teamLeaderId === "" || !isUUID(updates.teamLeaderId))) {
+            updates.teamLeaderId = null;
+        }
+        if (updates.departmentTeamId !== undefined && (updates.departmentTeamId === "" || !isUUID(updates.departmentTeamId))) {
+            updates.departmentTeamId = null;
         }
 
         if ('type' in updates) {

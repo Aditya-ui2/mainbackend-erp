@@ -125,6 +125,42 @@ const syncSharePoint = async (req, res) => {
 };
 
 /**
+ * Helper: extract candidate name from SharePoint filename patterns
+ * e.g. "3886_ Agricultural Engineering_Deepanker.pdf" -> "Deepanker"
+ */
+function extractNameFromFileName(fileName) {
+    if (!fileName) return null;
+    try {
+        // Remove extension
+        const baseName = fileName.replace(/\.[^/.]+$/, "");
+        
+        // Split by underscore
+        const parts = baseName.split('_');
+        if (parts.length >= 3) {
+            // Usually the last part is the name in "ID_Role_Name" pattern
+            return parts[parts.length - 1].trim();
+        }
+        if (parts.length === 2) {
+            // In "Role_Name" pattern
+            return parts[1].trim();
+        }
+        
+        // Handle common delimiters
+        const spaceParts = baseName.split(' ');
+        if (spaceParts.length >= 2) {
+            // If it starts with numbers, it's likely ID Name
+            if (/^\d+$/.test(spaceParts[0])) {
+                return spaceParts.slice(1).join(' ').trim();
+            }
+        }
+
+        return baseName.trim();
+    } catch (e) {
+        return fileName;
+    }
+}
+
+/**
  * Helper: save resume list to database
  */
 async function saveResumesToDB(files, source) {
@@ -152,6 +188,11 @@ async function saveResumesToDB(files, source) {
                 sharePointCreatedBy: resume.createdBy || null,
                 lastSyncedAt: new Date()
             };
+
+            // Attempt to extract candidate name if not present
+            if (!resumeData.candidateName) {
+                resumeData.candidateName = extractNameFromFileName(resume.name);
+            }
             
             if (existingResume) {
                 await existingResume.update(resumeData);

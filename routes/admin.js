@@ -4,8 +4,8 @@ const verifyAuthToken = require('../middleware/authMiddleware');
 const { authorize } = require('../middleware/authMiddleware');
 const router = express.Router();
 
-// Route to get all admins (requires SuperAdmin authentication)
-router.get('/all', verifyAuthToken, authorize('superadmin'), getAllAdmins);
+// Route to get all admins (requires SuperAdmin, Admin, or TeamLeader authentication)
+router.get('/all', verifyAuthToken, authorize('superadmin', 'admin', 'teamleader'), getAllAdmins);
 
 // Route to create a new Admin (requires SuperAdmin authentication)
 router.post('/create', verifyAuthToken, authorize('superadmin'), createAdmin);

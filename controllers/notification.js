@@ -23,7 +23,7 @@ exports.addNotification = async (userId, userType, message, type = 'message', pr
 // Get all notifications for a user
 exports.getAllNotifications = async (req, res) => {
     try {
-        const { userId } = req.body;
+        const userId = req.body.userId || req.user.id;
 
         const notifications = await Notification.findAll({
             where: { userId },
