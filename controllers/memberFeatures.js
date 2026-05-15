@@ -421,7 +421,11 @@ const addHeadComment = async (req, res) => {
 const getAnnouncements = async (req, res) => {
     try {
         const announcements = await Announcement.findAll({
-            where: { department: req.query.department || req.user.department },
+            where: {
+                department: {
+                    [Op.in]: [req.query.department || req.user.department, 'All']
+                }
+            },
             order: [['pinned', 'DESC'], ['createdAt', 'DESC']],
             limit: 30,
         });

@@ -1779,7 +1779,7 @@ const DailyReport = sequelize.define('DailyReport', {
 // ============== ANNOUNCEMENT MODEL ==============
 const Announcement = sequelize.define('Announcement', {
     id: { type: DataTypes.UUID, defaultValue: DataTypes.UUIDV4, primaryKey: true },
-    department: { type: DataTypes.ENUM('HR Operations', 'HR Recruitment', 'HR', 'Management', 'CRM'), allowNull: false },
+    department: { type: DataTypes.ENUM('HR Operations', 'HR Recruitment', 'HR', 'Management', 'CRM', 'All'), allowNull: false },
     title: { type: DataTypes.STRING, allowNull: false },
     content: { type: DataTypes.TEXT, allowNull: false },
     priority: { type: DataTypes.ENUM('Low', 'Medium', 'High', 'Urgent'), defaultValue: 'Medium' },
@@ -1792,7 +1792,7 @@ const Announcement = sequelize.define('Announcement', {
 // ============== DEPARTMENT DOCUMENT MODEL ==============
 const DeptDocument = sequelize.define('DeptDocument', {
     id: { type: DataTypes.UUID, defaultValue: DataTypes.UUIDV4, primaryKey: true },
-    department: { type: DataTypes.ENUM('HR Operations', 'HR Recruitment', 'HR', 'Management', 'CRM'), allowNull: false },
+    department: { type: DataTypes.ENUM('HR Operations', 'HR Recruitment', 'HR', 'Management', 'CRM', 'All'), allowNull: false },
     name: { type: DataTypes.STRING, allowNull: false },
     description: { type: DataTypes.TEXT },
     fileUrl: { type: DataTypes.STRING, allowNull: false },

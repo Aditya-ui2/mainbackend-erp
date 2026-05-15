@@ -459,6 +459,15 @@ const { sequelize } = require('./models/sequelizeModels');
             console.log('DailyReport ENUM patch skipped or failed:', e.message);
         }
         
+        // Patch for Announcement and DeptDocument department ENUM expansion
+        try {
+            await sequelize.query('ALTER TYPE \"enum_Announcements_department\" ADD VALUE IF NOT EXISTS \'All\'').catch(() => {});
+            await sequelize.query('ALTER TYPE \"enum_DeptDocuments_department\" ADD VALUE IF NOT EXISTS \'All\'').catch(() => {});
+            console.log('✅ Announcement/DeptDoc department ENUM expanded');
+        } catch (e) {
+            console.log('Announcement ENUM patch skipped or failed:', e.message);
+        }
+        
         // Add Onboarding Columns to Clients table
         await sequelize.query('ALTER TABLE clients ADD COLUMN IF NOT EXISTS \"city\" VARCHAR(255)');
         await sequelize.query('ALTER TABLE clients ADD COLUMN IF NOT EXISTS \"pinCode\" VARCHAR(255)');
