@@ -99,16 +99,20 @@ const getHandovers = async (req, res) => {
             ];
         }
 
+        console.log('[DEBUG] getHandovers - Where:', where);
+
         const handovers = await WorkHandover.findAll({
             where,
             include: [
-                { model: TeamLeader, as: 'fromUser', attributes: ['id', 'name', 'email'] },
-                { model: TeamLeader, as: 'toUser', attributes: ['id', 'name', 'email'] },
-                { model: DepartmentTeam, as: 'fromDeptUser', attributes: ['id', 'name', 'email'] },
-                { model: DepartmentTeam, as: 'toDeptUser', attributes: ['id', 'name', 'email'] }
+                { model: TeamLeader, as: 'fromUser', attributes: ['id', 'name', 'email'], required: false },
+                { model: TeamLeader, as: 'toUser', attributes: ['id', 'name', 'email'], required: false },
+                { model: DepartmentTeam, as: 'fromDeptUser', attributes: ['id', 'name', 'email'], required: false },
+                { model: DepartmentTeam, as: 'toDeptUser', attributes: ['id', 'name', 'email'], required: false }
             ],
             order: [['createdAt', 'DESC']]
         });
+
+        console.log(`[DEBUG] getHandovers - Found ${handovers.length} records`);
 
         // Enrich with client names
         const allClientIds = [...new Set(handovers.flatMap(h => h.clientIds || []))];
@@ -134,8 +138,8 @@ const getHandovers = async (req, res) => {
 
         res.json({ success: true, data: enriched });
     } catch (error) {
-        console.error('Error fetching handovers:', error);
-        res.status(500).json({ success: false, message: 'Failed to fetch handovers' });
+        console.error('[ERROR] getHandovers Failed:', error);
+        res.status(500).json({ success: false, message: 'Failed to fetch handovers', error: error.message });
     }
 };
 

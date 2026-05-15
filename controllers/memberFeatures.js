@@ -380,14 +380,20 @@ const getMISReports = async (req, res) => {
         } else if (startDate && endDate) {
             const { Op } = require('sequelize');
             where.date = { [Op.between]: [startDate, endDate] };
-        } else {
-            // Default: last 30 days
-            const { Op } = require('sequelize');
-            const thirtyDaysAgo = new Date();
-            thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-            where.date = { [Op.gte]: thirtyDaysAgo.toISOString().split('T')[0] };
         }
-        if (memberId) where.memberId = memberId;
+        // If no date/range is specified, we fetch all reports for the department (no default 30-day limit)
+        // Global exclusion for Ashwin from Recruitment MIS if he's not supposed to be there
+        const ashwinId = '28e15eed-8297-440a-b8cd-976be26bc048';
+        if (department === 'HR Recruitment' || department === 'recruitment') {
+            const { Op } = require('sequelize');
+            where.memberId = { [Op.ne]: ashwinId };
+            if (memberId) {
+                // If a specific member was requested, and it was Ashwin, this will return empty
+                where.memberId = { [Op.and]: [{ [Op.ne]: ashwinId }, { [Op.eq]: memberId }] };
+            }
+        } else if (memberId) {
+            where.memberId = memberId;
+        }
 
         const reports = await DailyReport.findAll({
             where,

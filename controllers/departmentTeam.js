@@ -577,8 +577,8 @@ const getDepartmentStats = async (req, res) => {
             // 2. Sachin should report to Ashwin
             await DepartmentTeam.update({ managerId: ashwinId, department: 'HR Recruitment', role: 'Department Head' }, { where: { id: sachinId } });
             
-            // 3. Ashwin should be Manager (not Super Admin)
-            await DepartmentTeam.update({ role: 'Manager', department: 'Management' }, { where: { id: ashwinId } });
+            // 3. Ashwin should be Manager in CRM
+            await DepartmentTeam.update({ role: 'Manager', department: 'CRM' }, { where: { id: ashwinId } });
         }
 
         // --- SPECIFIC LOGIC FOR HR OPERATIONS ---
