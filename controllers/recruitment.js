@@ -1,6 +1,6 @@
 const { Op, fn, col, literal } = require('sequelize');
 const { v4: uuidv4 } = require('uuid');
-const { TeamLeader, Client, RecruitmentPosition, Candidate, Interview, OfferTemplate, DepartmentTask, ResumeBank, DepartmentTeam, DepartmentNote, SharePointCandidate } = require('../models/sequelizeModels');
+const { TeamLeader, Client, RecruitmentPosition, Candidate, Interview, OfferTemplate, DepartmentTask, ResumeBank, DepartmentTeam, DepartmentNote, SharePointCandidate, DailyReport } = require('../models/sequelizeModels');
 const fs = require('fs');
 const path = require('path');
 const sendEmail = require('../utils/emailService');
@@ -401,7 +401,7 @@ const getKamsWithRecruitment = async (req, res) => {
 
                 const ownedPositionCount = ownedPositions.filter(position => position.status === 'Open').length;
 
-                const [totalCandidates, interviews, hires, recentActivityCandidate, profilesShared, callsDone, pendingTasks, completedTasks] = await Promise.all([
+                const [totalCandidates, interviews, hires, recentActivityCandidate, profilesShared, callsDone, pendingTasks, completedTasks, DailyReportData] = await Promise.all([
                     Candidate.count({
                         where: { 
                             addedById: kam.id, 
@@ -484,8 +484,36 @@ const getKamsWithRecruitment = async (req, res) => {
                             department: 'HR Recruitment',
                             status: 'Completed'
                         }
+                    }),
+                    DailyReport.findAll({
+                        where: {
+                            memberId: kam.id,
+                            ...(dateRange ? {
+                                date: {
+                                    [Op.gte]: dateRange.startDate.toISOString().split('T')[0],
+                                    [Op.lt]: dateRange.endDate.toISOString().split('T')[0]
+                                }
+                            } : {})
+                        },
+                        attributes: [
+                            [fn('SUM', col('callsCount')), 'totalCalls'],
+                            [fn('SUM', col('profilesShared')), 'totalProfilesShared'],
+                            [fn('SUM', col('candidatesContacted')), 'totalCandidatesContacted'],
+                            [fn('SUM', col('interviewsArranged')), 'totalInterviewsArranged']
+                        ],
+                        raw: true
                     })
                 ]);
+
+                const misStats = DailyReportData && DailyReportData[0] ? DailyReportData[0] : {};
+                const totalCallsMIS = parseInt(misStats.totalCalls) || 0;
+                const totalSharedMIS = parseInt(misStats.totalProfilesShared) || 0;
+                const totalCandidatesMIS = parseInt(misStats.totalCandidatesContacted) || 0;
+                const totalInterviewsMIS = parseInt(misStats.totalInterviewsArranged) || 0;
+
+                console.log(`[KAM STATS] Member: ${kam.name} (${kam.id})`);
+                console.log(` - System: Calls=${callsDone}, Candidates=${totalCandidates}, Interviews=${interviews}`);
+                console.log(` - MIS: Calls=${totalCallsMIS}, Candidates=${totalCandidatesMIS}, Interviews=${totalInterviewsMIS}`);
 
                 const activities = recentActivityCandidate.map(c => {
                     // Determine the action based on status/stage
@@ -506,12 +534,12 @@ const getKamsWithRecruitment = async (req, res) => {
                     avatar: kam.name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase(),
                     stats: {
                         activePositions: ownedPositionCount,
-                        candidatesPipeline: totalCandidates,
-                        interviewsScheduled: interviews,
+                        candidatesPipeline: totalCandidates + totalCandidatesMIS,
+                        interviewsScheduled: interviews + totalInterviewsMIS,
                         thisWeekHires: hires,
                         offersExtended: 0,
-                        profilesShared,
-                        callsDone,
+                        profilesShared: profilesShared + totalSharedMIS,
+                        callsDone: callsDone + totalCallsMIS,
                         pendingTasks,
                         completedTasks
                     },
@@ -549,14 +577,9 @@ const getKamsWithRecruitment = async (req, res) => {
 // Create a new recruitment position
 const createRecruitmentPosition = async (req, res) => {
     try {
-        let { title, description, location, type, salary, status, priority, openings, skills, experience, clientId, teamLeaderId, departmentTeamId, deadline } = req.body;
+        const { title, description, location, type, salary, status, priority, openings, skills, experience, clientId, teamLeaderId, departmentTeamId, deadline } = req.body;
         
-        // Robustness: Handle empty or mock UUID fields
-        const isUUID = (val) => /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(val);
-        
-        if (clientId && !isUUID(clientId)) clientId = null;
-        if (teamLeaderId && !isUUID(teamLeaderId)) teamLeaderId = null;
-        if (departmentTeamId && !isUUID(departmentTeamId)) departmentTeamId = null;
+        // clientId can be null for internal positions
 
         const ownership = await resolvePositionOwnership({
             departmentTeamId,
@@ -628,17 +651,8 @@ const updateRecruitmentPosition = async (req, res) => {
             return res.status(404).json({ success: false, message: 'Position not found' });
         }
 
-        // Robustness: Handle empty or mock UUID fields in updates
-        const isUUID = (val) => /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(val);
-        
-        if (updates.clientId !== undefined && (updates.clientId === "" || !isUUID(updates.clientId))) {
-            updates.clientId = null;
-        }
-        if (updates.teamLeaderId !== undefined && (updates.teamLeaderId === "" || !isUUID(updates.teamLeaderId))) {
-            updates.teamLeaderId = null;
-        }
-        if (updates.departmentTeamId !== undefined && (updates.departmentTeamId === "" || !isUUID(updates.departmentTeamId))) {
-            updates.departmentTeamId = null;
+        if (updates.clientId === "") {
+            delete updates.clientId; // Or handle as null if allowed
         }
 
         if ('type' in updates) {
@@ -683,6 +697,14 @@ const addCandidate = async (req, res) => {
     try {
 
         let { name, email, phone, positionId, clientId, skills, experience, currentSalary, expectedSalary, notes, location, noticePeriod, stage, pipelineStatus, rating, source, joiningDate, offeredCTC, status } = req.body;
+        
+        // Phone number validation (exactly 10 digits)
+        if (phone) {
+            const cleanPhone = String(phone).replace(/\D/g, '');
+            if (cleanPhone.length !== 10) {
+                return res.status(400).json({ success: false, message: 'Phone number must be exactly 10 digits' });
+            }
+        }
         
         // --- EMERGENCY AUTO-FIX FOR REMOTE SERVERS ---
         try {
@@ -889,6 +911,14 @@ const updateCandidate = async (req, res) => {
         const { id } = req.params;
         let { name, email, phone, positionId, clientId, skills, experience, currentSalary, expectedSalary, notes, location, noticePeriod, stage, pipelineStatus, rating, source } = req.body;
 
+        // Phone number validation (exactly 10 digits)
+        if (phone) {
+            const cleanPhone = String(phone).replace(/\D/g, '');
+            if (cleanPhone.length !== 10) {
+                return res.status(400).json({ success: false, message: 'Phone number must be exactly 10 digits' });
+            }
+        }
+
         const candidate = await Candidate.findByPk(id);
         if (!candidate) {
             return res.status(404).json({ success: false, message: 'Candidate not found' });
@@ -989,6 +1019,7 @@ const getCandidatesByPosition = async (req, res) => {
 
 // Get recruitment stats (for dashboard)
 const getRecruitmentStats = async (req, res) => {
+    console.log('[API_DEBUG] getRecruitmentStats called');
     try {
         const { teamMember, client: clientId, activityType } = req.query;
         const dateRange = buildDateRangeFromQuery(req.query);
@@ -1015,34 +1046,39 @@ const getRecruitmentStats = async (req, res) => {
             } : {})
         };
 
-        const totalPositions = await RecruitmentPosition.count({ where: posFilter });
-        const openPositions = await RecruitmentPosition.count({ 
-            where: { ...posFilter, status: 'Open' } 
-        });
-        const holdPositions = await RecruitmentPosition.count({ 
-            where: { ...posFilter, status: 'Hold' } 
-        });
-        const closedPositions = await RecruitmentPosition.count({ 
-            where: { ...posFilter, status: 'Closed' } 
-        });
+        console.log('Querying positions counts...');
+        let totalPositions, openPositions, holdPositions, closedPositions;
+        try {
+            [totalPositions, openPositions, holdPositions, closedPositions] = await Promise.all([
+                RecruitmentPosition.count({ where: posFilter }),
+                RecruitmentPosition.count({ where: { ...posFilter, status: 'Open' } }),
+                RecruitmentPosition.count({ where: { ...posFilter, status: 'Hold' } }),
+                RecruitmentPosition.count({ where: { ...posFilter, status: 'Closed' } })
+            ]);
+        } catch (e) { console.error('FAILED: Position counts', e.message); throw e; }
 
-        // Pipeline stats
-        const [totalCandidates, sharedCVs, shortlisted, selected, rejected] = await Promise.all([
-            Candidate.count({ where: commonFilter }),
-            Candidate.count({ where: { ...commonFilter, status: 'Shared' } }),
-            Candidate.count({ where: { ...commonFilter, status: 'Shortlisted' } }),
-            Candidate.count({ where: { ...commonFilter, [Op.or]: [{ status: 'Selected' }, { stage: 'Joined' }] } }),
-            Candidate.count({ where: { ...commonFilter, status: 'Rejected' } }),
-        ]);
+        console.log('Querying candidate counts...');
+        let totalCandidates, sharedCVs, shortlisted, selected, rejected;
+        try {
+            [totalCandidates, sharedCVs, shortlisted, selected, rejected] = await Promise.all([
+                Candidate.count({ where: commonFilter }),
+                Candidate.count({ where: { ...commonFilter, status: 'Shared' } }),
+                Candidate.count({ where: { ...commonFilter, status: 'Shortlisted' } }),
+                Candidate.count({ where: { ...commonFilter, [Op.or]: [{ status: 'Selected' }, { stage: 'Joined' }] } }),
+                Candidate.count({ where: { ...commonFilter, status: 'Rejected' } }),
+            ]);
+        } catch (e) { console.error('FAILED: Candidate counts', e.message); throw e; }
 
         console.log('Fetching stage map...');
-        // Pipeline stage counts
-        const stageCounts = await Candidate.findAll({
-            attributes: ['stage', [fn('COUNT', col('Candidate.id')), 'count']],
-            where: commonFilter,
-            group: ['stage'],
-            raw: true,
-        });
+        let stageCounts;
+        try {
+            stageCounts = await Candidate.findAll({
+                attributes: ['stage', [fn('COUNT', col('Candidate.id')), 'count']],
+                where: commonFilter,
+                group: ['stage'],
+                raw: true,
+            });
+        } catch (e) { console.error('FAILED: Stage map', e.message); throw e; }
         const stageMap = {};
         stageCounts.forEach(s => { 
             if (s.stage) {
@@ -1051,74 +1087,80 @@ const getRecruitmentStats = async (req, res) => {
         });
 
         console.log('Fetching position metrics...');
-        // Position-wise metrics
-        const positions = await RecruitmentPosition.findAll({
-            where: {
-                ...dateFilter,
-                ...(clientId ? { clientId } : {})
-            },
-            include: [{ model: Client, as: 'client', attributes: ['companyName', 'name'] }],
-            limit: 10,
-        });
+        let positionMetrics;
+        try {
+            const positions = await RecruitmentPosition.findAll({
+                where: {
+                    ...dateFilter,
+                    ...(clientId ? { clientId } : {})
+                },
+                include: [{ model: Client, as: 'client', attributes: ['companyName', 'name'] }],
+                limit: 10,
+            });
 
-        const positionMetrics = await Promise.all(positions.map(async (pos) => {
-            const candidateCount = await Candidate.count({ where: { positionId: pos.id, ...dateFilter } });
-            const filledCount = await Candidate.count({ where: { positionId: pos.id, stage: 'Joined', ...dateFilter } });
-            return { position: pos.title, openings: pos.openings || 1, filled: filledCount, total: candidateCount };
-        }));
+            positionMetrics = await Promise.all(positions.map(async (pos) => {
+                const candidateCount = await Candidate.count({ where: { positionId: pos.id, ...dateFilter } });
+                const filledCount = await Candidate.count({ where: { positionId: pos.id, stage: 'Joined', ...dateFilter } });
+                return { position: pos.title, openings: pos.openings || 1, filled: filledCount, total: candidateCount };
+            }));
+        } catch (e) { console.error('FAILED: Position metrics', e.message); throw e; }
 
         console.log('Fetching client metrics...');
-        // Client-wise metrics
-        const allPositions = await RecruitmentPosition.findAll({
-            where: {
-                ...dateFilter,
-                ...(clientId ? { clientId } : {})
-            },
-            include: [{ model: Client, as: 'client', attributes: ['companyName', 'name'] }],
-        });
-        const clientGroups = {};
-        allPositions.forEach(pos => {
-            const clientName = pos.client?.companyName || pos.client?.name || 'Unknown';
-            if (!clientGroups[clientName]) clientGroups[clientName] = { openings: 0, positionIds: [] };
-            clientGroups[clientName].openings += (pos.openings || 1);
-            clientGroups[clientName].positionIds.push(pos.id);
-        });
-        const clientMetrics = await Promise.all(Object.entries(clientGroups).map(async ([client, data]) => {
-            const filledCount = await Candidate.count({ where: { positionId: { [Op.in]: data.positionIds }, stage: 'Joined', ...dateFilter } });
-            return { client, openings: data.openings, filled: filledCount };
-        }));
+        let clientMetrics;
+        try {
+            const allPositions = await RecruitmentPosition.findAll({
+                where: {
+                    ...dateFilter,
+                    ...(clientId ? { clientId } : {})
+                },
+                include: [{ model: Client, as: 'client', attributes: ['companyName', 'name'] }],
+            });
+            const clientGroups = {};
+            allPositions.forEach(pos => {
+                const clientName = pos.client?.companyName || pos.client?.name || 'Unknown';
+                if (!clientGroups[clientName]) clientGroups[clientName] = { openings: 0, positionIds: [] };
+                clientGroups[clientName].openings += (pos.openings || 1);
+                clientGroups[clientName].positionIds.push(pos.id);
+            });
+            clientMetrics = await Promise.all(Object.entries(clientGroups).map(async ([client, data]) => {
+                const filledCount = await Candidate.count({ where: { positionId: { [Op.in]: data.positionIds }, stage: 'Joined', ...dateFilter } });
+                return { client, openings: data.openings, filled: filledCount };
+            }));
+        } catch (e) { console.error('FAILED: Client metrics', e.message); throw e; }
 
         console.log('Fetching interview counts...');
-        // Interview counts - Global for stats card
-        const [totalInterviews, scheduledInterviews, completedInterviews, cancelledInterviews] = await Promise.all([
-            Interview.count({ 
-                where: {
-                    ...interviewDateFilter,
-                    ...(clientId ? { clientId } : {})
-                } 
-            }),
-            Interview.count({ 
-                where: { 
-                    ...interviewDateFilter, 
-                    status: 'Scheduled',
-                    ...(clientId ? { clientId } : {})
-                } 
-            }),
-            Interview.count({ 
-                where: { 
-                    ...interviewDateFilter, 
-                    status: 'Completed',
-                    ...(clientId ? { clientId } : {})
-                } 
-            }),
-            Interview.count({ 
-                where: { 
-                    ...interviewDateFilter, 
-                    status: 'Cancelled',
-                    ...(clientId ? { clientId } : {})
-                } 
-            }),
-        ]);
+        let totalInterviews, scheduledInterviews, completedInterviews, cancelledInterviews;
+        try {
+            [totalInterviews, scheduledInterviews, completedInterviews, cancelledInterviews] = await Promise.all([
+                Interview.count({ 
+                    where: {
+                        ...interviewDateFilter,
+                        ...(clientId ? { clientId } : {})
+                    } 
+                }),
+                Interview.count({ 
+                    where: { 
+                        ...interviewDateFilter, 
+                        status: 'Scheduled',
+                        ...(clientId ? { clientId } : {})
+                    } 
+                }),
+                Interview.count({ 
+                    where: { 
+                        ...interviewDateFilter, 
+                        status: 'Completed',
+                        ...(clientId ? { clientId } : {})
+                    } 
+                }),
+                Interview.count({ 
+                    where: { 
+                        ...interviewDateFilter, 
+                        status: 'Cancelled',
+                        ...(clientId ? { clientId } : {})
+                    } 
+                }),
+            ]);
+        } catch (e) { console.error('FAILED: Interview counts', e.message); throw e; }
 
         console.log('Fetching candidates for annual summary...');
         // Determine summary range (Always show full year of the selected filter for "Annual" context)
@@ -1167,27 +1209,38 @@ const getRecruitmentStats = async (req, res) => {
                     ...interviewWhere,
                     ...(teamMember && teamMember !== 'All Team' ? { interviewerId: teamMember } : {})
                 },
-                include: [{
-                    model: Candidate,
-                    as: 'candidate',
-                    attributes: ['addedById'],
-                    include: [{
-                        model: DepartmentTeam,
-                        as: 'addedBy',
-                        attributes: ['name']
-                    }]
-                }],
-                attributes: ['interviewDate', 'createdAt'],
-                raw: true,
-                nest: true
+                attributes: ['interviewDate', 'createdAt', 'candidateId'],
+                raw: true
             });
 
-            // Map interview records to look like summaryRecords
-            summaryRecords = summaryRecords.map(int => ({
-                ...int,
-                createdAt: int.interviewDate || int.createdAt,
-                addedBy: int.candidate?.addedBy || { name: 'Unknown' }
-            }));
+            // Manual candidate lookup to avoid join errors
+            const candidateIds = [...new Set(summaryRecords.map(r => r.candidateId))];
+            const candidates = await Candidate.findAll({
+                where: { id: { [Op.in]: candidateIds } },
+                attributes: ['id', 'addedById'],
+                raw: true
+            });
+            const candidateMap = {};
+            candidates.forEach(c => { candidateMap[c.id] = c; });
+
+            // Manual team lookup for addedBy
+            const teamIds = [...new Set(candidates.map(c => c.addedById).filter(id => id && id !== 'system'))];
+            const teamMembers = await DepartmentTeam.findAll({
+                where: { id: { [Op.in]: teamIds } },
+                attributes: ['id', 'name'],
+                raw: true
+            });
+            const teamMap = {};
+            teamMembers.forEach(t => { teamMap[t.id] = t; });
+
+            summaryRecords = summaryRecords.map(int => {
+                const cand = candidateMap[int.candidateId] || {};
+                return {
+                    ...int,
+                    createdAt: int.interviewDate || int.createdAt,
+                    addedBy: teamMap[cand.addedById] || { name: cand.addedById === 'system' ? 'System' : 'Unknown' }
+                };
+            });
 
         } else {
             // For Candidate-based metrics (Hiring, Offers, Rejected, or default Sourcing)
@@ -1209,15 +1262,24 @@ const getRecruitmentStats = async (req, res) => {
 
             summaryRecords = await Candidate.findAll({
                 where: candidateWhere,
-                include: [{
-                    model: DepartmentTeam,
-                    as: 'addedBy',
-                    attributes: ['name']
-                }],
                 attributes: ['createdAt', 'addedById'],
-                raw: true,
-                nest: true
+                raw: true
             });
+
+            // Manual team lookup for addedBy
+            const teamIds = [...new Set(summaryRecords.map(r => r.addedById).filter(id => id && id !== 'system'))];
+            const teamMembers = await DepartmentTeam.findAll({
+                where: { id: { [Op.in]: teamIds } },
+                attributes: ['id', 'name'],
+                raw: true
+            });
+            const teamMap = {};
+            teamMembers.forEach(t => { teamMap[t.id] = t; });
+
+            summaryRecords = summaryRecords.map(cand => ({
+                ...cand,
+                addedBy: teamMap[cand.addedById] || { name: cand.addedById === 'system' ? 'System' : 'Unknown' }
+            }));
         }
 
         console.log('Processing annual summary with consistent keys...');
@@ -1299,9 +1361,9 @@ const getRecruitmentStats = async (req, res) => {
                 totalNotes
             }
         });
-    } catch (error) {
-        console.error('Error fetching recruitment stats:', error);
-        res.status(500).json({ success: false, message: 'Failed to fetch stats', error: error.message });
+    } catch (err) {
+        console.error('[API_ERROR] getRecruitmentStats failed:', err);
+        res.status(500).json({ message: 'Error fetching recruitment stats', error: err.message });
     }
 };
 
@@ -1344,14 +1406,32 @@ const getAllPositions = async (req, res) => {
 
         const positions = await RecruitmentPosition.findAll({
             where,
-            include: [
-                { model: Client, as: 'client', attributes: ['name', 'companyName'] },
-                { model: TeamLeader, as: 'teamLeader', attributes: ['id', 'name', 'email'], required: false },
-                { model: DepartmentTeam, as: 'postedBy', attributes: ['id', 'name', 'email'], required: false },
-                { model: DepartmentTask, as: 'tasks' }
-            ],
             order,
+            raw: true
         });
+
+        // Manual lookups for joined data
+        const clientIds = [...new Set(positions.map(p => p.clientId).filter(Boolean))];
+        const teamLeaderIds = [...new Set(positions.map(p => p.teamLeaderId).filter(Boolean))];
+        const postedByUserIds = [...new Set(positions.map(p => p.postedByUserId).filter(Boolean))];
+
+        const [clients, teamLeaders, postedByUsers] = await Promise.all([
+            Client.findAll({ where: { id: { [Op.in]: clientIds } }, attributes: ['id', 'name', 'companyName'], raw: true }),
+            TeamLeader.findAll({ where: { id: { [Op.in]: teamLeaderIds } }, attributes: ['id', 'name', 'email'], raw: true }),
+            DepartmentTeam.findAll({ where: { id: { [Op.in]: postedByUserIds } }, attributes: ['id', 'name', 'email'], raw: true })
+        ]);
+
+        const clientMap = {}; clients.forEach(c => { clientMap[c.id] = c; });
+        const tlMap = {}; teamLeaders.forEach(t => { tlMap[t.id] = t; });
+        const pbMap = {}; postedByUsers.forEach(u => { pbMap[u.id] = u; });
+
+        // Map them back
+        const positionsWithData = positions.map(pos => ({
+            ...pos,
+            client: clientMap[pos.clientId] || null,
+            teamLeader: tlMap[pos.teamLeaderId] || null,
+            postedBy: pbMap[pos.postedByUserId] || null
+        }));
 
         // Get candidate counts
         const positionIds = positions.map(p => p.id);
@@ -1375,16 +1455,15 @@ const getAllPositions = async (req, res) => {
         const filledCountMap = {};
         filledCounts.forEach(c => { filledCountMap[c.positionId] = parseInt(c.count); });
 
-        const positionsWithStats = positions.map(pos => {
-            const p = pos.toJSON();
+        const positionsWithStats = positionsWithData.map(pos => {
             return {
-                ...p,
-                candidateCount: candidateCountMap[p.id] || 0,
-                filled: filledCountMap[p.id] || 0,
-                clientName: p.client?.companyName || p.client?.name || 'Unknown',
-                clientLogo: (p.client?.companyName || p.client?.name || 'NA').substring(0, 2).toUpperCase(),
-                postedByName: p.postedByName || p.postedBy?.name || p.teamLeader?.name || 'Unassigned',
-                postedByEmail: p.postedByEmail || p.postedBy?.email || p.teamLeader?.email || null,
+                ...pos,
+                candidateCount: candidateCountMap[pos.id] || 0,
+                filled: filledCountMap[pos.id] || 0,
+                clientName: pos.client?.companyName || pos.client?.name || 'Unknown',
+                clientLogo: (pos.client?.companyName || pos.client?.name || 'NA').substring(0, 2).toUpperCase(),
+                postedByName: pos.postedByName || pos.postedBy?.name || pos.teamLeader?.name || 'Unassigned',
+                postedByEmail: pos.postedByEmail || pos.postedBy?.email || pos.teamLeader?.email || null,
             };
         });
 
@@ -1469,20 +1548,32 @@ const getAllCandidates = async (req, res) => {
         const positionWhere = {};
         
         if (clientId) where.clientId = clientId;
+        // Pre-handle position filters if assignedToId is present
         if (assignedToId) {
+            const matchingPositions = await RecruitmentPosition.findAll({
+                where: {
+                    [Op.or]: [
+                        { assignedToId: assignedToId },
+                        { departmentTeamId: assignedToId },
+                        { teamLeaderId: assignedToId }
+                    ]
+                },
+                attributes: ['id'],
+                raw: true
+            });
+            const positionIdsFromAssigned = matchingPositions.map(p => p.id);
+            
             where[Op.and] = where[Op.and] || [];
             where[Op.and].push({
                 [Op.or]: [
                     { addedById: assignedToId },
-                    { '$position.assignedToId$': assignedToId },
-                    { '$position.departmentTeamId$': assignedToId },
-                    { '$position.teamLeaderId$': assignedToId }
+                    { positionId: { [Op.in]: positionIdsFromAssigned } }
                 ]
             });
         }
         
         // Define known ENUM values to prevent database validation errors (500)
-        const VALID_STATUSES = ['Submitted', 'Shortlisted', 'Interview', 'Selected', 'Rejected', 'Joined'];
+        const VALID_STATUSES = ['Submitted', 'Shared', 'Shortlisted', 'Interview', 'Selected', 'Rejected', 'Joined'];
         const VALID_STAGES = ['Screening', 'Phone Interview', 'Technical Round', 'HR Round', 'Client Interview', 'Offer Sent', 'Joined', 'Rejected'];
         const VALID_PIPELINE = ['Sourced', 'Applied', 'Pending', 'Interviewing', 'Selected', 'Rejected', 'On-Hold', 'Offer-Sent', 'Joined'];
 
@@ -1543,25 +1634,47 @@ const getAllCandidates = async (req, res) => {
         }
 
         const offset = (parseInt(page) - 1) * parseInt(limit);
-        const { count: total, rows: candidates } = await Candidate.findAndCountAll({
+        const { count: total, rows: candidatesRaw } = await Candidate.findAndCountAll({
             where,
-            include: [
-                {
-                    model: RecruitmentPosition,
-                    as: 'position',
-                    attributes: ['id', 'title', 'status'],
-                    where: {
-                        ...positionWhere
-                    },
-                    required: true
-                },
-                { model: Client, as: 'client', attributes: ['companyName', 'name'] },
-                { model: DepartmentTeam, as: 'addedBy', attributes: ['id', 'name', 'role'] },
-            ],
             order: [['createdAt', 'DESC']],
             offset,
             limit: parseInt(limit),
+            raw: true
         });
+
+        // Manual lookups for joined data
+        const candidatePositionIds = [...new Set(candidatesRaw.map(c => c.positionId).filter(Boolean))];
+        const candidateClientIds = [...new Set(candidatesRaw.map(c => c.clientId).filter(Boolean))];
+        const candidateAddedByIds = [...new Set(candidatesRaw.map(c => c.addedById).filter(Boolean))];
+
+        const [positions, clients, addedByUsers] = await Promise.all([
+            RecruitmentPosition.findAll({ 
+                where: { id: { [Op.in]: candidatePositionIds } }, 
+                attributes: ['id', 'title', 'status'], 
+                raw: true 
+            }),
+            Client.findAll({ 
+                where: { id: { [Op.in]: candidateClientIds } }, 
+                attributes: ['id', 'companyName', 'name'], 
+                raw: true 
+            }),
+            DepartmentTeam.findAll({ 
+                where: { id: { [Op.in]: candidateAddedByIds } }, 
+                attributes: ['id', 'name', 'role'], 
+                raw: true 
+            })
+        ]);
+
+        const posMap = {}; positions.forEach(p => { posMap[p.id] = p; });
+        const clientMap = {}; clients.forEach(c => { clientMap[c.id] = c; });
+        const abMap = {}; addedByUsers.forEach(u => { abMap[u.id] = u; });
+
+        const candidates = candidatesRaw.map(cand => ({
+            ...cand,
+            position: posMap[cand.positionId] || null,
+            client: clientMap[cand.clientId] || null,
+            addedBy: abMap[cand.addedById] || null
+        }));
 
         console.log(`[DEBUG] getAllCandidates returning ${candidates.length} candidates`);
         candidates.forEach(c => console.log(` - ID: ${c.id}, Name: ${c.name}, Stage: ${c.stage}, Source: ${c.source}`));
@@ -1650,12 +1763,21 @@ const getOffers = async (req, res) => {
 
         const candidates = await Candidate.findAll({
             where,
-            include: [
-                { model: RecruitmentPosition, as: 'position', attributes: ['id', 'title'] },
-                { model: Client, as: 'client', attributes: ['id', 'companyName', 'name'] }
-            ],
-            order: [['updatedAt', 'DESC']]
+            order: [['updatedAt', 'DESC']],
+            raw: true
         });
+
+        // Manual lookups to avoid join errors
+        const positionIds = [...new Set(candidates.map(c => c.positionId).filter(Boolean))];
+        const clientIds = [...new Set(candidates.map(c => c.clientId).filter(Boolean))];
+
+        const [positions, clients] = await Promise.all([
+            RecruitmentPosition.findAll({ where: { id: { [Op.in]: positionIds } }, attributes: ['id', 'title'], raw: true }),
+            Client.findAll({ where: { id: { [Op.in]: clientIds } }, attributes: ['id', 'companyName', 'name'], raw: true })
+        ]);
+
+        const posMap = {}; positions.forEach(p => { posMap[p.id] = p; });
+        const clientMap = {}; clients.forEach(c => { clientMap[c.id] = c; });
 
         const data = candidates
             .filter((candidate) =>
@@ -1672,8 +1794,8 @@ const getOffers = async (req, res) => {
                 candidateId: candidate.id,
                 candidateName: candidate.name,
                 email: candidate.email || '',
-                position: candidate.position?.title || '',
-                client: candidate.client?.companyName || candidate.client?.name || '',
+                position: posMap[candidate.positionId]?.title || '',
+                client: clientMap[candidate.clientId]?.companyName || clientMap[candidate.clientId]?.name || '',
                 offeredCTC: candidate.offeredCTC || candidate.expectedSalary || '',
                 currentCTC: candidate.currentSalary || '',
                 joiningDate: candidate.joiningDate || '',
@@ -1687,9 +1809,6 @@ const getOffers = async (req, res) => {
                 offerLetterUrl: candidate.offerLetterUrl || '',
                 offerLetterFileName: candidate.offerLetterFileName || '',
                 photo: candidate.photo || '',
-                bgvStatus: candidate.bgvStatus || 'Not Started',
-                tempUsername: candidate.username || '',
-                tempPassword: candidate.rawPassword || '',
                 kycDocuments: candidate.kycDocuments || {}
             }));
 

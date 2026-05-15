@@ -125,7 +125,7 @@ class TeamLeader extends Model {
 
 TeamLeader.init({
     id: {
-        type: DataTypes.UUID,
+        type: DataTypes.STRING,
         defaultValue: DataTypes.UUIDV4,
         primaryKey: true
     },
@@ -613,7 +613,7 @@ const Message = sequelize.define('Message', {
 // ============ RECRUITMENT POSITION MODEL ============
 const RecruitmentPosition = sequelize.define('RecruitmentPosition', {
     id: {
-        type: DataTypes.UUID,
+        type: DataTypes.STRING,
         defaultValue: DataTypes.UUIDV4,
         primaryKey: true
     },
@@ -638,7 +638,7 @@ const RecruitmentPosition = sequelize.define('RecruitmentPosition', {
         allowNull: true
     },
     assignedToId: {
-        type: DataTypes.UUID,
+        type: DataTypes.STRING,
         allowNull: true,
         references: {
             model: 'DepartmentTeams',
@@ -682,21 +682,21 @@ const RecruitmentPosition = sequelize.define('RecruitmentPosition', {
         }
     },
     teamLeaderId: {
-        type: DataTypes.UUID,
+        type: DataTypes.STRING,
         allowNull: true,
         references: {
             model: 'team_leaders',
             key: 'id'
         }
     },
-        departmentTeamId: {
-            type: DataTypes.UUID,
-            allowNull: true,
-            references: {
-                model: 'DepartmentTeams',
-                key: 'id'
-            }
-        },
+    departmentTeamId: {
+        type: DataTypes.STRING,
+        allowNull: true,
+        references: {
+            model: 'DepartmentTeams',
+            key: 'id'
+        }
+    },
     postedByUserId: {
         type: DataTypes.STRING,
         allowNull: true
@@ -748,7 +748,7 @@ const RecruitmentPosition = sequelize.define('RecruitmentPosition', {
 // ============ CANDIDATE MODEL ============
 const Candidate = sequelize.define('Candidate', {
     id: {
-        type: DataTypes.UUID,
+        type: DataTypes.STRING,
         defaultValue: DataTypes.UUIDV4,
         primaryKey: true
     },
@@ -765,7 +765,7 @@ const Candidate = sequelize.define('Candidate', {
         allowNull: true
     },
     positionId: {
-        type: DataTypes.UUID,
+        type: DataTypes.STRING,
         allowNull: true,
         references: {
             model: 'recruitment_positions',
@@ -887,7 +887,7 @@ const Candidate = sequelize.define('Candidate', {
         comment: 'Stores KYC document info { aadhar: { url, verified, verifiedAt }, ... }'
     },
     addedById: {
-        type: DataTypes.UUID,
+        type: DataTypes.STRING,
         allowNull: true,
         references: {
             model: 'DepartmentTeams',
@@ -945,7 +945,7 @@ const Candidate = sequelize.define('Candidate', {
         defaultValue: 'Not Started'
     },
     addedById: {
-        type: DataTypes.UUID,
+        type: DataTypes.STRING,
         allowNull: true,
         references: {
             model: 'DepartmentTeams',
@@ -1014,12 +1014,12 @@ const OfferTemplate = sequelize.define('OfferTemplate', {
 // ============ INTERVIEW MODEL ============
 const Interview = sequelize.define('Interview', {
     id: {
-        type: DataTypes.UUID,
+        type: DataTypes.STRING,
         defaultValue: DataTypes.UUIDV4,
         primaryKey: true
     },
     candidateId: {
-        type: DataTypes.UUID,
+        type: DataTypes.STRING,
         allowNull: false,
         references: {
             model: 'candidates',
@@ -1027,7 +1027,7 @@ const Interview = sequelize.define('Interview', {
         }
     },
     positionId: {
-        type: DataTypes.UUID,
+        type: DataTypes.STRING,
         allowNull: false,
         references: {
             model: 'recruitment_positions',
@@ -1035,7 +1035,7 @@ const Interview = sequelize.define('Interview', {
         }
     },
     clientId: {
-        type: DataTypes.UUID,
+        type: DataTypes.STRING,
         allowNull: false,
         references: {
             model: 'clients',
@@ -1079,7 +1079,7 @@ const Interview = sequelize.define('Interview', {
         allowNull: true
     },
     interviewerId: {
-        type: DataTypes.UUID,
+        type: DataTypes.STRING,
         allowNull: true,
         references: {
             model: 'DepartmentTeams',
@@ -1150,7 +1150,7 @@ const WorkAgreement = sequelize.define('WorkAgreement', {
         primaryKey: true
     },
     clientId: {
-        type: DataTypes.UUID,
+        type: DataTypes.STRING,
         allowNull: false,
         references: {
             model: 'clients',
@@ -1347,7 +1347,7 @@ class DepartmentTeam extends Model {}
 
 DepartmentTeam.init({
     id: {
-        type: DataTypes.UUID,
+        type: DataTypes.STRING,
         defaultValue: DataTypes.UUIDV4,
         primaryKey: true
     },
@@ -1582,7 +1582,7 @@ class DepartmentTask extends Model {}
 
 DepartmentTask.init({
     id: {
-        type: DataTypes.UUID,
+        type: DataTypes.STRING,
         defaultValue: DataTypes.UUIDV4,
         primaryKey: true
     },
@@ -1732,9 +1732,9 @@ const LeaveRequest = sequelize.define('LeaveRequest', {
 
 // ============== ATTENDANCE MODEL ==============
 const Attendance = sequelize.define('Attendance', {
-    id: { type: DataTypes.UUID, defaultValue: DataTypes.UUIDV4, primaryKey: true },
-    memberId: { type: DataTypes.UUID, allowNull: false },
-    clientId: { type: DataTypes.UUID, allowNull: true },
+    id: { type: DataTypes.STRING, defaultValue: DataTypes.UUIDV4, primaryKey: true },
+    memberId: { type: DataTypes.STRING, allowNull: false },
+    clientId: { type: DataTypes.STRING, allowNull: true },
     memberName: { type: DataTypes.STRING, allowNull: false },
     department: { type: DataTypes.ENUM('HR Operations', 'HR Recruitment', 'HR', 'Management', 'CRM'), allowNull: false },
     date: { type: DataTypes.DATEONLY, allowNull: false },
@@ -1747,8 +1747,8 @@ const Attendance = sequelize.define('Attendance', {
 
 // ============== DAILY REPORT MODEL ==============
 const DailyReport = sequelize.define('DailyReport', {
-    id: { type: DataTypes.UUID, defaultValue: DataTypes.UUIDV4, primaryKey: true },
-    memberId: { type: DataTypes.UUID, allowNull: false },
+    id: { type: DataTypes.STRING, defaultValue: DataTypes.UUIDV4, primaryKey: true },
+    memberId: { type: DataTypes.STRING, allowNull: false },
     memberName: { type: DataTypes.STRING, allowNull: false },
     department: { type: DataTypes.ENUM('HR Operations', 'HR Recruitment', 'Operations', 'KAM Operations', 'HR', 'Management', 'CRM', 'Finance', 'Sales', 'IT', 'BD', 'Marketing'), allowNull: false },
     date: { type: DataTypes.DATEONLY, allowNull: false },

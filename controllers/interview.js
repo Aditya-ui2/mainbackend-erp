@@ -236,17 +236,39 @@ const getInterviews = async (req, res) => {
 
         const interviews = await Interview.findAll({
             where,
-            include: [
-                { model: Candidate, as: 'candidate', attributes: ['name', 'email', 'phone', 'cvUrl'] },
-                { model: RecruitmentPosition, as: 'position', attributes: ['title', 'location'] },
-                { model: Client, as: 'client', attributes: ['companyName'] },
-            ],
             order: [['interviewDate', 'DESC'], ['startTime', 'ASC']],
+            raw: true
         });
+
+        // Manual lookups to avoid join errors between VARCHAR and UUID
+        const candidateIds = [...new Set(interviews.map(i => i.candidateId).filter(Boolean))];
+        const positionIds = [...new Set(interviews.map(i => i.positionId).filter(Boolean))];
+        const clientIds = [...new Set(interviews.map(i => i.clientId).filter(Boolean))];
+
+        const [candidates, positions, clients] = await Promise.all([
+            Candidate.findAll({ where: { id: { [Op.in]: candidateIds } }, attributes: ['id', 'name', 'email', 'phone', 'cvUrl'], raw: true }),
+            RecruitmentPosition.findAll({ where: { id: { [Op.in]: positionIds } }, attributes: ['id', 'title', 'location'], raw: true }),
+            Client.findAll({ where: { id: { [Op.in]: clientIds } }, attributes: ['id', 'companyName'], raw: true })
+        ]);
+
+        const candMap = {}; candidates.forEach(c => { candMap[c.id] = c; });
+        const posMap = {}; positions.forEach(p => { posMap[p.id] = p; });
+        const clientMap = {}; clients.forEach(c => { clientMap[c.id] = c; });
+
+        const interviewsWithData = interviews.map(int => ({
+            ...int,
+            candidate: candMap[int.candidateId] || null,
+            position: posMap[int.positionId] || null,
+            client: clientMap[int.clientId] || null
+        }));
+
+        // Use the newly built data for grouping
+        const interviewsToReturn = interviewsWithData;
+        const interviews = interviewsWithData; // For legacy compatibility in this scope
 
         // Group by date
         const groupedInterviews = {};
-        interviews.forEach(interview => {
+        interviewsToReturn.forEach(interview => {
             const dateKey = new Date(interview.interviewDate).toISOString().split('T')[0];
             if (!groupedInterviews[dateKey]) groupedInterviews[dateKey] = [];
             groupedInterviews[dateKey].push(interview);
@@ -271,7 +293,7 @@ const getInterviews = async (req, res) => {
         ]);
 
         res.status(200).json({
-            success: true, data: interviews, groupedByDate: groupedInterviews,
+            success: true, data: interviewsWithData, groupedByDate: groupedInterviews,
             stats: { todaysInterviews, scheduled, completed, cancelled }
         });
     } catch (error) {
