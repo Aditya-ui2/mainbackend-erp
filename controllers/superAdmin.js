@@ -1,6 +1,6 @@
 // controllers/superAdminController.js
 
-const { SuperAdmin } = require('../models/sequelizeModels');
+const { SuperAdmin, Client, Employee, Admin, DepartmentTeam, Invoice, RecruitmentPosition, TeamLeader } = require('../models/sequelizeModels');
 const { comparePasswords, hashPassword } = require('../utils/bcryptUtils');
 const { getOrCreateFolder, uploadFileToDrive, getFileLink, deleteFile } = require('../utils/googleDriveServices');
 const { generateToken, generateRefreshToken } = require('../utils/jwtUtils');
@@ -91,7 +91,83 @@ const editSuperAdmin = async (req, res) => {
 };
 
 
+// Function to get dashboard statistics
+const getDashboardStats = async (req, res) => {
+    try {
+        // Count active clients
+        const activeClients = await Client.count();
+        
+        // Count active employees (sum of all user tables)
+        const employeeCount = await Employee.count();
+        const deptTeamCount = await DepartmentTeam.count();
+        const tlCount = await TeamLeader.count();
+        const adminCount = await Admin.count();
+        const saCount = await SuperAdmin.count();
+        const activeEmployees = employeeCount + deptTeamCount + tlCount + adminCount + saCount;
+        
+        // Count admins
+        const totalAdmins = adminCount + saCount;
+        
+        // Count KAMs (Using HR Recruitment department as KAMs, similar to the recruitment dashboard)
+        const totalKAMs = await DepartmentTeam.count({ 
+            where: { department: 'HR Recruitment' } 
+        });
+        
+        // Count open positions
+        const totalHiring = await RecruitmentPosition.count({ where: { status: 'Open' } });
+        
+        // Calculate total revenue and outstanding payments
+        // We'll calculate sum from Invoices if they exist
+        let totalRevenue = 0;
+        let outstandingPayment = 0;
+        
+        try {
+            const invoices = await Invoice.findAll();
+            invoices.forEach(inv => {
+                if (inv.status === 'Paid') {
+                    totalRevenue += Number(inv.totalAmount || 0);
+                } else if (inv.status === 'Sent' || inv.status === 'Overdue') {
+                    outstandingPayment += Number(inv.totalAmount || 0);
+                }
+            });
+        } catch (e) {
+            console.log("Invoices table might not exist or empty");
+        }
+        
+        // Format as Indian currency
+        const formatCurrency = (val) => {
+            if (val >= 10000000) return `₹${(val / 10000000).toFixed(1)}Cr`;
+            if (val >= 100000) return `₹${(val / 100000).toFixed(1)}L`;
+            return `₹${val.toLocaleString('en-IN')}`;
+        };
+
+        const summaryData = {
+            totalRevenue: totalRevenue > 0 ? formatCurrency(totalRevenue) : '₹0',
+            activeClients,
+            totalHiring,
+            activeEmployees,
+            totalAdmins,
+            totalKAMs,
+            retentionRate: '94%', // Fixed for now
+            outstandingPayment: outstandingPayment > 0 ? formatCurrency(outstandingPayment) : '₹0',
+            totalMRR: '₹0', // Mock
+            projectedARR: '₹0', // Mock
+            totalSalaries: '₹0', // Mock
+            totalRent: '₹0' // Mock
+        };
+
+        res.status(200).json({
+            success: true,
+            data: summaryData
+        });
+    } catch (error) {
+        console.error('Error fetching dashboard stats:', error);
+        res.status(500).json({ success: false, message: 'Server error' });
+    }
+};
+
 module.exports = {
     loginSuperAdmin,
-    editSuperAdmin, 
+    editSuperAdmin,
+    getDashboardStats,
 };

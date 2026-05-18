@@ -2405,7 +2405,10 @@ const getShortlistedCandidates = async (req, res) => {
 
         const candidates = await Candidate.findAll({
             where,
-            include: [{ model: RecruitmentPosition, as: 'position', attributes: ['title'] }],
+            include: [
+                { model: RecruitmentPosition, as: 'position', attributes: ['title'] },
+                { model: Client, as: 'client', attributes: ['companyName'] }
+            ],
             order: [['createdAt', 'DESC']],
         });
         res.status(200).json({ success: true, data: candidates });

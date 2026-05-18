@@ -445,6 +445,7 @@ router.post('/daily-report/:id/comment', verifyAuthToken, mf.addHeadComment);
 router.get('/announcements', verifyAuthToken, mf.getAnnouncements);
 router.post('/announcements', verifyAuthToken, mf.createAnnouncement);
 router.delete('/announcements/:id', verifyAuthToken, mf.deleteAnnouncement);
+router.put('/announcements/:id', verifyAuthToken, mf.editAnnouncement);
 
 // Documents
 router.get('/documents', verifyAuthToken, mf.getDocuments);

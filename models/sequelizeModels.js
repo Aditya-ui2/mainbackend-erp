@@ -1779,10 +1779,12 @@ const DailyReport = sequelize.define('DailyReport', {
 // ============== ANNOUNCEMENT MODEL ==============
 const Announcement = sequelize.define('Announcement', {
     id: { type: DataTypes.UUID, defaultValue: DataTypes.UUIDV4, primaryKey: true },
-    department: { type: DataTypes.ENUM('HR Operations', 'HR Recruitment', 'HR', 'Management', 'CRM', 'All'), allowNull: false },
+    department: { type: DataTypes.STRING, defaultValue: 'All' },
     title: { type: DataTypes.STRING, allowNull: false },
     content: { type: DataTypes.TEXT, allowNull: false },
-    priority: { type: DataTypes.ENUM('Low', 'Medium', 'High', 'Urgent'), defaultValue: 'Medium' },
+    priority: { type: DataTypes.ENUM('Low', 'Medium', 'High', 'Urgent', 'low', 'medium', 'high', 'urgent'), defaultValue: 'Medium' },
+    targetType: { type: DataTypes.STRING, defaultValue: 'All' },
+    targetValue: { type: DataTypes.STRING },
     postedBy: { type: DataTypes.UUID, allowNull: false },
     postedByName: { type: DataTypes.STRING, allowNull: false },
     expiresAt: { type: DataTypes.DATE },

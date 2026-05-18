@@ -426,12 +426,17 @@ const addHeadComment = async (req, res) => {
 // ============== ANNOUNCEMENTS ==============
 const getAnnouncements = async (req, res) => {
     try {
+        const reqDept = req.query.department || req.user.department;
+        const where = {};
+        
+        if (reqDept && reqDept !== 'All') {
+            where.department = {
+                [Op.in]: [reqDept, 'All']
+            };
+        }
+        
         const announcements = await Announcement.findAll({
-            where: {
-                department: {
-                    [Op.in]: [req.query.department || req.user.department, 'All']
-                }
-            },
+            where,
             order: [['pinned', 'DESC'], ['createdAt', 'DESC']],
             limit: 30,
         });
@@ -443,11 +448,14 @@ const getAnnouncements = async (req, res) => {
 
 const createAnnouncement = async (req, res) => {
     try {
-        const { title, content, priority, pinned, expiresAt } = req.body;
+        const { title, content, priority, pinned, expiresAt, targetType, targetValue } = req.body;
         const announcement = await Announcement.create({
-            department: req.body.department || req.user.department,
+            department: req.body.department || req.user.department || 'All',
             title, content, priority, pinned, expiresAt,
-            postedBy: req.user.id, postedByName: req.user.name,
+            targetType: targetType || 'All',
+            targetValue: targetValue || null,
+            postedBy: req.user.id, 
+            postedByName: req.user.name || (req.user.role === 'SuperAdmin' ? 'Super Admin' : 'Admin'),
         });
         res.status(201).json({ success: true, announcement, message: 'Announcement posted!' });
     } catch (error) {
@@ -461,6 +469,30 @@ const deleteAnnouncement = async (req, res) => {
         if (!ann) return res.status(404).json({ success: false, message: 'Not found' });
         await ann.destroy();
         res.json({ success: true, message: 'Deleted' });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
+
+const editAnnouncement = async (req, res) => {
+    try {
+        const ann = await Announcement.findByPk(req.params.id);
+        if (!ann) return res.status(404).json({ success: false, message: 'Not found' });
+        
+        const { title, content, priority, pinned, expiresAt, targetType, targetValue, department } = req.body;
+        
+        await ann.update({
+            title: title ?? ann.title,
+            content: content ?? ann.content,
+            priority: priority ?? ann.priority,
+            pinned: pinned ?? ann.pinned,
+            expiresAt: expiresAt ?? ann.expiresAt,
+            targetType: targetType ?? ann.targetType,
+            targetValue: targetValue ?? ann.targetValue,
+            department: department ?? ann.department
+        });
+
+        res.json({ success: true, announcement: ann, message: 'Announcement updated successfully' });
     } catch (error) {
         res.status(500).json({ success: false, message: error.message });
     }
@@ -811,7 +843,7 @@ module.exports = {
     checkIn, checkOut, getMyAttendance, getDeptAttendance,
     getPerformanceStats,
     submitDailyReport, uploadMISAttachment, getMyReports, getDeptReports, getMISReports, addHeadComment,
-    getAnnouncements, createAnnouncement, deleteAnnouncement,
+    getAnnouncements, createAnnouncement, deleteAnnouncement, editAnnouncement,
     getDocuments, uploadDocument, deleteDocument,
     getMyTrainings, updateTraining, assignTraining,
     getMyPayslips, generatePayslip,
