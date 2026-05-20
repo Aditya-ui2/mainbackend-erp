@@ -321,7 +321,7 @@ app.get('/verify-deploy', (req, res) => {
     res.json({ 
         status: 'DEPLOY_ACTIVE', 
         time: new Date().toISOString(), 
-        build: 'V3_ONBOARDING_FIX',
+        build: 'V4_CORS_WILD_FIX',
         path: __dirname 
     });
 });
