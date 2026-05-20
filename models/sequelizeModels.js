@@ -82,17 +82,18 @@ const sequelize = new Sequelize(
         dialect: 'postgres',
         logging: false, // Set to console.log for debugging
         pool: {
-            max: 5,
-            min: 0,
+            max: 10, // Increase max pool size for better concurrency
+            min: 2,  // Keep at least 2 connections warm permanently to eliminate connection handshake latency
             acquire: 30000,
-            idle: 10000
+            idle: 30000  // Increase idle timeout to 30 seconds
         },
         dialectOptions: {
             ssl: process.env.DB_SSL === 'false' ? false : {
                 require: true,
                 rejectUnauthorized: false
             },
-            prependSearchPath: true
+            prependSearchPath: true,
+            keepAlive: true // Enable TCP keep-alive to prevent firewalls/Supabase from dropping idle connections
         },
         schema: 'public'
     }
