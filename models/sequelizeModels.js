@@ -7,6 +7,12 @@ const { Sequelize, DataTypes, Model } = require('sequelize');
 const crypto = require('crypto');
 require('dotenv').config();
 
+// Force database port to 5432 if set to 6543 to enable safe DDL migrations & session-based pooling
+let dbPort = parseInt(process.env.DB_PORT || '5432', 10);
+if (dbPort === 6543) {
+    dbPort = 5432;
+}
+
 // Initialize Sequelize with PostgreSQL
 const sequelize = new Sequelize(
     process.env.DB_NAME,
@@ -14,7 +20,7 @@ const sequelize = new Sequelize(
     process.env.DB_PASSWORD,
     {
         host: process.env.DB_HOST,
-        port: process.env.DB_PORT || 5432,
+        port: dbPort,
         dialect: 'postgres',
         logging: false, // Set to console.log for debugging
         pool: {
