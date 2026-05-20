@@ -63,9 +63,11 @@ function resolveIpv4(hostname) {
     return hostname;
 }
 
-// Force database port to 5432 if set to 6543 to enable safe DDL migrations & session-based pooling
+// Force database port to 5432 if it is pointing to a pooler port (6543), has a common typo (6453),
+// or if we are using a Supabase pooler host but are not on the session mode port (5432).
 let dbPort = parseInt(process.env.DB_PORT || '5432', 10);
-if (dbPort === 6543) {
+if (dbPort === 6543 || dbPort === 6453 || (process.env.DB_HOST && process.env.DB_HOST.includes('supabase.com') && dbPort !== 5432)) {
+    console.log(`[DB PORT OVERRIDE] Normalizing database port from ${dbPort} to 5432 for session mode compatibility`);
     dbPort = 5432;
 }
 
