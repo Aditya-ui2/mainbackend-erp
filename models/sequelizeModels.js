@@ -610,6 +610,77 @@ const Message = sequelize.define('Message', {
     timestamps: true
 });
 
+// ============ DEPARTMENT TEAM MODEL ============
+class DepartmentTeam extends Model {}
+
+DepartmentTeam.init({
+    id: {
+        type: DataTypes.STRING,
+        defaultValue: DataTypes.UUIDV4,
+        primaryKey: true
+    },
+    name: {
+        type: DataTypes.STRING,
+        allowNull: false
+    },
+    email: {
+        type: DataTypes.STRING,
+        allowNull: false,
+        unique: true
+    },
+    password: {
+        type: DataTypes.STRING,
+        allowNull: false
+    },
+    phone: {
+        type: DataTypes.STRING
+    },
+    role: {
+        type: DataTypes.STRING,
+        defaultValue: 'Team Member'
+    },
+    department: {
+        type: DataTypes.ENUM('HR Operations', 'HR Recruitment', 'Operations', 'KAM Operations', 'HR', 'Management', 'CRM', 'Finance', 'Sales', 'IT', 'BD', 'Marketing'),
+        allowNull: false
+    },
+    managerId: {
+        type: DataTypes.STRING,
+        allowNull: true
+    },
+    status: {
+        type: DataTypes.ENUM('Active', 'Inactive', 'On Leave'),
+        defaultValue: 'Active'
+    },
+    avatar: {
+        type: DataTypes.STRING
+    },
+    skills: {
+        type: DataTypes.JSONB,
+        defaultValue: []
+    },
+    joinDate: {
+        type: DataTypes.DATE,
+        defaultValue: DataTypes.NOW
+    },
+    tasksCompleted: {
+        type: DataTypes.INTEGER,
+        defaultValue: 0
+    },
+    tasksAssigned: {
+        type: DataTypes.INTEGER,
+        defaultValue: 0
+    },
+    avgResponseTime: {
+        type: DataTypes.FLOAT,
+        defaultValue: 0
+    }
+}, {
+    sequelize,
+    modelName: 'DepartmentTeam',
+    tableName: 'DepartmentTeams',
+    timestamps: true
+});
+
 // ============ RECRUITMENT POSITION MODEL ============
 const RecruitmentPosition = sequelize.define('RecruitmentPosition', {
     id: {
@@ -979,7 +1050,7 @@ const OfferTemplate = sequelize.define('OfferTemplate', {
         primaryKey: true
     },
     clientId: {
-        type: DataTypes.UUID,
+        type: DataTypes.STRING,
         allowNull: false,
         references: {
             model: 'clients',
@@ -1342,76 +1413,7 @@ RecurringTask.prototype.getAssignedUser = async function() {
     return null;
 };
 
-// ============ DEPARTMENT TEAM MODEL ============
-class DepartmentTeam extends Model {}
 
-DepartmentTeam.init({
-    id: {
-        type: DataTypes.STRING,
-        defaultValue: DataTypes.UUIDV4,
-        primaryKey: true
-    },
-    name: {
-        type: DataTypes.STRING,
-        allowNull: false
-    },
-    email: {
-        type: DataTypes.STRING,
-        allowNull: false,
-        unique: true
-    },
-    password: {
-        type: DataTypes.STRING,
-        allowNull: false
-    },
-    phone: {
-        type: DataTypes.STRING
-    },
-    role: {
-        type: DataTypes.STRING,
-        defaultValue: 'Team Member'
-    },
-    department: {
-        type: DataTypes.ENUM('HR Operations', 'HR Recruitment', 'Operations', 'KAM Operations', 'HR', 'Management', 'CRM', 'Finance', 'Sales', 'IT', 'BD', 'Marketing'),
-        allowNull: false
-    },
-    managerId: {
-        type: DataTypes.STRING,
-        allowNull: true
-    },
-    status: {
-        type: DataTypes.ENUM('Active', 'Inactive', 'On Leave'),
-        defaultValue: 'Active'
-    },
-    avatar: {
-        type: DataTypes.STRING
-    },
-    skills: {
-        type: DataTypes.JSONB,
-        defaultValue: []
-    },
-    joinDate: {
-        type: DataTypes.DATE,
-        defaultValue: DataTypes.NOW
-    },
-    tasksCompleted: {
-        type: DataTypes.INTEGER,
-        defaultValue: 0
-    },
-    tasksAssigned: {
-        type: DataTypes.INTEGER,
-        defaultValue: 0
-    },
-    avgResponseTime: {
-        type: DataTypes.FLOAT,
-        defaultValue: 0
-    }
-}, {
-    sequelize,
-    modelName: 'DepartmentTeam',
-    tableName: 'DepartmentTeams',
-    timestamps: true
-});
 
 // DepartmentTeam self-referential relationship (Head managing KAMs)
 DepartmentTeam.hasMany(DepartmentTeam, { foreignKey: 'managerId', as: 'managedMembers' });
@@ -1528,12 +1530,11 @@ ResumeBank.init({
     contactNotes: {
         type: DataTypes.TEXT
     },
-    // Assignment
     assignedToId: {
-        type: DataTypes.UUID
+        type: DataTypes.STRING
     },
     assignedPositionId: {
-        type: DataTypes.UUID
+        type: DataTypes.STRING
     },
     // Sync metadata
     lastSyncedAt: {
@@ -1630,7 +1631,7 @@ DepartmentTask.init({
         defaultValue: []
     },
     positionId: {
-        type: DataTypes.UUID,
+        type: DataTypes.STRING,
         allowNull: true,
         references: {
             model: 'recruitment_positions',
@@ -1638,7 +1639,7 @@ DepartmentTask.init({
         }
     },
     candidateId: {
-        type: DataTypes.UUID,
+        type: DataTypes.STRING,
         allowNull: true,
         references: {
             model: 'candidates',

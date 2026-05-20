@@ -42,7 +42,8 @@ const ALLOWED_ORIGINS = [
     'http://15.206.67.102',
     'http://15.206.67.102:3000',
     'https://erp.mabicons.com',
-    'https://mabicons.vercel.app'
+    'https://mabicons.vercel.app',
+    'https://mainerp-mabicons.vercel.app'
 ];
 
 const io = socketIO(server, {
@@ -50,7 +51,8 @@ const io = socketIO(server, {
         origin: function(origin, callback) {
             if (!origin) return callback(null, true);
             const isLocal = /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin);
-            if (isLocal || ALLOWED_ORIGINS.includes(origin)) {
+            const isVercel = /^https:\/\/.*\.vercel\.app$/.test(origin);
+            if (isLocal || isVercel || ALLOWED_ORIGINS.includes(origin)) {
                 return callback(null, true);
             }
             return callback(new Error('Not allowed by CORS'));
@@ -87,7 +89,8 @@ app.use(cors({
             return callback(null, true);
         }
         const isLocal = /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin);
-        if (isLocal || ALLOWED_ORIGINS.includes(origin)) {
+        const isVercel = /^https:\/\/.*\.vercel\.app$/.test(origin);
+        if (isLocal || isVercel || ALLOWED_ORIGINS.includes(origin)) {
             return callback(null, true);
         }
         return callback(new Error('Not allowed by CORS'));
