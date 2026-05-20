@@ -7,11 +7,69 @@ const { Sequelize, DataTypes, Model } = require('sequelize');
 const crypto = require('crypto');
 require('dotenv').config();
 
+// Multi-fallback synchronous IPv4 resolver to completely bypass Render's DNS/IPv6 resolution issues.
+function resolveIpv4(hostname) {
+    if (!hostname) return hostname;
+    if (/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(hostname)) {
+        return hostname;
+    }
+    try {
+        const { execSync } = require('child_process');
+        // Fallback 1: getent hosts (extremely fast and standard on Linux)
+        try {
+            const output = execSync(`getent hosts ${hostname}`, { encoding: 'utf8', timeout: 1500 });
+            const match = output.match(/^(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})/);
+            if (match && match[1]) {
+                console.log(`[DNS RESOLVER] getent resolved ${hostname} to ${match[1]}`);
+                return match[1];
+            }
+        } catch (err) {}
+
+        // Fallback 2: nslookup
+        try {
+            const output = execSync(`nslookup ${hostname}`, { encoding: 'utf8', timeout: 1500 });
+            const addresses = [];
+            const lines = output.split('\n');
+            for (const line of lines) {
+                const match = line.match(/Address:\s*(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})/);
+                if (match && match[1]) {
+                    addresses.push(match[1]);
+                }
+            }
+            if (addresses.length > 0) {
+                const ip = addresses[addresses.length - 1];
+                console.log(`[DNS RESOLVER] nslookup resolved ${hostname} to ${ip}`);
+                return ip;
+            }
+        } catch (err) {}
+
+        // Fallback 3: ping
+        try {
+            const output = execSync(`ping -c 1 -t 2 ${hostname}`, { encoding: 'utf8', timeout: 1500 });
+            const match = output.match(/\((\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\)/);
+            if (match && match[1]) {
+                console.log(`[DNS RESOLVER] ping resolved ${hostname} to ${match[1]}`);
+                return match[1];
+            }
+        } catch (err) {}
+    } catch (e) {
+        console.error(`[DNS RESOLVER] Synchronous DNS fallback failed:`, e.message);
+    }
+
+    if (hostname.includes('ap-southeast-2.pooler.supabase.com')) {
+        console.log(`[DNS RESOLVER] Using hardcoded fallback IPv4 for Sydney Supabase Pooler: 13.239.87.90`);
+        return '13.239.87.90';
+    }
+    return hostname;
+}
+
 // Force database port to 5432 if set to 6543 to enable safe DDL migrations & session-based pooling
 let dbPort = parseInt(process.env.DB_PORT || '5432', 10);
 if (dbPort === 6543) {
     dbPort = 5432;
 }
+
+const dbHost = resolveIpv4(process.env.DB_HOST);
 
 // Initialize Sequelize with PostgreSQL
 const sequelize = new Sequelize(
@@ -19,7 +77,7 @@ const sequelize = new Sequelize(
     process.env.DB_USER,
     process.env.DB_PASSWORD,
     {
-        host: process.env.DB_HOST,
+        host: dbHost,
         port: dbPort,
         dialect: 'postgres',
         logging: false, // Set to console.log for debugging
