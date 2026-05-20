@@ -387,35 +387,40 @@ server.listen(PORT, () => {
 
 dbConnect();
 const { sequelize } = require('./models/sequelizeModels');
-
-// Safe Database Patch for Missing Columns
 (async () => {
     try {
-        console.log('--- Initializing Safe Database Patch ---');
-        await sequelize.query('ALTER TABLE candidates ADD COLUMN IF NOT EXISTS \"addedById\" UUID');
-        await sequelize.query('ALTER TABLE candidates ADD COLUMN IF NOT EXISTS \"addedByType\" VARCHAR(255)');
-        await sequelize.query('ALTER TABLE candidates ADD COLUMN IF NOT EXISTS \"skillMatch\" INTEGER DEFAULT 0');
-        await sequelize.query('ALTER TABLE candidates ADD COLUMN IF NOT EXISTS \"experienceMatch\" INTEGER DEFAULT 0');
-        await sequelize.query('ALTER TABLE candidates ADD COLUMN IF NOT EXISTS \"offeredCTC\" VARCHAR(255)');
-        await sequelize.query('ALTER TABLE candidates ADD COLUMN IF NOT EXISTS \"offerDate\" DATE');
-        await sequelize.query('ALTER TABLE candidates ADD COLUMN IF NOT EXISTS \"offerExpiryDate\" DATE');
-        await sequelize.query('ALTER TABLE candidates ADD COLUMN IF NOT EXISTS \"joiningDate\" DATE');
-        await sequelize.query('ALTER TABLE candidates ADD COLUMN IF NOT EXISTS \"negotiationNotes\" TEXT');
-        await sequelize.query('ALTER TABLE candidates ADD COLUMN IF NOT EXISTS \"offerStatus\" VARCHAR(255) DEFAULT \'Draft\'');
-        await sequelize.query('ALTER TABLE candidates ADD COLUMN IF NOT EXISTS "offerLetterUrl" VARCHAR(255)');
-        await sequelize.query('ALTER TABLE candidates ADD COLUMN IF NOT EXISTS "offerLetterFileName" VARCHAR(255)');
-        await sequelize.query('ALTER TABLE candidates ADD COLUMN IF NOT EXISTS "bgvStatus" VARCHAR(255) DEFAULT \'Not Started\'');
-        await sequelize.query('ALTER TABLE candidates ADD COLUMN IF NOT EXISTS "username" VARCHAR(255) UNIQUE');
-        await sequelize.query('ALTER TABLE candidates ADD COLUMN IF NOT EXISTS "rawPassword" VARCHAR(255)');
-        await sequelize.query('ALTER TABLE candidates ADD COLUMN IF NOT EXISTS "firebaseUid" VARCHAR(255)');
-        await sequelize.query('ALTER TABLE candidates ADD COLUMN IF NOT EXISTS "city" VARCHAR(255)');
-        await sequelize.query('ALTER TABLE candidates ADD COLUMN IF NOT EXISTS "state" VARCHAR(255)');
-        await sequelize.query('ALTER TABLE interviews ADD COLUMN IF NOT EXISTS \"interviewerId\" UUID');
-        await sequelize.query('ALTER TABLE interviews ADD COLUMN IF NOT EXISTS \"interviewerType\" VARCHAR(255)');
-        await sequelize.query('ALTER TABLE interviews ADD COLUMN IF NOT EXISTS \"interviewerName\" VARCHAR(255)');
-        await sequelize.query('ALTER TABLE interviews ADD COLUMN IF NOT EXISTS \"interviewerRole\" VARCHAR(255)');
-        await sequelize.query('ALTER TABLE interviews ADD COLUMN IF NOT EXISTS \"interviewerEmail\" VARCHAR(255)');
+        console.log('--- Initializing Safe Database Patch (Batch Mode) ---');
+        
+        // Execute all heavy DDL alterations and table creations in one single roundtrip
         await sequelize.query(`
+            -- 1. Candidates alterations
+            ALTER TABLE candidates ADD COLUMN IF NOT EXISTS "addedById" UUID;
+            ALTER TABLE candidates ADD COLUMN IF NOT EXISTS "addedByType" VARCHAR(255);
+            ALTER TABLE candidates ADD COLUMN IF NOT EXISTS "skillMatch" INTEGER DEFAULT 0;
+            ALTER TABLE candidates ADD COLUMN IF NOT EXISTS "experienceMatch" INTEGER DEFAULT 0;
+            ALTER TABLE candidates ADD COLUMN IF NOT EXISTS "offeredCTC" VARCHAR(255);
+            ALTER TABLE candidates ADD COLUMN IF NOT EXISTS "offerDate" DATE;
+            ALTER TABLE candidates ADD COLUMN IF NOT EXISTS "offerExpiryDate" DATE;
+            ALTER TABLE candidates ADD COLUMN IF NOT EXISTS "joiningDate" DATE;
+            ALTER TABLE candidates ADD COLUMN IF NOT EXISTS "negotiationNotes" TEXT;
+            ALTER TABLE candidates ADD COLUMN IF NOT EXISTS "offerStatus" VARCHAR(255) DEFAULT 'Draft';
+            ALTER TABLE candidates ADD COLUMN IF NOT EXISTS "offerLetterUrl" VARCHAR(255);
+            ALTER TABLE candidates ADD COLUMN IF NOT EXISTS "offerLetterFileName" VARCHAR(255);
+            ALTER TABLE candidates ADD COLUMN IF NOT EXISTS "bgvStatus" VARCHAR(255) DEFAULT 'Not Started';
+            ALTER TABLE candidates ADD COLUMN IF NOT EXISTS "username" VARCHAR(255) UNIQUE;
+            ALTER TABLE candidates ADD COLUMN IF NOT EXISTS "rawPassword" VARCHAR(255);
+            ALTER TABLE candidates ADD COLUMN IF NOT EXISTS "firebaseUid" VARCHAR(255);
+            ALTER TABLE candidates ADD COLUMN IF NOT EXISTS "city" VARCHAR(255);
+            ALTER TABLE candidates ADD COLUMN IF NOT EXISTS "state" VARCHAR(255);
+
+            -- 2. Interviews alterations
+            ALTER TABLE interviews ADD COLUMN IF NOT EXISTS "interviewerId" UUID;
+            ALTER TABLE interviews ADD COLUMN IF NOT EXISTS "interviewerType" VARCHAR(255);
+            ALTER TABLE interviews ADD COLUMN IF NOT EXISTS "interviewerName" VARCHAR(255);
+            ALTER TABLE interviews ADD COLUMN IF NOT EXISTS "interviewerRole" VARCHAR(255);
+            ALTER TABLE interviews ADD COLUMN IF NOT EXISTS "interviewerEmail" VARCHAR(255);
+
+            -- 3. DepartmentNotes Table
             CREATE TABLE IF NOT EXISTS "DepartmentNotes" (
                 "id" UUID PRIMARY KEY,
                 "department" VARCHAR(255) NOT NULL,
@@ -427,20 +432,24 @@ const { sequelize } = require('./models/sequelizeModels');
                 "createdByName" VARCHAR(255),
                 "createdAt" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
                 "updatedAt" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
-            )
-        `);
-        await sequelize.query('ALTER TABLE recruitment_positions ADD COLUMN IF NOT EXISTS \"postedByUserId\" UUID');
-        await sequelize.query('ALTER TABLE recruitment_positions ADD COLUMN IF NOT EXISTS \"postedByUserType\" VARCHAR(255)');
-        await sequelize.query('ALTER TABLE recruitment_positions ADD COLUMN IF NOT EXISTS \"postedByName\" VARCHAR(255)');
-        await sequelize.query('ALTER TABLE recruitment_positions ADD COLUMN IF NOT EXISTS \"postedByEmail\" VARCHAR(255)');
-        await sequelize.query('ALTER TABLE recruitment_positions ALTER COLUMN "clientId" DROP NOT NULL').catch(e => console.log('clientId nullable already applied or failed:', e.message));
-        await sequelize.query('ALTER TABLE recruitment_positions DROP CONSTRAINT IF EXISTS \"recruitment_positions_departmentTeamId_fkey\"');
-        await sequelize.query('ALTER TABLE recruitment_positions DROP CONSTRAINT IF EXISTS \"recruitment_positions_departmentTeamId_fkey1\"');
-        await sequelize.query('ALTER TABLE recruitment_positions ADD CONSTRAINT \"recruitment_positions_departmentTeamId_fkey\" FOREIGN KEY (\"departmentTeamId\") REFERENCES \"DepartmentTeams\"(\"id\") ON UPDATE CASCADE ON DELETE SET NULL');
-        await sequelize.query('ALTER TABLE candidates DROP CONSTRAINT IF EXISTS \"candidates_addedById_fkey\"');
-        await sequelize.query('ALTER TABLE interviews DROP CONSTRAINT IF EXISTS \"interviews_interviewerId_fkey\"');
-        await sequelize.query('ALTER TABLE interviews ADD CONSTRAINT \"interviews_interviewerId_fkey\" FOREIGN KEY (\"interviewerId\") REFERENCES \"DepartmentTeams\"(\"id\") ON UPDATE CASCADE ON DELETE SET NULL');
-        await sequelize.query(`
+            );
+
+            -- 4. Positions alterations
+            ALTER TABLE recruitment_positions ADD COLUMN IF NOT EXISTS "postedByUserId" UUID;
+            ALTER TABLE recruitment_positions ADD COLUMN IF NOT EXISTS "postedByUserType" VARCHAR(255);
+            ALTER TABLE recruitment_positions ADD COLUMN IF NOT EXISTS "postedByName" VARCHAR(255);
+            ALTER TABLE recruitment_positions ADD COLUMN IF NOT EXISTS "postedByEmail" VARCHAR(255);
+            ALTER TABLE recruitment_positions ALTER COLUMN "clientId" DROP NOT NULL;
+
+            -- 5. Foreign keys
+            ALTER TABLE recruitment_positions DROP CONSTRAINT IF EXISTS "recruitment_positions_departmentTeamId_fkey";
+            ALTER TABLE recruitment_positions DROP CONSTRAINT IF EXISTS "recruitment_positions_departmentTeamId_fkey1";
+            ALTER TABLE recruitment_positions ADD CONSTRAINT "recruitment_positions_departmentTeamId_fkey" FOREIGN KEY ("departmentTeamId") REFERENCES "DepartmentTeams"("id") ON UPDATE CASCADE ON DELETE SET NULL;
+            ALTER TABLE candidates DROP CONSTRAINT IF EXISTS "candidates_addedById_fkey";
+            ALTER TABLE interviews DROP CONSTRAINT IF EXISTS "interviews_interviewerId_fkey";
+            ALTER TABLE interviews ADD CONSTRAINT "interviews_interviewerId_fkey" FOREIGN KEY ("interviewerId") REFERENCES "DepartmentTeams"("id") ON UPDATE CASCADE ON DELETE SET NULL;
+
+            -- 6. Updates
             UPDATE recruitment_positions rp
             SET "postedByName" = dt."name",
                 "postedByEmail" = dt."email",
@@ -448,9 +457,8 @@ const { sequelize } = require('./models/sequelizeModels');
                 "postedByUserType" = 'departmentTeam'
             FROM "DepartmentTeams" dt
             WHERE rp."departmentTeamId" = dt."id"
-              AND (rp."postedByName" IS NULL OR rp."postedByName" = '')
-        `);
-        await sequelize.query(`
+              AND (rp."postedByName" IS NULL OR rp."postedByName" = '');
+
             UPDATE recruitment_positions rp
             SET "postedByName" = tl."name",
                 "postedByEmail" = tl."email",
@@ -458,75 +466,40 @@ const { sequelize } = require('./models/sequelizeModels');
                 "postedByUserType" = 'teamLeader'
             FROM team_leaders tl
             WHERE rp."teamLeaderId" = tl."id"
-              AND (rp."postedByName" IS NULL OR rp."postedByName" = '')
-        `);
-        await sequelize.query('ALTER TABLE work_handovers DROP CONSTRAINT IF EXISTS \"work_handovers_fromUserId_fkey\"').catch(e => console.log('fromUserId fkey already dropped or failed:', e.message));
-        await sequelize.query('ALTER TABLE work_handovers DROP CONSTRAINT IF EXISTS \"work_handovers_toUserId_fkey\"').catch(e => console.log('toUserId fkey already dropped or failed:', e.message));
-        await sequelize.query('ALTER TABLE work_handovers DROP CONSTRAINT IF EXISTS \"work_handovers_createdBy_fkey\"').catch(e => console.log('createdBy fkey already dropped or failed:', e.message));
-        await sequelize.query('ALTER TABLE work_handovers ALTER COLUMN \"fromUserId\" TYPE VARCHAR(255)');
-        await sequelize.query('ALTER TABLE work_handovers ALTER COLUMN \"toUserId\" TYPE VARCHAR(255)');
-        await sequelize.query('ALTER TABLE work_handovers ALTER COLUMN \"createdBy\" TYPE VARCHAR(255)');
-        await sequelize.query('ALTER TABLE clients ALTER COLUMN \"id\" TYPE VARCHAR(255)').catch(e => console.log('clients id type change failed (expected if FKs exist):', e.message));
-        
-        // Patch for DailyReport department ENUM expansion
-        try {
-            const departments = ['Operations', 'KAM Operations', 'Finance', 'Sales', 'IT', 'BD', 'Marketing'];
-            for (const dept of departments) {
-                await sequelize.query(`ALTER TYPE \"enum_DailyReports_department\" ADD VALUE IF NOT EXISTS '${dept}'`).catch(() => {});
-            }
-            console.log('✅ DailyReport department ENUM expanded');
-        } catch (e) {
-            console.log('DailyReport ENUM patch skipped or failed:', e.message);
-        }
-        
-        // Patch for Announcement and DeptDocument department ENUM expansion
-        try {
-            await sequelize.query('ALTER TYPE \"enum_Announcements_department\" ADD VALUE IF NOT EXISTS \'All\'').catch(() => {});
-            await sequelize.query('ALTER TYPE \"enum_DeptDocuments_department\" ADD VALUE IF NOT EXISTS \'All\'').catch(() => {});
-            console.log('✅ Announcement/DeptDoc department ENUM expanded');
-        } catch (e) {
-            console.log('Announcement ENUM patch skipped or failed:', e.message);
-        }
-        
-        // Add Onboarding Columns to Clients table
-        await sequelize.query('ALTER TABLE clients ADD COLUMN IF NOT EXISTS \"city\" VARCHAR(255)');
-        await sequelize.query('ALTER TABLE clients ADD COLUMN IF NOT EXISTS \"pinCode\" VARCHAR(255)');
-        await sequelize.query('ALTER TABLE clients ADD COLUMN IF NOT EXISTS \"ownerName\" VARCHAR(255)');
-        await sequelize.query('ALTER TABLE clients ADD COLUMN IF NOT EXISTS \"ownerEmail\" VARCHAR(255)');
-        await sequelize.query('ALTER TABLE clients ADD COLUMN IF NOT EXISTS \"agreementType\" VARCHAR(255)');
-        await sequelize.query('ALTER TABLE clients ADD COLUMN IF NOT EXISTS \"agreementEffectiveDate\" DATE');
-        await sequelize.query('ALTER TABLE clients ADD COLUMN IF NOT EXISTS \"feeAmount\" VARCHAR(255)');
-        await sequelize.query('ALTER TABLE clients ADD COLUMN IF NOT EXISTS \"paymentTerms\" VARCHAR(255)');
-        await sequelize.query('ALTER TABLE clients ADD COLUMN IF NOT EXISTS \"state\" VARCHAR(255)');
-        await sequelize.query('ALTER TABLE clients ADD COLUMN IF NOT EXISTS \"shopsLicense\" VARCHAR(255)');
-        await sequelize.query('ALTER TABLE clients ADD COLUMN IF NOT EXISTS \"factoryLicense\" VARCHAR(255)');
-        await sequelize.query('ALTER TABLE clients ADD COLUMN IF NOT EXISTS \"msmeRegistered\" VARCHAR(255)');
-        await sequelize.query('ALTER TABLE clients ADD COLUMN IF NOT EXISTS \"totalEmployees\" VARCHAR(255)');
-        await sequelize.query('ALTER TABLE clients ADD COLUMN IF NOT EXISTS \"payrollCycle\" VARCHAR(255)');
-        await sequelize.query('ALTER TABLE clients ADD COLUMN IF NOT EXISTS \"pfApplicable\" VARCHAR(255)');
-        await sequelize.query('ALTER TABLE clients ADD COLUMN IF NOT EXISTS \"esicApplicable\" VARCHAR(255)');
-        await sequelize.query('ALTER TABLE clients ADD COLUMN IF NOT EXISTS \"leadSource\" VARCHAR(255)');
-        await sequelize.query('ALTER TABLE clients ADD COLUMN IF NOT EXISTS \"onboardingNotes\" TEXT');
-        await sequelize.query('ALTER TABLE clients ADD COLUMN IF NOT EXISTS \"assignKAM\" VARCHAR(255)');
-        await sequelize.query('ALTER TABLE clients ADD COLUMN IF NOT EXISTS \"industry\" VARCHAR(255)');
-        await sequelize.query('ALTER TABLE clients ADD COLUMN IF NOT EXISTS \"probability\" INTEGER DEFAULT 25');
-        
-        // Handle stage column with enum
-        try {
-            await sequelize.query(`
-                DO $$ BEGIN
-                    CREATE TYPE enum_clients_stage AS ENUM('Onboarding Complete', 'Finalize', 'Lead Stage');
-                EXCEPTION
-                    WHEN duplicate_object THEN null;
-                END $$;
-            `);
-            await sequelize.query('ALTER TABLE clients ADD COLUMN IF NOT EXISTS \"stage\" enum_clients_stage DEFAULT \'Lead Stage\'');
-        } catch (e) {
-            console.log('Stage column patch failed:', e.message);
-        }
-        
-        // Create Finance Tables
-        await sequelize.query(`
+              AND (rp."postedByName" IS NULL OR rp."postedByName" = '');
+
+            -- 7. Work handovers
+            ALTER TABLE work_handovers DROP CONSTRAINT IF EXISTS "work_handovers_fromUserId_fkey";
+            ALTER TABLE work_handovers DROP CONSTRAINT IF EXISTS "work_handovers_toUserId_fkey";
+            ALTER TABLE work_handovers DROP CONSTRAINT IF EXISTS "work_handovers_createdBy_fkey";
+            ALTER TABLE work_handovers ALTER COLUMN "fromUserId" TYPE VARCHAR(255);
+            ALTER TABLE work_handovers ALTER COLUMN "toUserId" TYPE VARCHAR(255);
+            ALTER TABLE work_handovers ALTER COLUMN "createdBy" TYPE VARCHAR(255);
+
+            -- 8. Clients alterations
+            ALTER TABLE clients ADD COLUMN IF NOT EXISTS "city" VARCHAR(255);
+            ALTER TABLE clients ADD COLUMN IF NOT EXISTS "pinCode" VARCHAR(255);
+            ALTER TABLE clients ADD COLUMN IF NOT EXISTS "ownerName" VARCHAR(255);
+            ALTER TABLE clients ADD COLUMN IF NOT EXISTS "ownerEmail" VARCHAR(255);
+            ALTER TABLE clients ADD COLUMN IF NOT EXISTS "agreementType" VARCHAR(255);
+            ALTER TABLE clients ADD COLUMN IF NOT EXISTS "agreementEffectiveDate" DATE;
+            ALTER TABLE clients ADD COLUMN IF NOT EXISTS "feeAmount" VARCHAR(255);
+            ALTER TABLE clients ADD COLUMN IF NOT EXISTS "paymentTerms" VARCHAR(255);
+            ALTER TABLE clients ADD COLUMN IF NOT EXISTS "state" VARCHAR(255);
+            ALTER TABLE clients ADD COLUMN IF NOT EXISTS "shopsLicense" VARCHAR(255);
+            ALTER TABLE clients ADD COLUMN IF NOT EXISTS "factoryLicense" VARCHAR(255);
+            ALTER TABLE clients ADD COLUMN IF NOT EXISTS "msmeRegistered" VARCHAR(255);
+            ALTER TABLE clients ADD COLUMN IF NOT EXISTS "totalEmployees" VARCHAR(255);
+            ALTER TABLE clients ADD COLUMN IF NOT EXISTS "payrollCycle" VARCHAR(255);
+            ALTER TABLE clients ADD COLUMN IF NOT EXISTS "pfApplicable" VARCHAR(255);
+            ALTER TABLE clients ADD COLUMN IF NOT EXISTS "esicApplicable" VARCHAR(255);
+            ALTER TABLE clients ADD COLUMN IF NOT EXISTS "leadSource" VARCHAR(255);
+            ALTER TABLE clients ADD COLUMN IF NOT EXISTS "onboardingNotes" TEXT;
+            ALTER TABLE clients ADD COLUMN IF NOT EXISTS "assignKAM" VARCHAR(255);
+            ALTER TABLE clients ADD COLUMN IF NOT EXISTS "industry" VARCHAR(255);
+            ALTER TABLE clients ADD COLUMN IF NOT EXISTS "probability" INTEGER DEFAULT 25;
+
+            -- 9. Finance Tables
             CREATE TABLE IF NOT EXISTS "client_accounts" (
                 "id" UUID PRIMARY KEY,
                 "clientId" UUID NOT NULL REFERENCES "clients"("id") ON UPDATE CASCADE ON DELETE CASCADE,
@@ -540,9 +513,8 @@ const { sequelize } = require('./models/sequelizeModels');
                 "lastInvoiceNumber" VARCHAR(255),
                 "createdAt" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
                 "updatedAt" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
-            )
-        `);
-        await sequelize.query(`
+            );
+
             CREATE TABLE IF NOT EXISTS "invoices" (
                 "id" UUID PRIMARY KEY,
                 "invoiceNumber" VARCHAR(255) NOT NULL UNIQUE,
@@ -557,10 +529,8 @@ const { sequelize } = require('./models/sequelizeModels');
                 "notes" TEXT,
                 "createdAt" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
                 "updatedAt" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
-            )
-        `);
+            );
 
-        await sequelize.query(`
             CREATE TABLE IF NOT EXISTS "client_reports" (
                 "id" UUID PRIMARY KEY,
                 "reportName" VARCHAR(255) NOT NULL,
@@ -572,10 +542,8 @@ const { sequelize } = require('./models/sequelizeModels');
                 "fileUrl" TEXT,
                 "createdAt" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
                 "updatedAt" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
-            )
-        `);
+            );
 
-        await sequelize.query(`
             CREATE TABLE IF NOT EXISTS "client_meetings" (
                 "id" UUID PRIMARY KEY,
                 "title" VARCHAR(255) NOT NULL,
@@ -589,10 +557,8 @@ const { sequelize } = require('./models/sequelizeModels');
                 "status" VARCHAR(255) DEFAULT 'Scheduled',
                 "createdAt" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
                 "updatedAt" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
-            )
-        `);
+            );
 
-        await sequelize.query(`
             CREATE TABLE IF NOT EXISTS "leads" (
                 "id" UUID PRIMARY KEY,
                 "companyName" VARCHAR(255) NOT NULL,
@@ -607,12 +573,43 @@ const { sequelize } = require('./models/sequelizeModels');
                 "lastContactDate" TIMESTAMP WITH TIME ZONE,
                 "createdAt" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
                 "updatedAt" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
-            )
+            );
         `);
 
-        console.log('--- Database Schema Patch Applied Successfully ---');
+        // Handle types and individual column failures separately
+        try {
+            await sequelize.query('ALTER TABLE clients ALTER COLUMN "id" TYPE VARCHAR(255)').catch(() => {});
+        } catch (e) {}
+
+        // DailyReport ENUM expansion
+        try {
+            const departments = ['Operations', 'KAM Operations', 'Finance', 'Sales', 'IT', 'BD', 'Marketing'];
+            for (const dept of departments) {
+                await sequelize.query(`ALTER TYPE "enum_DailyReports_department" ADD VALUE IF NOT EXISTS '${dept}'`).catch(() => {});
+            }
+        } catch (e) {}
+        
+        // Announcement/DeptDoc ENUM expansion
+        try {
+            await sequelize.query('ALTER TYPE "enum_Announcements_department" ADD VALUE IF NOT EXISTS \'All\'').catch(() => {});
+            await sequelize.query('ALTER TYPE "enum_DeptDocuments_department" ADD VALUE IF NOT EXISTS \'All\'').catch(() => {});
+        } catch (e) {}
+
+        // Stage column with enum
+        try {
+            await sequelize.query(`
+                DO $$ BEGIN
+                    CREATE TYPE enum_clients_stage AS ENUM('Onboarding Complete', 'Finalize', 'Lead Stage');
+                EXCEPTION
+                    WHEN duplicate_object THEN null;
+                END $$;
+            `);
+            await sequelize.query('ALTER TABLE clients ADD COLUMN IF NOT EXISTS "stage" enum_clients_stage DEFAULT \'Lead Stage\'');
+        } catch (e) {}
+
+        console.log('--- Database Schema Patch Batch Applied Successfully ---');
     } catch (err) {
-        console.error('--- Database Schema Patch Failed ---', err.message);
+        console.error('--- Database Schema Patch Batch Failed ---', err.message);
     }
 })();
 

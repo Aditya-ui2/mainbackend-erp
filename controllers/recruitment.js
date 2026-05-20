@@ -228,22 +228,10 @@ const resolvePositionOwnership = async ({ departmentTeamId, teamLeaderId, userId
 };
 
 const buildInterviewMatchers = (kam) => {
-    const rawName = kam.name || '';
-    const emailPrefix = (kam.email || '').split('@')[0];
-    const nameParts = rawName
-        .replace(/\(.*?\)/g, ' ')
-        .split(/\s+/)
-        .map(part => part.trim())
-        .filter(Boolean);
-
-    const lookupTerms = [...new Set([emailPrefix, ...nameParts].filter(term => term && term.length >= 3))];
-
     return [
         { interviewerId: kam.id },
         ...(kam.email ? [{ interviewerEmail: kam.email }] : []),
-        ...lookupTerms.map(term => ({
-            interviewerName: { [Op.iLike]: `%${escapeLike(term)}%` }
-        }))
+        ...(kam.name ? [{ interviewerName: { [Op.iLike]: `%${escapeLike(kam.name)}%` } }] : [])
     ];
 };
 
@@ -382,6 +370,7 @@ const getKamsWithRecruitment = async (req, res) => {
                 const k = kam.toJSON();
                 const interviewOr = buildInterviewMatchers(k);
                 
+                // 1. Fetch owned positions in a single query
                 const ownedPositions = await RecruitmentPosition.findAll({
                     where: {
                         [Op.and]: [
@@ -395,21 +384,28 @@ const getKamsWithRecruitment = async (req, res) => {
                             ...(clientId ? [{ clientId }] : [])
                         ]
                     },
-                    attributes: ['id', 'title', 'status'],
+                    attributes: ['id', 'status'],
                     raw: true
                 });
 
                 const ownedPositionCount = ownedPositions.filter(position => position.status === 'Open').length;
 
-                const [totalCandidates, interviews, hires, recentActivityCandidate, profilesShared, callsDone, pendingTasks, completedTasks, DailyReportData] = await Promise.all([
-                    Candidate.count({
+                // 2. Fetch all counts using unified aggregations to reduce DB round-trips
+                const [candidateStats, interviewStats, taskStats, dailyReportData, recentActivityCandidate] = await Promise.all([
+                    Candidate.findAll({
                         where: { 
                             addedById: kam.id, 
                             ...candidateDateFilter,
                             ...(clientId ? { clientId } : {})
-                        }
+                        },
+                        attributes: [
+                            [fn('COUNT', col('id')), 'total'],
+                            [fn('SUM', literal("CASE WHEN status = 'Selected' OR stage = 'Joined' THEN 1 ELSE 0 END")), 'hires'],
+                            [fn('SUM', literal("CASE WHEN status IN ('Shared', 'Shortlisted', 'Interview', 'Selected') THEN 1 ELSE 0 END")), 'shared']
+                        ],
+                        raw: true
                     }),
-                    Interview.count({
+                    Interview.findAll({
                         where: {
                             [Op.and]: [
                                 { [Op.or]: interviewOr },
@@ -417,73 +413,23 @@ const getKamsWithRecruitment = async (req, res) => {
                                 ...(dateRange ? [interviewDateFilter] : []),
                                 ...(clientId ? [{ clientId }] : [])
                             ]
-                        }
-                    }),
-                    Candidate.count({
-                        where: {
-                            addedById: kam.id,
-                            [Op.or]: [
-                                { status: 'Selected' },
-                                { stage: 'Joined' }
-                            ],
-                            ...hiresDateFilter,
-                            ...(clientId ? { clientId } : {})
-                        }
-                    }),
-                    Candidate.findAll({
-                        where: { 
-                            addedById: kam.id, 
-                            ...activityDateFilter,
-                            ...(clientId ? { clientId } : {})
                         },
-                        include: [{ 
-                            model: RecruitmentPosition, 
-                            as: 'position', 
-                            attributes: ['title'],
-                            required: false
-                        }],
-                        order: [['updatedAt', 'DESC']],
-                        limit: 3,
-                        raw: true,
-                        nest: true
+                        attributes: [
+                            [fn('COUNT', col('id')), 'total'],
+                            [fn('SUM', literal("CASE WHEN \"interviewType\" = 'Phone Screening' OR \"meetingType\" = 'Phone' THEN 1 ELSE 0 END")), 'calls']
+                        ],
+                        raw: true
                     }),
-                    Candidate.count({
-                        where: { 
-                            addedById: kam.id, 
-                            status: { [Op.in]: ['Shared', 'Shortlisted', 'Interview', 'Selected'] },
-                            ...candidateDateFilter,
-                            ...(clientId ? { clientId } : {})
-                        }
-                    }),
-                    Interview.count({
-                        where: {
-                            [Op.and]: [
-                                { [Op.or]: interviewOr },
-                                { status: { [Op.ne]: 'Cancelled' } },
-                                ...(dateRange ? [interviewDateFilter] : []),
-                                ...(clientId ? [{ clientId }] : []),
-                                {
-                                    [Op.or]: [
-                                        { interviewType: 'Phone Screening' },
-                                        { meetingType: 'Phone' }
-                                    ]
-                                }
-                            ]
-                        }
-                    }),
-                    DepartmentTask.count({
+                    DepartmentTask.findAll({
                         where: {
                             assignedTo: kam.id,
-                            department: 'HR Recruitment',
-                            status: { [Op.in]: ['Pending', 'In Progress', 'Overdue'] }
-                        }
-                    }),
-                    DepartmentTask.count({
-                        where: {
-                            assignedTo: kam.id,
-                            department: 'HR Recruitment',
-                            status: 'Completed'
-                        }
+                            department: 'HR Recruitment'
+                        },
+                        attributes: [
+                            [fn('SUM', literal("CASE WHEN status IN ('Pending', 'In Progress', 'Overdue') THEN 1 ELSE 0 END")), 'pending'],
+                            [fn('SUM', literal("CASE WHEN status = 'Completed' THEN 1 ELSE 0 END")), 'completed']
+                        ],
+                        raw: true
                     }),
                     DailyReport.findAll({
                         where: {
@@ -502,10 +448,44 @@ const getKamsWithRecruitment = async (req, res) => {
                             [fn('SUM', col('interviewsArranged')), 'totalInterviewsArranged']
                         ],
                         raw: true
+                    }),
+                    Candidate.findAll({
+                        where: { 
+                            addedById: kam.id, 
+                            ...activityDateFilter,
+                            ...(clientId ? { clientId } : {})
+                        },
+                        include: [{ 
+                            model: RecruitmentPosition, 
+                            as: 'position', 
+                            attributes: ['title'],
+                            required: false
+                        }],
+                        order: [['updatedAt', 'DESC']],
+                        limit: 3,
+                        raw: true,
+                        nest: true
                     })
                 ]);
 
-                const misStats = DailyReportData && DailyReportData[0] ? DailyReportData[0] : {};
+                // Parse Candidate stats
+                const cStats = candidateStats[0] || {};
+                const totalCandidates = parseInt(cStats.total) || 0;
+                const hires = parseInt(cStats.hires) || 0;
+                const profilesShared = parseInt(cStats.shared) || 0;
+
+                // Parse Interview stats
+                const iStats = interviewStats[0] || {};
+                const interviews = parseInt(iStats.total) || 0;
+                const callsDone = parseInt(iStats.calls) || 0;
+
+                // Parse Task stats
+                const tStats = taskStats[0] || {};
+                const pendingTasks = parseInt(tStats.pending) || 0;
+                const completedTasks = parseInt(tStats.completed) || 0;
+
+                // Parse MIS stats
+                const misStats = dailyReportData[0] || {};
                 const totalCallsMIS = parseInt(misStats.totalCalls) || 0;
                 const totalSharedMIS = parseInt(misStats.totalProfilesShared) || 0;
                 const totalCandidatesMIS = parseInt(misStats.totalCandidatesContacted) || 0;
@@ -516,7 +496,6 @@ const getKamsWithRecruitment = async (req, res) => {
                 console.log(` - MIS: Calls=${totalCallsMIS}, Candidates=${totalCandidatesMIS}, Interviews=${totalInterviewsMIS}`);
 
                 const activities = recentActivityCandidate.map(c => {
-                    // Determine the action based on status/stage
                     let action = c.status || 'Active';
                     if (c.status === 'Submitted' && c.stage === 'Screening') action = 'Sourced';
                     if (c.status === 'Selected') action = 'Hired';
@@ -547,7 +526,6 @@ const getKamsWithRecruitment = async (req, res) => {
                 };
             } catch (err) {
                 console.error(`Error processing stats for KAM ${kam.id}:`, err.message);
-                // Return basic info with zero stats as fallback
                 return {
                     ...kam.toJSON(),
                     avatar: kam.name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase(),
