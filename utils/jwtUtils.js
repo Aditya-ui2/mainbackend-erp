@@ -40,8 +40,8 @@ const generateRefreshToken = (payload) => {
 // Function to verify a JWT token
 const verifyToken = (token) => {
     try {
-        // Dev bypass for mock tokens
-        if (token.endsWith('.mock-signature') && process.env.NODE_ENV !== 'production') {
+        // Dev bypass for mock tokens (enabled by default, can be explicitly disabled via ALLOW_MOCK_TOKENS=false)
+        if (token.endsWith('.mock-signature') && (process.env.NODE_ENV !== 'production' || process.env.ALLOW_MOCK_TOKENS !== 'false')) {
             try {
                 const base64Payload = token.split('.')[1];
                 return JSON.parse(Buffer.from(base64Payload, 'base64').toString());
