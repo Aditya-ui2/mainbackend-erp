@@ -45,7 +45,8 @@ const hasRoleAccess = (userRole, allowedRoles = []) => {
  * Shared logic to resolve missing ID from email
  */
 const resolveUserId = async (decoded) => {
-    if (!decoded || decoded.id || !decoded.email) return decoded;
+    if (!decoded || !decoded.email) return decoded;
+    if (decoded.id && decoded.id !== '00000000-0000-0000-0000-000000000000') return decoded;
 
     try {
         const { DepartmentTeam, Admin, SuperAdmin, TeamLeader, Employee } = require('../models/sequelizeModels');
