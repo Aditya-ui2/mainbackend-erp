@@ -35,6 +35,10 @@ const ALLOWED_ORIGINS = [
     'http://localhost:5174',
     'http://localhost:5175',
     'http://localhost:3000',
+    'http://127.0.0.1:5173',
+    'http://127.0.0.1:5174',
+    'http://127.0.0.1:5175',
+    'http://127.0.0.1:3000',
     'http://15.206.67.102',
     'http://15.206.67.102:3000',
     'https://erp.mabicons.com',
@@ -43,7 +47,14 @@ const ALLOWED_ORIGINS = [
 
 const io = socketIO(server, {
     cors: {
-        origin: ALLOWED_ORIGINS,
+        origin: function(origin, callback) {
+            if (!origin) return callback(null, true);
+            const isLocal = /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin);
+            if (isLocal || ALLOWED_ORIGINS.includes(origin)) {
+                return callback(null, true);
+            }
+            return callback(new Error('Not allowed by CORS'));
+        },
         credentials: true
     }
 });
@@ -56,9 +67,9 @@ app.use(helmet({
         directives: {
             ...helmet.contentSecurityPolicy.getDefaultDirectives(),
             "upgrade-insecure-requests": null,
-            "frame-ancestors": ["'self'", "http://localhost:5173", "http://localhost:5174", "http://15.206.67.102"],
-            "img-src": ["'self'", "data:", "blob:", "http://localhost:3000", "http://15.206.67.102:3000"],
-            "media-src": ["'self'", "data:", "blob:", "http://localhost:3000", "http://15.206.67.102:3000"],
+            "frame-ancestors": ["'self'", "http://localhost:5173", "http://localhost:5174", "http://localhost:5175", "http://127.0.0.1:5173", "http://127.0.0.1:5174", "http://127.0.0.1:5175", "http://15.206.67.102"],
+            "img-src": ["'self'", "data:", "blob:", "http://localhost:3000", "http://127.0.0.1:3000", "http://15.206.67.102:3000"],
+            "media-src": ["'self'", "data:", "blob:", "http://localhost:3000", "http://127.0.0.1:3000", "http://15.206.67.102:3000"],
             "script-src": ["'self'", "'unsafe-inline'", "https://cdn.jsdelivr.net"], // Allow Swagger scripts
         },
     },
@@ -75,7 +86,8 @@ app.use(cors({
             // Allow server-to-server calls (health checks, PM2) but block in API context
             return callback(null, true);
         }
-        if (ALLOWED_ORIGINS.includes(origin)) {
+        const isLocal = /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin);
+        if (isLocal || ALLOWED_ORIGINS.includes(origin)) {
             return callback(null, true);
         }
         return callback(new Error('Not allowed by CORS'));
