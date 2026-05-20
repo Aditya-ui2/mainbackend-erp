@@ -105,6 +105,18 @@ app.use(cors({
     allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
+// Emergency Switch: Disable all file uploads globally due to storage limits (500MB)
+app.use((req, res, next) => {
+    const contentType = req.headers['content-type'] || '';
+    if (contentType.includes('multipart/form-data')) {
+        return res.status(400).json({ 
+            success: false, 
+            message: "File uploads are temporarily disabled due to database storage limits (500MB). We will reopen this feature in the future." 
+        });
+    }
+    next();
+});
+
 // Static files (Explicitly allow framing for uploads)
 app.use('/uploads', (req, res, next) => {
     res.setHeader('X-Frame-Options', 'ALLOWALL'); 
