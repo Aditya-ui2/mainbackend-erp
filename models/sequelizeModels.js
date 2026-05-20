@@ -219,7 +219,7 @@ const EmployeeTeamLeader = sequelize.define('EmployeeTeamLeader', {
         }
     },
     teamLeaderId: {
-        type: DataTypes.UUID,
+        type: DataTypes.STRING,
         references: {
             model: 'team_leaders',
             key: 'id'
@@ -345,7 +345,7 @@ Client.init({
         defaultValue: 'Requested'
     },
     teamLeaderId: {
-        type: DataTypes.UUID,
+        type: DataTypes.STRING,
         allowNull: true,
         references: {
             model: 'team_leaders',
@@ -1376,7 +1376,7 @@ DepartmentTeam.init({
         allowNull: false
     },
     managerId: {
-        type: DataTypes.UUID,
+        type: DataTypes.STRING,
         allowNull: true
     },
     status: {
