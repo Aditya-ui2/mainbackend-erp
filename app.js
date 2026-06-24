@@ -1,0 +1,652 @@
+const express = require('express');
+const path = require('path');
+const app = express();
+const cors = require("cors");
+const session = require('express-session');
+const dotenv = require('dotenv');
+const http = require('http');
+const socketIO = require('socket.io');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
+const cron = require('node-cron');
+dotenv.config();
+// Allowed origins for CORS configuration
+const ALLOWED_ORIGINS = [
+    process.env.FRONTEND_URL || 'http://localhost:5173',
+    'http://localhost:5173',
+    'http://localhost:5174',
+
+    'http://localhost:3000',
+    'http://127.0.0.1:5173',
+    'http://127.0.0.1:5174',
+    'http://127.0.0.1:5175',
+    'http://127.0.0.1:3000',
+    'http://15.206.67.102',
+    'http://15.206.67.102:3000',
+    'https://erp.mabicons.com',
+    'https://mabicons.vercel.app',
+    'https://api.mabicons.com',
+    'http://api.mabicons.com'
+];
+
+// CORS and body parsing must be applied before any routes
+app.use(cors({
+    origin: function (origin, callback) {
+        if (!origin) return callback(null, true);
+        const isLocal = /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin);
+        if (isLocal || ALLOWED_ORIGINS.includes(origin)) {
+            return callback(null, true);
+        }
+        return callback(new Error('Not allowed by CORS'));
+    },
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization']
+}))
+app.use(express.json({ limit: '50mb' }))
+app.use(express.urlencoded({ extended: true, limit: '50mb' }))
+app.use(express.static('public'));
+
+
+const isProduction = process.env.NODE_ENV === 'production';
+app.use(session({
+    secret: process.env.SESSION_SECRET || 'mabicons-swagger-secret',
+    resave: false,
+    saveUninitialized: false,
+    cookie: {
+        secure: isProduction,       // HTTPS pe true hoga
+        httpOnly: true,
+        sameSite: isProduction ? 'none' : 'lax',  // Cross-origin cookies ke liye
+        maxAge: 24 * 60 * 60 * 1000  // 24 hours
+    }
+}));
+
+
+const { Message } = require('./models/sequelizeModels');
+const swaggerUi = require('swagger-ui-express');
+const swaggerSpec = require('./swagger');
+const verifySwaggerSession = require('./middleware/swaggerAuth');
+
+// TOP-LEVEL EMERGENCY ROUTES
+app.get('/ping', (req, res) => res.send('pong'));
+app.get('/version', (req, res) => res.json({ build: 'V7_PATH_DEBUG', path: __dirname }));
+app.get('/swagger-login', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public/swagger-login.html'));
+});
+
+app.post('/swagger-login', (req, res) => {
+
+    const { username, password } = req.body;
+
+    if (
+        username === 'admin' &&
+        password === 'Mabicons@2026'
+    ) {
+
+        req.session.swaggerLoggedIn = true;
+
+        return res.json({
+            success: true,
+            redirect: '/api-docs'
+        });
+    }
+
+    return res.status(401).json({
+        success: false,
+        message: 'Invalid username or password'
+    });
+
+});
+
+// HEALTH CHECK ENDPOINT
+app.get('/health', async (req, res) => {
+    try {
+        const { sequelize } = require('./models/sequelizeModels');
+        await sequelize.authenticate();
+
+        res.json({
+            success: true,
+            status: 'healthy',
+            timestamp: new Date().toISOString(),
+            database: {
+                status: 'connected',
+                type: 'PostgreSQL'
+            },
+            server: {
+                uptime: process.uptime(),
+                memory: process.memoryUsage(),
+                pid: process.pid
+            }
+
+        });
+    } catch (error) {
+        res.status(503).json({
+            success: false,
+            status: 'unhealthy',
+            timestamp: new Date().toISOString(),
+            error: error.message,
+            database: {
+                status: 'disconnected',
+                type: 'PostgreSQL'
+            }
+        });
+    }
+});
+
+// NOTE: /recruitment/candidate/generate-credentials is handled by recruitmentRoutes
+
+// Global Logger for Recruitment routes debugging
+app.use('/recruitment', (req, res, next) => {
+    console.log(`[RECRUITMENT REQUEST] ${req.method} ${req.url}`);
+    next();
+});
+
+const { runAutomaticInterviewReminders } = require('./controllers/interview_sequelize');
+
+// Create HTTP server
+const server = http.createServer(app); // Add this
+
+const io = socketIO(server, {
+    cors: {
+        origin: function (origin, callback) {
+            if (!origin) return callback(null, true);
+            const isLocal = /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin);
+            if (isLocal || ALLOWED_ORIGINS.includes(origin)) {
+                return callback(null, true);
+            }
+            return callback(new Error('Not allowed by CORS'));
+        },
+        credentials: true
+    }
+});
+
+const PORT = parseInt(process.env.PORT, 10) || 3000;
+
+// Security middleware
+app.use(helmet({
+    contentSecurityPolicy: {
+        directives: {
+            ...helmet.contentSecurityPolicy.getDefaultDirectives(),
+            "upgrade-insecure-requests": null,
+            "frame-ancestors": ["'self'", "http://localhost:5173", "http://localhost:5174", "http://127.0.0.1:5173", "http://127.0.0.1:5174", "http://127.0.0.1:5175", "http://15.206.67.102", "https://erp.mabicons.com", "https://mabicons.vercel.app"],
+            "img-src": ["'self'", "data:", "blob:", "http://localhost:3000", "http://127.0.0.1:3000", "http://15.206.67.102:3000", "https://api.mabicons.com", "http://api.mabicons.com"],
+            "media-src": ["'self'", "data:", "blob:", "http://localhost:3000", "http://127.0.0.1:3000", "http://15.206.67.102:3000", "https://api.mabicons.com", "http://api.mabicons.com"],
+            "script-src": ["'self'", "'unsafe-inline'", "https://cdn.jsdelivr.net"], // Allow Swagger scripts
+        },
+    },
+    hsts: false, // Disable HSTS as we are on HTTP
+    crossOriginEmbedderPolicy: false,
+    crossOriginResourcePolicy: { policy: "cross-origin" },
+    frameguard: false // Allow framing for CV previews
+}));
+
+// Static files (Explicitly allow framing for uploads)
+app.use('/uploads', (req, res, next) => {
+    res.setHeader('X-Frame-Options', 'ALLOWALL');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Content-Security-Policy', "frame-ancestors 'self' http://localhost:* http://127.0.0.1:* http://15.206.67.102 https://erp.mabicons.com https://mabicons.vercel.app");
+
+    // Force browser to display instead of download if it's a PDF or image
+    const ext = path.extname(req.path).toLowerCase();
+    if (['.pdf', '.jpg', '.jpeg', '.png', '.txt'].includes(ext)) {
+        res.setHeader('Content-Disposition', 'inline');
+    }
+
+    next();
+}, express.static(path.join(__dirname, 'uploads')));
+
+// Rate limiting for auth endpoints (brute-force protection)
+const authLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: 20, // max 20 login attempts per 15min per IP
+    message: { success: false, message: 'Too many login attempts, please try again after 15 minutes' },
+    standardHeaders: true,
+    legacyHeaders: false
+});
+app.use('/superAdmin/login', authLimiter);
+app.use('/admin/login', authLimiter);
+app.use('/client/login', authLimiter);
+app.use('/employee/login', authLimiter);
+app.use('/teamLeader/login', authLimiter);
+app.use('/department/login', authLimiter);
+app.use('/auth/forgot-password', authLimiter);
+
+// Audit logging — log all sensitive operations
+const SENSITIVE_METHODS = ['POST', 'PUT', 'DELETE', 'PATCH'];
+app.use((req, res, next) => {
+    if (SENSITIVE_METHODS.includes(req.method)) {
+        const logEntry = {
+            timestamp: new Date().toISOString(),
+            method: req.method,
+            path: req.originalUrl,
+            ip: req.headers['x-real-ip'] || req.ip,
+            userId: req.user?.id || 'unauthenticated',
+            userRole: req.user?.role || 'unknown',
+            userAgent: req.headers['user-agent']?.substring(0, 100)
+        };
+        console.log('AUDIT:', JSON.stringify(logEntry));
+    }
+    next();
+});
+
+// Input sanitization — strip HTML/script tags from all string inputs
+const sanitizeInput = (obj) => {
+    if (typeof obj === 'string') {
+        return obj.replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+            .replace(/<[^>]*>/g, '')
+            .trim();
+    }
+    if (Array.isArray(obj)) return obj.map(sanitizeInput);
+    if (obj && typeof obj === 'object') {
+        const clean = {};
+        for (const [key, value] of Object.entries(obj)) {
+            clean[key] = sanitizeInput(value);
+        }
+        return clean;
+    }
+    return obj;
+};
+app.use((req, res, next) => {
+    if (req.body && typeof req.body === 'object') {
+        req.body = sanitizeInput(req.body);
+    }
+    if (req.query && typeof req.query === 'object') {
+        req.query = sanitizeInput(req.query);
+    }
+    next();
+});
+
+const dbConnect = require('./db/db')
+
+// Import routes
+const superAdminRoute = require('./routes/superAdmin');
+const adminRoute = require('./routes/admin')
+const TLroutes = require('./routes/teamLeader')
+const employeeRoutes = require('./routes/employee');
+const seedSuperAdmin = require('./db/seedSuperAdmin');
+const clientRoutes = require('./routes/client')
+const taskRoutes = require('./routes/task');
+const notificationRoutes = require('./routes/notification');
+const chatRoutes = require('./routes/chat');
+const authRoutes = require('./routes/authRoutes');
+const workAgreementRoutes = require('./routes/workAgreement');
+const workHandoverRoutes = require('./routes/workHandover');
+const recruitmentRoutes = require('./routes/recruitment');
+const departmentTeamRoutes = require('./routes/departmentTeam');
+const sharePointRoutes = require('./routes/sharepoint');
+const interviewRoutes = require('./routes/interview');
+const resumeBankRoutes = require('./routes/resumeBank');
+const financeRoutes = require('./routes/finance');
+const clientReviewRoutes = require('./routes/clientReview');
+const { uploadFile } = require('./utils/googleDriveServices');
+const { restartCronJobs } = require('./controllers/task_cron');
+const problemRoutes = require('./routes/problem');
+
+// Store connected users
+const connectedUsers = new Map();
+
+// Socket.IO connection handling
+io.on('connection', (socket) => {
+    console.log('A user connected');
+
+    // Handle user connection
+    socket.on('user_connected', (userData) => {
+        connectedUsers.set(userData.userId, socket.id);
+        console.log('User connected:', userData.userId);
+    });
+
+    // For Text Messages: 
+    // {
+    //      senderId: "user_id_string",        // MongoDB ObjectId of sender
+    //      senderType: "TeamLeader" | "Client", // Type of sender
+    //      receiverId: "user_id_string",      // MongoDB ObjectId of receiver
+    //      receiverType: "TeamLeader" | "Client", // Type of receiver
+    //      messageType: "text",               // Specifies this is a text message
+    //      content: "Hello, this is a message" // The actual message text
+    // }
+
+    // For Document Messages: 
+    // {
+    //      senderId: "user_id_string",        // MongoDB ObjectId of sender
+    //      senderType: "TeamLeader" | "Client", // Type of sender
+    //      receiverId: "user_id_string",      // MongoDB ObjectId of receiver
+    //      receiverType: "TeamLeader" | "Client", // Type of receiver
+    //      messageType: "document",           // Specifies this is a document message
+    //      file: {                           // File object
+    //          buffer: Buffer,               // File buffer
+    //          originalname: "example.pdf",   // Original file name
+    //          mimetype: "application/pdf",   // File mime type
+    //          size: 12345                   // File size in bytes
+    //      }
+    // }
+
+
+    // Handle private messages
+    socket.on('private_message', async (data) => {
+        try {
+            let messageData = {
+                senderId: data.senderId,
+                senderType: data.senderType,
+                receiverId: data.receiverId,
+                receiverType: data.receiverType,
+                messageType: data.messageType || 'text'
+            };
+
+            // Handle different message types
+            if (data.messageType === 'document' && data.file) {
+                // Handle document upload
+                const uploadResult = await uploadFile(data.file);
+                messageData.document = {
+                    fileName: uploadResult.fileName,
+                    fileId: uploadResult.fileId,
+                    webViewLink: uploadResult.webViewLink,
+                    fileType: uploadResult.fileType,
+                    fileSize: uploadResult.fileSize
+                };
+            } else {
+                // Handle text message
+                messageData.content = data.content;
+            }
+
+            // Create and save message using Sequelize
+            const message = await Message.create(messageData);
+
+            // Send message to receiver if online
+            const receiverSocketId = connectedUsers.get(data.receiverId);
+            if (receiverSocketId) {
+                io.to(receiverSocketId).emit('receive_message', message);
+            }
+
+            // Send acknowledgment to sender
+            socket.emit('message_sent', {
+                success: true,
+                messageId: message.id
+            });
+
+        } catch (error) {
+            console.error('Error handling message:', error);
+            socket.emit('message_error', {
+                success: false,
+                error: 'Failed to process message'
+            });
+        }
+    });
+
+    socket.on('typing', (data) => {
+        const receiverSocketId = connectedUsers.get(data.receiverId);
+        if (receiverSocketId) {
+            io.to(receiverSocketId).emit('user_typing', {
+                senderId: data.senderId,
+                typing: data.typing
+            });
+        }
+    });
+
+    // Handle disconnection
+    socket.on('disconnect', () => {
+        for (const [userId, socketId] of connectedUsers.entries()) {
+            if (socketId === socket.id) {
+                connectedUsers.delete(userId);
+                console.log('User disconnected:', userId);
+                break;
+            }
+        }
+    });
+});
+
+// Routes
+app.get('/', (req, res) => {
+    res.send("You have landed on the test page - V4_" + new Date().toISOString());
+});
+
+app.get('/verify-deploy', (req, res) => {
+    res.json({
+        status: 'DEPLOY_ACTIVE',
+        time: new Date().toISOString(),
+        build: 'V3_ONBOARDING_FIX',
+        path: __dirname
+    });
+});
+
+// Swagger Basic Auth Middleware
+app.use(
+    '/api-docs',
+    verifySwaggerSession,
+    swaggerUi.serve,
+    swaggerUi.setup(swaggerSpec, {
+        customCss: '.swagger-ui .topbar { display:none }',
+        customSiteTitle: 'MabiconsERP API Documentation'
+    })
+);
+
+
+// Standardized API route mounting (legacy & new)
+app.use('/api/auth', require('./routes/authRoutes'))
+app.use('/api/employees', require('./routes/employeeRoutes'))
+app.use('/api/teamleaders', require('./routes/teamLeaderRoutes'))
+app.use('/api/clients', require('./routes/clientRoutes'))
+app.use('/api/tasks', require('./routes/taskRoutes'))
+app.use('/api/recruitment', require('./routes/recruitment'))
+app.use('/api/interviews', require('./routes/interviewRoutes'))
+app.use('/api/notifications', require('./routes/notificationRoutes'))
+app.use('/api/attendance', require('./routes/attendanceRoutes'))
+app.use('/api/salary', require('./routes/salary'))
+app.use('/api/admin', require('./routes/adminRoutes'))
+
+app.use('/superAdmin', superAdminRoute);
+app.use('/admin', adminRoute);
+app.use('/teamLeader', TLroutes);
+app.use('/employee', employeeRoutes);
+app.use('/client', clientRoutes);
+app.use('/task', taskRoutes);
+app.use('/notification', notificationRoutes);
+app.use('/chat', chatRoutes); // Add chat routes
+app.use('/auth', authRoutes);
+app.use('/workAgreement', workAgreementRoutes);
+app.use('/workHandover', workHandoverRoutes);
+app.use('/recruitment', recruitmentRoutes);
+app.use('/department', departmentTeamRoutes);
+app.use('/sharepoint', sharePointRoutes);
+app.use('/interview', interviewRoutes);
+app.use('/resumeBank', resumeBankRoutes);
+app.use('/api/resumebank', resumeBankRoutes);
+app.use('/finance', financeRoutes);
+app.use('/client-reviews', clientReviewRoutes);
+app.use('/problems', problemRoutes);
+app.use('/reports', require('./routes/clientReport'));
+app.use('/meetings', require('./routes/clientMeeting'));
+app.use('/leads', require('./routes/lead'));
+app.use('/bd', require('./routes/lead'));
+app.use('/bd', require('./routes/bdExecutives'));
+app.use('/salesKam', require('./routes/salesKam'));
+app.use('/sales', require('./routes/sales'));
+app.use('/campaigns', require('./routes/campaign'));
+app.use('/problems', problemRoutes);
+
+// Public job feed routes (no auth - for Google Jobs, Indeed, Jooble, Adzuna crawlers)
+const { getPublicJobsFeedXml, getPublicJobPage, getPublicJobsList } = require('./controllers/jobDistribution');
+app.get('/api/public/jobs-feed.xml', getPublicJobsFeedXml);
+app.get('/api/public/jobs', getPublicJobsList);
+app.get('/api/public/jobs/:id', getPublicJobPage);
+
+// Defer seeding and cron jobs until DB connection is confirmed
+
+// Catch-all 404 handler for debugging
+app.use((req, res) => {
+    console.warn(`[404 ERROR] ${req.method} ${req.originalUrl} - Not Matched.`);
+    res.status(404).json({ success: false, message: `Route ${req.originalUrl} not found on server` });
+});
+
+// Listening is handled by attemptListen below (port fallback logic)
+
+const attemptListen = (startPort, maxAttempts = 10) => {
+    let attempt = 0;
+    const tryPort = (port) => {
+        attempt++;
+        server.once('error', onError);
+        server.listen(port, () => {
+            process.env.PORT = String(port);
+            console.log(`--- Express Server Running on Port ${port} ---`);
+            console.log(`[DIAGNOSTIC] Recruitment routes mounted on /recruitment`);
+            server.removeListener('error', onError);
+        });
+    };
+
+    const onError = (err) => {
+        if (err && err.code === 'EADDRINUSE') {
+            const nextPort = startPort + attempt;
+            if (attempt < maxAttempts) {
+                console.warn(`[WARN] Port ${startPort + attempt - 1} in use, trying ${nextPort}...`);
+                // remove this error listener before retrying
+                server.removeListener('error', onError);
+                // small delay to avoid busy-looping
+                setTimeout(() => tryPort(nextPort), 200);
+                return;
+            }
+            console.error('[CRITICAL] Could not bind to any port in range', startPort, '-', startPort + maxAttempts - 1);
+            console.error('Either stop the process using these ports or set a different PORT in your environment.');
+            process.exit(1);
+        }
+        console.error('[CRITICAL] Server failed to start:', err && err.message);
+        process.exit(1);
+    };
+
+    // start first attempt
+    tryPort(startPort);
+};
+
+// Try to listen on requested PORT and fallback to subsequent ports if in use
+attemptListen(PORT, 10);
+
+// Connect to DB, then run seeding and cron jobs
+; (async () => {
+    try {
+        const { sequelize } = require('./models/sequelizeModels');
+        await dbConnect();
+        console.log('DB connected — running seeders and scheduled jobs');
+        // Mark DB as ready for modules that defer cron jobs
+        global.DB_READY = true;
+
+        // Seed super admin if needed
+        try {
+            await seedSuperAdmin();
+            console.log('SuperAdmin seeded (if not present)');
+        } catch (e) {
+            console.error('Error seeding SuperAdmin:', e.message || e);
+        }
+
+        // Restart any cron jobs that depend on DB
+        try {
+            await restartCronJobs();
+            console.log('Cron jobs restarted');
+        } catch (e) {
+            console.error('Error restoring cron jobs:', e.message || e);
+        }
+
+        // Start interview reminder scheduler
+        cron.schedule('* * * * *', () => {
+            try {
+                runAutomaticInterviewReminders();
+            } catch (e) {
+                console.error('Automatic interview reminder scheduler failed:', e.message || e);
+            }
+        });
+
+        // Safe Database Patch for Missing Columns
+        try {
+            console.log('--- Initializing Safe Database Patch ---');
+            await sequelize.query('ALTER TABLE candidates ADD COLUMN IF NOT EXISTS \"addedById\" UUID');
+            await sequelize.query('ALTER TABLE candidates ADD COLUMN IF NOT EXISTS \"addedByType\" VARCHAR(255)');
+            await sequelize.query('ALTER TABLE candidates ADD COLUMN IF NOT EXISTS \"skillMatch\" INTEGER DEFAULT 0');
+            await sequelize.query('ALTER TABLE candidates ADD COLUMN IF NOT EXISTS \"experienceMatch\" INTEGER DEFAULT 0');
+            await sequelize.query('ALTER TABLE candidates ADD COLUMN IF NOT EXISTS \"offeredCTC\" VARCHAR(255)');
+            await sequelize.query('ALTER TABLE candidates ADD COLUMN IF NOT EXISTS \"offerDate\" DATE');
+            await sequelize.query('ALTER TABLE candidates ADD COLUMN IF NOT EXISTS \"joiningStatus\" VARCHAR(255) DEFAULT \'Pending\'');
+            await sequelize.query('ALTER TABLE invoices ADD COLUMN IF NOT EXISTS \"invoiceFileName\" VARCHAR(255)');
+            await sequelize.query('ALTER TABLE invoices ADD COLUMN IF NOT EXISTS \"invoiceFileData\" TEXT');
+
+            // Create profitability_reports table if it does not exist
+            await sequelize.query(`
+                CREATE TABLE IF NOT EXISTS "profitability_reports" (
+                    "id" UUID PRIMARY KEY,
+                    "reportNumber" VARCHAR(255) UNIQUE NOT NULL,
+                    "reportName" VARCHAR(255) NOT NULL,
+                    "reportType" VARCHAR(255) NOT NULL,
+                    "period" VARCHAR(255) NOT NULL,
+                    "department" VARCHAR(255) DEFAULT 'All',
+                    "revenue" DECIMAL(15, 2) DEFAULT 0,
+                    "expenses" DECIMAL(15, 2) DEFAULT 0,
+                    "netProfit" DECIMAL(15, 2) DEFAULT 0,
+                    "margin" VARCHAR(255) DEFAULT '0%',
+                    "generatedBy" VARCHAR(255) DEFAULT 'System',
+                    "status" VARCHAR(255) DEFAULT 'Generated',
+                    "notes" TEXT,
+                    "details" JSONB DEFAULT '{}'::jsonb,
+                    "createdAt" TIMESTAMP WITH TIME ZONE NOT NULL,
+                    "updatedAt" TIMESTAMP WITH TIME ZONE NOT NULL
+                )
+            `);
+
+            // Leads table missing columns
+            await sequelize.query('ALTER TABLE leads ADD COLUMN IF NOT EXISTS "source" VARCHAR(255)');
+            await sequelize.query('ALTER TABLE leads ADD COLUMN IF NOT EXISTS "reason" VARCHAR(255)');
+            await sequelize.query('ALTER TABLE leads ADD COLUMN IF NOT EXISTS "proposalTitle" VARCHAR(255)');
+            await sequelize.query('ALTER TABLE leads ADD COLUMN IF NOT EXISTS "validUntil" VARCHAR(255)');
+            await sequelize.query('ALTER TABLE leads ADD COLUMN IF NOT EXISTS "time" VARCHAR(255)');
+            await sequelize.query('ALTER TABLE leads ADD COLUMN IF NOT EXISTS "document" TEXT');
+
+            // DepartmentTasks department to string
+            try {
+                await sequelize.query('ALTER TABLE "DepartmentTasks" ALTER COLUMN department TYPE VARCHAR(255) USING department::text');
+            } catch (enumErr) {
+                console.log('Note: Could not alter DepartmentTasks department to VARCHAR:', enumErr.message);
+            }
+
+            // ActivityLogs department to string
+            try {
+                await sequelize.query('ALTER TABLE "ActivityLogs" ALTER COLUMN department TYPE VARCHAR(255) USING department::text');
+            } catch (enumErr) {
+                console.log('Note: Could not alter ActivityLogs department to VARCHAR:', enumErr.message);
+            }
+
+            // Self-heal DailyReport memberIds that are mock or null
+            const { DailyReport, DepartmentTeam } = require('./models/sequelizeModels');
+            const { Op } = require('sequelize');
+            const reportsToFix = await DailyReport.findAll({
+                where: {
+                    memberId: { [Op.or]: ['00000000-0000-0000-0000-000000000000', null] }
+                }
+            });
+            for (const report of reportsToFix) {
+                const member = await DepartmentTeam.findOne({
+                    where: {
+                        name: report.memberName
+                    }
+                });
+                if (member) {
+                    await report.update({ memberId: member.id });
+                    console.log(`Self-healed DailyReport memberId for ${report.memberName} to ${member.id}`);
+                }
+            }
+        } catch (dbPatchError) {
+            console.error('Database schema patch failed after DB connect:', dbPatchError.message || dbPatchError);
+        }
+    } catch (error) {
+        console.error('DB initialization failed:', error.message || error);
+    }
+})();
+
+app.post('/test', (req, res) => {
+    console.log("🔥 TEST API HIT");
+    res.send("OK");
+});
+// TRIGGER RESTART FOR NEW RECRUITMENT ROUTES
+
+// Global error handler
+app.use((err, req, res, next) => {
+    console.error('GLOBAL ERROR:', err.stack || err)
+    res.status(500).json({
+        success: false,
+        error: err.message || 'Internal Server Error'
+    })
+})

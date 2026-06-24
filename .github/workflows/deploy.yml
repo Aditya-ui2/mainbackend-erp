@@ -1,0 +1,38 @@
+name: Deploy to AWS EC2
+
+on:
+  push:
+    branches:
+      - main
+      - master
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Deploy to EC2
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USERNAME }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          port: 22
+          script: |
+            cd ~/backend-erp
+            git fetch origin main
+            git reset --hard origin/main
+            git clean -fd
+            echo "Current Commit: $(git rev-parse HEAD)"
+            npm install
+            # Kill any process currently occupying port 3000 to prevent 'Port in use' errors
+            fuser -k 3000/tcp || true
+            # Clean restart PM2
+            pm2 stop backend-erp || true
+            pm2 delete backend-erp || true
+            pm2 start app.js --name backend-erp
+            pm2 save
+            pm2 flush

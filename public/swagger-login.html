@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mabicons API Login</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background: #f4f5f7;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .card {
+            background: #ffffff;
+            width: 380px;
+            padding: 40px 36px;
+            border-radius: 16px;
+            border: 1px solid #e5e7eb;
+            box-shadow: 0 4px 24px rgba(0,0,0,0.07);
+        }
+
+        h2 {
+            font-size: 20px;
+            font-weight: 600;
+            color: #111827;
+            margin-bottom: 4px;
+        }
+
+        .subtitle {
+            font-size: 13px;
+            color: #6b7280;
+            margin-bottom: 28px;
+        }
+
+        label {
+            display: block;
+            font-size: 13px;
+            font-weight: 500;
+            color: #374151;
+            margin-bottom: 6px;
+        }
+
+        .field {
+            margin-bottom: 18px;
+        }
+
+        input {
+            width: 100%;
+            padding: 11px 14px;
+            font-size: 14px;
+            font-family: 'Inter', sans-serif;
+            border: 1px solid #d1d5db;
+            border-radius: 8px;
+            outline: none;
+            color: #111827;
+            background: #fff;
+            transition: border-color 0.15s, box-shadow 0.15s;
+        }
+
+        input:focus {
+            border-color: #6366f1;
+            box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+        }
+
+        .pass-wrap {
+            position: relative;
+        }
+
+        .pass-wrap input {
+            padding-right: 44px;
+        }
+
+        .eye-btn {
+            position: absolute;
+            right: 12px;
+            top: 50%;
+            transform: translateY(-50%);
+            background: none;
+            border: none;
+            cursor: pointer;
+            color: #9ca3af;
+            display: flex;
+            align-items: center;
+            padding: 2px;
+            transition: color 0.15s;
+        }
+
+        .eye-btn:hover { color: #374151; }
+
+        .eye-btn svg { width: 18px; height: 18px; }
+
+        .login-btn {
+            width: 100%;
+            margin-top: 6px;
+            padding: 12px;
+            background: #4f46e5;
+            color: #fff;
+            font-size: 14px;
+            font-weight: 600;
+            font-family: 'Inter', sans-serif;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: background 0.15s;
+        }
+
+        .login-btn:hover { background: #4338ca; }
+        .login-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+
+        .error-msg {
+            margin-top: 14px;
+            padding: 10px 14px;
+            background: #fef2f2;
+            border: 1px solid #fecaca;
+            border-radius: 8px;
+            color: #dc2626;
+            font-size: 13px;
+            display: none;
+        }
+
+        .spinner {
+            display: none;
+            width: 16px;
+            height: 16px;
+            border: 2px solid rgba(255,255,255,0.4);
+            border-top-color: #fff;
+            border-radius: 50%;
+            animation: spin 0.7s linear infinite;
+            margin: 0 auto;
+        }
+
+        @keyframes spin { to { transform: rotate(360deg); } }
+    </style>
+</head>
+<body>
+
+    <div class="card">
+        <h2>Mabicons API</h2>
+        <p class="subtitle">Sign in to access API documentation</p>
+
+        <div class="field">
+            <label for="username">Username</label>
+            <input id="username" type="text" placeholder="Enter username" autocomplete="username" />
+        </div>
+
+        <div class="field">
+            <label for="password">Password</label>
+            <div class="pass-wrap">
+                <input id="password" type="password" placeholder="Enter password" autocomplete="current-password" />
+                <button class="eye-btn" type="button" onclick="toggleEye()" title="Show/Hide">
+                    <svg id="eye-show" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.477 0 8.268 2.943 9.542 7-1.274 4.057-5.065 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                    </svg>
+                    <svg id="eye-hide" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" style="display:none;">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.477 0-8.268-2.943-9.542-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l18 18" />
+                    </svg>
+                </button>
+            </div>
+        </div>
+
+        <button class="login-btn" id="loginBtn" onclick="login()">
+            <span id="btnText">Login</span>
+            <div class="spinner" id="spinner"></div>
+        </button>
+
+        <div class="error-msg" id="errorMsg">Invalid username or password</div>
+    </div>
+
+    <script>
+        document.addEventListener('keydown', e => { if (e.key === 'Enter') login(); });
+
+        function toggleEye() {
+            const input = document.getElementById('password');
+            const show = document.getElementById('eye-show');
+            const hide = document.getElementById('eye-hide');
+            if (input.type === 'password') {
+                input.type = 'text';
+                show.style.display = 'none';
+                hide.style.display = 'block';
+            } else {
+                input.type = 'password';
+                show.style.display = 'block';
+                hide.style.display = 'none';
+            }
+        }
+
+        async function login() {
+            const username = document.getElementById('username').value.trim();
+            const password = document.getElementById('password').value;
+            const btn = document.getElementById('loginBtn');
+            const btnText = document.getElementById('btnText');
+            const spinner = document.getElementById('spinner');
+            const errorMsg = document.getElementById('errorMsg');
+
+            if (!username || !password) {
+                showError('Please enter username and password');
+                return;
+            }
+
+            btn.disabled = true;
+            btnText.style.display = 'none';
+            spinner.style.display = 'block';
+            errorMsg.style.display = 'none';
+
+            try {
+                const res = await fetch('/swagger-login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, password }),
+                    credentials: 'same-origin'
+                });
+                const data = await res.json();
+
+                if (data.success) {
+                    window.location = '/api-docs';
+                } else {
+                    showError(data.message || 'Invalid username or password');
+                    btn.disabled = false;
+                    btnText.style.display = 'inline';
+                    spinner.style.display = 'none';
+                }
+            } catch {
+                showError('Connection error. Try again.');
+                btn.disabled = false;
+                btnText.style.display = 'inline';
+                spinner.style.display = 'none';
+            }
+        }
+
+        function showError(msg) {
+            const el = document.getElementById('errorMsg');
+            el.textContent = msg;
+            el.style.display = 'block';
+        }
+    </script>
+
+</body>
+</html>
